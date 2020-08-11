@@ -20,11 +20,12 @@ def get_feature_path(song, version):
     return os.path.join(features, id, id)
 
 def get_sequences(song):
+    print("loading")
     version = list(dataset[song].keys())[60]
     beatsFile = get_feature_path(song, version) + '_madbars.json'
     chordsFile = get_feature_path(song, version) + '_gochords.json'
     chords = get_beatwise_chords(beatsFile, chordsFile)
-    alignment = get_alignment(chords, chords)
+    alignment = get_alignment(chords, chords, 16)
     sns.heatmap(alignment, xticklabels=False, yticklabels=False, cmap=sns.cm.rocket_r)
     plt.show()
 
