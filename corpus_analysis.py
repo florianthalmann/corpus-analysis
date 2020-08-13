@@ -25,9 +25,12 @@ def get_sequences(song):
     beatsFile = get_feature_path(song, version) + '_madbars.json'
     chordsFile = get_feature_path(song, version) + '_gochords.json'
     chords = get_beatwise_chords(beatsFile, chordsFile)
+    #pr = cProfile.Profile()
+    #pr.enable()
     alignment = get_alignment(chords, chords, 16, 4)
-    #print(timeit.timeit(lambda: get_alignment(chords, chords, 16, 4), number=1))
-    cProfile(lambda: get_alignment(chords, chords, 16, 4))
+    #pr.disable()
+    #pr.print_stats()
+    print(timeit.timeit(lambda: get_alignment(chords, chords, 16, 4), number=1))
     sns.heatmap(alignment, xticklabels=False, yticklabels=False, cmap=sns.cm.rocket_r)
     plt.show()
 

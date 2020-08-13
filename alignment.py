@@ -45,12 +45,27 @@ def get_padded_area(a, padding):
     if size == 0: return a
     pad = min(padding, size-1)
     diags = get_diagonal_indices(np.empty((size,size)))[size-pad-1:size+pad]
-    return np.concatenate([d+a[0] for d in diags])
+    return [d+a[0] for d in diags]
 
-def difference(a, b):
+def difference(a, area):
+    b = np.concatenate(area)
     av = a.view([('', a.dtype)] * a.shape[1]).ravel()
     bv = b.view([('', b.dtype)] * b.shape[1]).ravel()
     return np.setdiff1d(av, bv).view(a.dtype).reshape(-1, a.shape[1])
+
+#returns a list of disjoint subsegments of a with all points in area removed
+def difference2(a, area):
+    a_offset = a[0][1] - a[0][0]
+    area_offsets = [d[0][1] - d[0][0] for d in area]
+    if a_offset < area_offsets[0] or area_offsets[-1] < a_offset: return [a]
+    matching = area[a_offset-area_offsets[0]]
+    if a[-1][0] < matching[0][0] or matching[-1][0] < a[0][0]: return [a]
+    result = []
+    if a[0][0] < matching[0][0]:
+        result.append(a[:matching[0][0]-a[0][0]])
+    if matching[-1][0] < a[-1][0]:
+        result.append(a[matching[-1][0]-a[0][0]+1:])
+    return result
 
 #moves element of l at i before the first element with len < len(l[i])
 def move_before_shorter(l, i):
@@ -62,14 +77,11 @@ def remove_filter_and_sort(segments, ref, padding, min_len):
     #remove overlaps with areas around ref segment
     if len(ref) > 0:
         area = get_padded_area(ref, padding)
-        nooverlaps = [difference(s, area) for s in segments]
+        segments = [d for s in segments for d in difference2(s, area)]
         # changed = [i for i in range(len(segments))
         #     if len(nooverlaps[i]) >= min_len
         #     and len(nooverlaps[i]) != len(segments[i])][::-1]
-        # print([len(s) for s in nooverlaps])
         # [move_before_shorter(nooverlaps, i) for i in changed]
-        # print([len(s) for s in nooverlaps])
-        segments = nooverlaps
     #remove short segments
     segments = [s for s in segments if len(s) >= min_len]
     segments = sorted(segments, key=lambda s: (len(s), max(s[0]), min(s[0])), reverse=True)
@@ -92,19 +104,15 @@ def get_best_segments(segments, min_len, min_dist, symmetric, shape):
     return selected
 
 def get_alignment(a, b, min_len, min_dist, max_gap_size=10):
-    print("affinity")
-    print(get_padded_area([[0,0],[1,1],[2,2]], 1))
     matrix = get_affinity_matrix(np.array(a), np.array(b), True, max_gap_size)
     print(symmetric(matrix))
     segments = extract_alignment_segments(matrix)
     print(len(segments))
     segments = get_best_segments(segments, min_len, min_dist, a == b, matrix.shape)
     print(len(segments))
-    print([len(s) for s in segments])
     points = np.concatenate(segments)
-    print(len(points.T))
+    print(len(points))
     matrix2 = np.zeros(matrix.shape)
-    print(symmetric(matrix2))
     matrix2[points.T[0], points.T[1]] = 1
     print(symmetric(matrix2))
     #print(timeit.timeit(lambda: extract_alignments(matrix), number=1000))
