@@ -1,4 +1,4 @@
-import os, json
+import os, json, timeit
 from features import get_beatwise_chords
 from alignment import get_alignment
 from matplotlib import pyplot as plt
@@ -25,7 +25,8 @@ def get_sequences(song):
     beatsFile = get_feature_path(song, version) + '_madbars.json'
     chordsFile = get_feature_path(song, version) + '_gochords.json'
     chords = get_beatwise_chords(beatsFile, chordsFile)
-    alignment = get_alignment(chords, chords, 16, 8)
+    alignment = get_alignment(chords, chords, 16, 4)
+    print(timeit.timeit(lambda: get_alignment(chords, chords, 16, 4), number=1))
     sns.heatmap(alignment, xticklabels=False, yticklabels=False, cmap=sns.cm.rocket_r)
     plt.show()
 
