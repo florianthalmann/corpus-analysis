@@ -6,20 +6,29 @@ from util import median_filter, symmetric
 def to_diagonals(A):
     return [A.diagonal(i).T for i in range(-A.shape[0]+1, A.shape[1])]
 
-def from_diagonals(d, shape):
-    get_element = lambda i, j: d[j+shape[0]-i-1][min(i,j)]
-    return np.fromfunction(np.vectorize(get_element), shape, dtype=int)
+def from_diagonals(ds, shape):
+    size = min(shape)
+    ds = np.vstack([np.resize(d, size) for d in ds])
+    dia_indices = np.flip(np.arange(shape[0]))[:, None] + np.arange(shape[1])
+    ele_indices = np.minimum(np.tile(np.arange(shape[1]), (shape[0], 1)),
+        np.tile(np.arange(shape[0])[:,None], (1, shape[1])))
+    return ds[dia_indices, ele_indices]
 
 def get_affinity_matrix(a, b, equality, smoothing=0):
+    symmetric = np.array_equal(a, b)
     #create affinity or equality matrix
     matrix = np.all(a[:, None] == b[None, :], axis=2).astype(int) if equality \
         else 1-pairwise_distances(a, b, metric="cosine")
-    #remove main diagonal in symmetric case
-    if np.array_equal(a, b): np.fill_diagonal(matrix, 0)
+    #only keep upper triangle in symmetric case
+    if symmetric: matrix = np.triu(matrix, k=1)
     #smooth with a median filter
     if smoothing > 0:
         diagonals = to_diagonals(matrix)
-        smoothed = [median_filter(d, smoothing) for d in diagonals]
+        if symmetric: #only smooth upper triangle
+            smoothed = [median_filter(d, smoothing) if i >= len(a) else d
+                for i, d in enumerate(diagonals)]
+        else:
+            smoothed = [median_filter(d, smoothing) for d in diagonals]
         matrix = from_diagonals(smoothed, matrix.shape)
     return matrix
 
@@ -46,12 +55,6 @@ def get_padded_area(a, padding):
     pad = min(padding, size-1)
     diags = get_diagonal_indices(np.empty((size,size)))[size-pad-1:size+pad]
     return [d+a[0] for d in diags]
-
-def difference(a, area):
-    b = np.concatenate(area)
-    av = a.view([('', a.dtype)] * a.shape[1]).ravel()
-    bv = b.view([('', b.dtype)] * b.shape[1]).ravel()
-    return np.setdiff1d(av, bv).view(a.dtype).reshape(-1, a.shape[1])
 
 #returns a list of disjoint subsegments of a with all points in area removed
 def difference2(a, area):
@@ -104,16 +107,17 @@ def get_best_segments(segments, min_len, min_dist, symmetric, shape):
     return selected
 
 def get_alignment(a, b, min_len, min_dist, max_gap_size=10):
+    symm = a == b
     matrix = get_affinity_matrix(np.array(a), np.array(b), True, max_gap_size)
     print(symmetric(matrix))
+    if symm: matrix = np.triu(matrix)
     segments = extract_alignment_segments(matrix)
     print(len(segments))
-    segments = get_best_segments(segments, min_len, min_dist, a == b, matrix.shape)
+    segments = get_best_segments(segments, min_len, min_dist, symm, matrix.shape)
     print(len(segments))
     points = np.concatenate(segments)
     print(len(points))
     matrix2 = np.zeros(matrix.shape)
     matrix2[points.T[0], points.T[1]] = 1
     print(symmetric(matrix2))
-    #print(timeit.timeit(lambda: extract_alignments(matrix), number=1000))
     return matrix2
