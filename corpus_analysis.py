@@ -1,8 +1,8 @@
-import os, json, timeit, cProfile
+import os, json, timeit
+import numpy as np
 from features import get_beatwise_chords
-from alignment import get_alignment
-from matplotlib import pyplot as plt
-import seaborn as sns
+from alignment import get_alignment_segments, get_affinity_matrix, get_alignment_matrix
+from util import profile, plot_matrix
 
 corpus = '../../FAST/fifteen-songs-dataset2/'
 audio = os.path.join(corpus, 'tuned_audio')
@@ -24,14 +24,16 @@ def get_sequences(song):
     version = list(dataset[song].keys())[60]
     beatsFile = get_feature_path(song, version) + '_madbars.json'
     chordsFile = get_feature_path(song, version) + '_gochords.json'
-    chords = get_beatwise_chords(beatsFile, chordsFile)
-    #pr = cProfile.Profile()
-    #pr.enable()
-    alignment = get_alignment(chords, chords, 16, 4)
-    #pr.disable()
-    #pr.print_stats()
-    print(timeit.timeit(lambda: get_alignment(chords, chords, 16, 4), number=1))
-    sns.heatmap(alignment, xticklabels=False, yticklabels=False, cmap=sns.cm.rocket_r)
-    plt.show()
+    chords = np.array(get_beatwise_chords(beatsFile, chordsFile))
+    
+    max_gaps = 0
+    matrix = get_affinity_matrix(chords, chords, True, max_gaps)
+    matrix2 = get_alignment_matrix(chords, chords, 16, 4, max_gaps)
+    segments = get_alignment_segments(chords, chords, 16, 4, max_gaps)
+    
+    #profile(lambda: get_alignment(chords, chords, 16, 4, 0))
+    #print(timeit.timeit(lambda: get_alignment(chords, chords, 16, 4, 0), number=1))
+    plot_matrix(matrix, 'aff'+str(max_gaps))
+    plot_matrix(matrix2, 'ali'+str(max_gaps))
 
 get_sequences(songs[0])

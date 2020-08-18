@@ -1,4 +1,7 @@
+import cProfile
 import numpy as np
+from matplotlib import pyplot as plt
+import seaborn as sns
 
 def strided(a, L, S=1):  # Window len = L, Stride len/stepsize = S
     if len(a) <= L: return np.array([a])
@@ -15,3 +18,15 @@ def median_filter(a, radius):
 
 def symmetric(A):
     return np.all(np.abs(A-A.T) == 0) if A.shape[0] == A.shape[1] else False
+
+def plot_matrix(matrix, path=None):
+    sns.heatmap(matrix, xticklabels=False, yticklabels=False, cmap=sns.cm.rocket_r)
+    plt.savefig(path, dpi=1000) if path else plt.show()
+    plt.clf()
+
+def profile(func):
+    pr = cProfile.Profile()
+    pr.enable()
+    func()
+    pr.disable()
+    pr.print_stats()

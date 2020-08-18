@@ -90,7 +90,7 @@ def remove_filter_and_sort(segments, ref, padding, min_len):
     segments = sorted(segments, key=lambda s: (len(s), max(s[0]), min(s[0])), reverse=True)
     return segments
 
-def get_best_segments(segments, min_len, min_dist, symmetric, shape):
+def filter_segments(segments, min_len, min_dist, symmetric, shape):
     padding = min_dist-1
     segments = [s for s in segments if len(s) >= min_len]
     segments = sorted(segments, key=lambda s: (len(s), max(s[0]), min(s[0])), reverse=True)
@@ -106,18 +106,16 @@ def get_best_segments(segments, min_len, min_dist, symmetric, shape):
         remaining = remove_filter_and_sort(remaining, best, padding, min_len)
     return selected
 
-def get_alignment(a, b, min_len, min_dist, max_gap_size=10):
-    symm = a == b
-    matrix = get_affinity_matrix(np.array(a), np.array(b), True, max_gap_size)
-    print(symmetric(matrix))
-    if symm: matrix = np.triu(matrix)
+def get_alignment_segments(a, b, min_len, min_dist, max_gap_size):
+    symmetric = np.array_equal(a, b)
+    matrix = get_affinity_matrix(a, b, True, max_gap_size)
+    if symmetric: matrix = np.triu(matrix)
     segments = extract_alignment_segments(matrix)
-    print(len(segments))
-    segments = get_best_segments(segments, min_len, min_dist, symm, matrix.shape)
-    print(len(segments))
+    return filter_segments(segments, min_len, min_dist, symmetric, matrix.shape)
+
+def get_alignment_matrix(a, b, min_len, min_dist, max_gap_size):
+    segments = get_alignment_segments(a, b, min_len, min_dist, max_gap_size)
     points = np.concatenate(segments)
-    print(len(points))
-    matrix2 = np.zeros(matrix.shape)
-    matrix2[points.T[0], points.T[1]] = 1
-    print(symmetric(matrix2))
-    return matrix2
+    matrix = np.zeros((len(a), len(b)))
+    matrix[points.T[0], points.T[1]] = 1
+    return matrix
