@@ -1,16 +1,13 @@
-import json, csv, math
+import csv, math
 import numpy as np
+from util import load_json
 
-def get_beats(path):
+def load_beats(path):
     with open(path) as f:
         beats = list(csv.reader(f, delimiter='\t'))
     return [float(b[0]) for b in beats]
 
-def get_chords(path):
-    with open(path) as f:
-        return json.load(f)[0]
-
-def goIndexToPCSet(index):
+def go_index_to_pcset(index):
   root = int(index%12);
   type = math.floor(index/12)
   pcset = [root, root+4, root+7] if type == 0 else \
@@ -34,6 +31,12 @@ def summarize(feature, timepoints):
     return [feature[m][1] for m in modes]
 
 def get_beatwise_chords(beatsFile, chordsFile):
-    beats = get_beats(beatsFile)
-    chords = get_chords(chordsFile)
-    return [goIndexToPCSet(m) for m in summarize(chords, beats)]
+    beats = load_beats(beatsFile)
+    chords = load_json(chordsFile)[0]
+    return np.array([go_index_to_pcset(m) for m in summarize(chords, beats)])
+
+def to_multinomial(sequences):
+    unique = np.unique(np.concatenate(sequences), axis=0)
+    unique_index = lambda f: np.where(np.all(unique == f, axis=1))[0][0]
+    return [np.array([unique_index(f) for f in s]) for s in sequences]
+    

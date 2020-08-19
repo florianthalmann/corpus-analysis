@@ -1,4 +1,4 @@
-import cProfile
+import os, json, cProfile
 import numpy as np
 from matplotlib import pyplot as plt
 import seaborn as sns
@@ -23,6 +23,22 @@ def plot_matrix(matrix, path=None):
     sns.heatmap(matrix, xticklabels=False, yticklabels=False, cmap=sns.cm.rocket_r)
     plt.savefig(path, dpi=1000) if path else plt.show()
     plt.clf()
+
+def save_json(path, data):
+    with open(path, 'w') as f:
+        json.dump(data, f)
+
+def load_json(path):
+    with open(path) as f:
+        return json.load(f)
+
+def buffered_run(path, func):
+    print(os.path.isfile(path))
+    if os.path.isfile(path):
+        return np.load(path, allow_pickle=True)
+    data = func()
+    np.save(path, data)
+    return data
 
 def profile(func):
     pr = cProfile.Profile()
