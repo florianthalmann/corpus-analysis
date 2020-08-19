@@ -45,8 +45,9 @@ def run(song):
     print('multi')
     multinomial = buffered_run('data/'+song+'-mulnom.npy',
         lambda: to_multinomial(sequences))
-    buffered_run('data/'+song+'-msa.npy',
+    msa = buffered_run('data/'+song+'-msa.npy',
         lambda: align_sequences(multinomial)[0])
+    print(msa)
     #profile(lambda: get_alignment(chords, chords, 16, 4, 0))
     #print(timeit.timeit(lambda: get_alignment(chords, chords, 16, 4, 0), number=1))
 

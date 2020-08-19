@@ -66,4 +66,4 @@ def align_sequences(sequences, match_match=0.999, delete_insert=0.01,
         dist_inertia, edge_inertia, max_iterations, model_length_func,
         model_type, flank_prob)
     print_viterbi_paths(sequences, model.model)
-    return get_results(sequences, model.model, outfile)
+    return get_results(sequences, model.model)
