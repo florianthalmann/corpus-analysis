@@ -33,7 +33,6 @@ def load_json(path):
         return json.load(f)
 
 def buffered_run(path, func):
-    print(os.path.isfile(path))
     if os.path.isfile(path):
         return np.load(path, allow_pickle=True)
     data = func()

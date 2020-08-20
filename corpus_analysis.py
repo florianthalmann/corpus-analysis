@@ -1,6 +1,7 @@
 import os, json, timeit
 import numpy as np
-from features import get_beatwise_chords, to_multinomial
+from multiprocessing import Pool
+from features import get_beatwise_chords, to_multinomial, extract_essentia
 from alignment import get_alignment_segments, get_affinity_matrix, get_alignment_matrix
 from multi_alignment import align_sequences
 from util import profile, plot_matrix, buffered_run
@@ -36,19 +37,23 @@ def get_self_alignments(sequences, max_gaps=0):
     return [get_alignment_segments(s, s, 16, 4, max_gaps) for s in sequences]
 
 def run(song):
-    print('seqs')
     sequences = buffered_run('data/'+song+'-chords.npy',
         lambda: get_sequences(song))
-    print('self')
     sas = buffered_run('data/'+song+'-salign.npy',
         lambda: get_self_alignments(sequences))
-    print('multi')
     multinomial = buffered_run('data/'+song+'-mulnom.npy',
         lambda: to_multinomial(sequences))
     msa = buffered_run('data/'+song+'-msa.npy',
         lambda: align_sequences(multinomial)[0])
-    print(msa)
     #profile(lambda: get_alignment(chords, chords, 16, 4, 0))
     #print(timeit.timeit(lambda: get_alignment(chords, chords, 16, 4, 0), number=1))
 
-run(songs[0])
+def extract_features(song):
+    versions = list(dataset[song].keys())
+    audio_paths = [os.path.join(audio, song, v).replace('.mp3','.wav') for v in versions]
+    feature_paths = [get_feature_path(song, v)+'_essentia.json' for v in versions]
+    [extract_essentia(a, p) for (a, p) in zip(audio_paths, feature_paths)]
+
+with Pool(processes=4) as pool:
+    pool.map(extract_features, songs)
+#run(songs[0])

@@ -1,6 +1,12 @@
-import csv, math
+import os, csv, math, subprocess
 import numpy as np
 from util import load_json
+
+def extract_essentia(path, outpath):
+    if not os.path.isfile(outpath):
+        print('extracting essentia for '+path)
+        subprocess.check_output(['essentia_streaming_extractor_music',
+            path, outpath])
 
 def load_beats(path):
     with open(path) as f:
