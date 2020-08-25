@@ -5,8 +5,9 @@ from util import load_json
 def extract_essentia(path, outpath):
     if not os.path.isfile(outpath):
         print('extracting essentia for '+path)
-        subprocess.check_output(['essentia_streaming_extractor_music',
-            path, outpath])
+        #essentia_streaming_extractor_music
+        subprocess.call(['essentia_streaming_extractor_freesound', path, outpath],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 def load_beats(path):
     with open(path) as f:
