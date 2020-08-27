@@ -2,10 +2,13 @@ import os, json, timeit
 import numpy as np
 from multiprocessing import Pool
 from features import get_beatwise_chords, to_multinomial, extract_essentia
-from alignment import get_alignment_segments, get_affinity_matrix, get_alignment_matrix
+from alignments import get_alignment_segments, get_affinity_matrix,\
+    get_alignment_matrix, segments_to_matrix
 from multi_alignment import align_sequences
-from graphs import to_alignment_graph
+from graphs import to_alignment_graph, get_component_labels, to_matrix
 from util import profile, plot_matrix, buffered_run
+from graph_tool.topology import transitive_closure
+from hierarchies import make_hierarchical
 
 corpus = '../../FAST/fifteen-songs-dataset2/'
 audio = os.path.join(corpus, 'tuned_audio')
@@ -51,13 +54,22 @@ def run(song):
     sequences = buffered_run('data/'+song+'-chords.npy',
         lambda: get_sequences(song))
     sas = buffered_run('data/'+song+'-salign.npy',
-        lambda: get_self_alignments(sequences))
+        lambda: get_self_alignments(sequences, 1))
     multinomial = buffered_run('data/'+song+'-mulnom.npy',
         lambda: to_multinomial(sequences))
     msa = buffered_run('data/'+song+'-msa.npy',
         lambda: align_sequences(multinomial)[0])
     #g, s, i = to_alignment_graph([len(s) for s in sequences], sas)
-    profile(lambda: to_alignment_graph([len(s) for s in sequences], sas))
+    TEST_INDEX = 60
+    #g, s, i = to_alignment_graph([len(sequences[TEST_INDEX])], [sas[TEST_INDEX]])
+    #c = get_component_labels(g)
+    #plot_matrix(to_matrix(g), 'results/oufuku1.png')
+    #plot_matrix(to_matrix(transitive_closure(g)), 'results/oufuku2.png')
+    size = len(sequences[TEST_INDEX])
+    plot_matrix(segments_to_matrix(make_hierarchical(sas[TEST_INDEX], 16, 4),
+        (size,size)), 'results/oufuku3.png')
+    
+    #profile(lambda: to_alignment_graph([len(s) for s in sequences], sas))
     #profile(lambda: get_alignment(chords, chords, 16, 4, 0))
     #print(timeit.timeit(lambda: get_alignment(chords, chords, 16, 4, 0), number=1))
 
