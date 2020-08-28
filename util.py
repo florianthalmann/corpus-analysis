@@ -24,6 +24,11 @@ def plot_matrix(matrix, path=None):
     plt.savefig(path, dpi=1000) if path else plt.show()
     plt.clf()
 
+def plot_hist(data, path=None, binwidth=1):
+    plt.hist(data, bins=np.arange(min(data), max(data) + binwidth, binwidth))
+    plt.savefig(path, dpi=1000) if path else plt.show()
+    plt.clf()
+
 def save_json(path, data):
     with open(path, 'w') as f:
         json.dump(data, f)

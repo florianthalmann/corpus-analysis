@@ -6,7 +6,7 @@ from alignments import get_alignment_segments, get_affinity_matrix,\
     get_alignment_matrix, segments_to_matrix
 from multi_alignment import align_sequences
 from graphs import to_alignment_graph, get_component_labels, to_matrix
-from util import profile, plot_matrix, buffered_run
+from util import profile, plot_matrix, plot_hist, buffered_run
 from graph_tool.topology import transitive_closure
 from hierarchies import make_hierarchical
 
@@ -50,24 +50,39 @@ def plot_matrices(sequence, max_gaps=0):
 def get_self_alignments(sequences, max_gaps=0):
     return [get_alignment_segments(s, s, 16, 4, max_gaps) for s in sequences]
 
+def plot_hists(alignment):
+    points = [p for s in alignment
+        for p in [s[0][0], s[0][1], s[-1][0], s[-1][1]]]
+    plot_hist(points, 'results/hist_points4.png')
+    lengths = [len(s) for s in alignment]
+    plot_hist(lengths, 'results/hist_lengths4.png')
+    dias = [s[0][1]-s[0][0] for s in alignment]
+    plot_hist(dias, 'results/hist_dias4.png')
+
 def run(song):
     sequences = buffered_run('data/'+song+'-chords.npy',
         lambda: get_sequences(song))
+    #sas = get_self_alignments(sequences, 4)
     sas = buffered_run('data/'+song+'-salign.npy',
-        lambda: get_self_alignments(sequences, 1))
+        lambda: get_self_alignments(sequences, 4))
     multinomial = buffered_run('data/'+song+'-mulnom.npy',
         lambda: to_multinomial(sequences))
     msa = buffered_run('data/'+song+'-msa.npy',
         lambda: align_sequences(multinomial)[0])
     #g, s, i = to_alignment_graph([len(s) for s in sequences], sas)
     TEST_INDEX = 60
+    #plot_hists(sas[TEST_INDEX])
+    
     #g, s, i = to_alignment_graph([len(sequences[TEST_INDEX])], [sas[TEST_INDEX]])
     #c = get_component_labels(g)
     #plot_matrix(to_matrix(g), 'results/oufuku1.png')
     #plot_matrix(to_matrix(transitive_closure(g)), 'results/oufuku2.png')
+    
     size = len(sequences[TEST_INDEX])
+    plot_matrix(segments_to_matrix(sas[TEST_INDEX],
+        (size,size)), 'results/transitive1.png')
     plot_matrix(segments_to_matrix(make_hierarchical(sas[TEST_INDEX], 16, 4),
-        (size,size)), 'results/oufuku3.png')
+        (size,size)), 'results/transitive2.5.png')
     
     #profile(lambda: to_alignment_graph([len(s) for s in sequences], sas))
     #profile(lambda: get_alignment(chords, chords, 16, 4, 0))
