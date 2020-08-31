@@ -3,6 +3,9 @@ import numpy as np
 from matplotlib import pyplot as plt
 import seaborn as sns
 
+def argmax(a):
+    return max(enumerate(a), key=lambda x: x[1])[0]
+
 def strided(a, L, S=1):  # Window len = L, Stride len/stepsize = S
     if len(a) <= L: return np.array([a])
     nrows = ((a.size-L)//S)+1

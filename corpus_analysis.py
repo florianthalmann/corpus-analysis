@@ -62,7 +62,6 @@ def plot_hists(alignment):
 def run(song):
     sequences = buffered_run('data/'+song+'-chords.npy',
         lambda: get_sequences(song))
-    #sas = get_self_alignments(sequences, 4)
     sas = buffered_run('data/'+song+'-salign.npy',
         lambda: get_self_alignments(sequences, 4))
     multinomial = buffered_run('data/'+song+'-mulnom.npy',
@@ -70,7 +69,7 @@ def run(song):
     msa = buffered_run('data/'+song+'-msa.npy',
         lambda: align_sequences(multinomial)[0])
     #g, s, i = to_alignment_graph([len(s) for s in sequences], sas)
-    TEST_INDEX = 60
+    TEST_INDEX = 61
     #plot_hists(sas[TEST_INDEX])
     
     #g, s, i = to_alignment_graph([len(sequences[TEST_INDEX])], [sas[TEST_INDEX]])
@@ -81,8 +80,8 @@ def run(song):
     size = len(sequences[TEST_INDEX])
     plot_matrix(segments_to_matrix(sas[TEST_INDEX],
         (size,size)), 'results/transitive1.png')
-    plot_matrix(segments_to_matrix(make_hierarchical(sas[TEST_INDEX], 16, 4),
-        (size,size)), 'results/transitive2.5.png')
+    plot_matrix(segments_to_matrix(make_hierarchical(sas[TEST_INDEX], 10, 4),
+        (size,size)), 'results/transitive2.png')
     
     #profile(lambda: to_alignment_graph([len(s) for s in sequences], sas))
     #profile(lambda: get_alignment(chords, chords, 16, 4, 0))

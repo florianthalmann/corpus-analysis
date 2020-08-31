@@ -1,7 +1,10 @@
 import math
 from functools import reduce
 from collections import OrderedDict
+import numpy as np
+import sortednp as snp
 from patterns import Pattern, segments_to_patterns, patterns_to_segments
+from util import argmax
 
 # returns the min dist between p and any parents of p in patterns
 def min_dist_from_parents(p, patterns):
@@ -49,16 +52,51 @@ def add_transitivity(patterns):
             new_t = [p+t for t in q.t for p in pos]
             #if len(new_t) > 0: print(q)
             p.add_new_translations(new_t)
-    patterns = list(OrderedDict.fromkeys(patterns))
-    print(patterns)
-    return patterns
+    return list(OrderedDict.fromkeys(patterns))
 
-def remove_dense_areas(patterns):
-    return
+def filter_out_dense_infreq(numbers, min_dist, freqs):
+    #groups adjacent numbers if within min_dist
+    areas = reduce(lambda s,t: s+[[t]] if (len(s) == 0 or t-s[-1][-1] > min_dist)
+        else s[:-1]+[s[-1]+[t]], numbers, [])
+    #keep only highest frequency number in each area
+    return np.array([a[argmax([freqs[t] for t in a])] for a in areas])
+
+def remove_dense_areas(patterns, min_dist=1):
+    translations = np.concatenate([p.t for p in patterns])
+    unique, counts = np.unique(translations, return_counts=True)
+    freqs = dict(zip(unique, counts))
+    #keep only most common vector in dense areas within pattern
+    for p in patterns:
+        p.t = filter_out_dense_infreq(p.t, min_dist, freqs)
+    #delete occurrences in dense areas between patterns
+    for i,p in enumerate(patterns):
+        for q in patterns[:i]:
+            if q.first_occ_overlaps(p):
+                t_union = np.unique(snp.merge(p.t, q.t))
+                sparse = filter_out_dense_infreq(t_union, min_dist, freqs)
+                if not np.array_equal(t_union, sparse):
+                    p.t = snp.intersect(p.t, sparse)
+                    q.t = snp.intersect(q.t, sparse)
+    return filter_and_sort_patterns([p for p in patterns if len(p.t) > 1])#filter out rudiments
+
+def merge_patterns(patterns):
+    for i,p in enumerate(patterns):
+        for q in patterns[:i]:
+            if q.first_occ_overlaps(p) and np.array_equal(q.t, p.t): #patterns can be merged
+                new_p = min(p.p, q.p)
+                q.l = max(p.p+p.l, q.p+q.l) - new_p
+                q.p = new_p
+                p.p = -1 #mark for deletion
+    return filter_and_sort_patterns([p for p in patterns if p.p >= 0]) #filter out marked
 
 def make_hierarchical(segments, min_len, min_dist):
     patterns = segments_to_patterns(segments)
     patterns = add_transitivity(remove_overlaps(patterns, min_len, min_dist))
+    print(patterns)
+    patterns = remove_dense_areas(patterns, min_dist)
+    print(patterns)
+    patterns = merge_patterns(patterns)
+    print(patterns)
     return patterns_to_segments(patterns)
 
 #print(add_transitivity([Pattern(2, 4, [0,10,30]), Pattern(3, 2, [0,10,18])]))

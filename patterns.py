@@ -50,11 +50,15 @@ class Pattern:
         return min([abs((self.p+t)-(other.p+u))
             for t in self.t for u in other.t])
     
+    def first_occ_overlaps(self, other):
+        return len(snp.kway_intersect(np.arange(self.p, self.p+self.l),
+            np.arange(other.p, other.p+other.l))) > 0
+    
     #returns relative positions of occurrences of other fully appearing in self
     def internal_positions(self, other):
         return np.sort(np.unique([o[0]-s[0]
             for s in self.to_occurrences() for o in other.to_occurrences()
-            if len(snp.kway_intersect(s, o)) == len(o)]))
+            if len(snp.intersect(s, o)) == len(o)]))
     
     def divide_at_relative(self, pos):
         if 0 < pos and pos < self.l:
