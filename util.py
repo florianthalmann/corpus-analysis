@@ -32,6 +32,11 @@ def plot_hist(data, path=None, binwidth=1):
     plt.savefig(path, dpi=1000) if path else plt.show()
     plt.clf()
 
+def plot(data, path=None):
+    plt.plot(data)
+    plt.savefig(path, dpi=1000) if path else plt.show()
+    plt.clf()
+
 def save_json(path, data):
     with open(path, 'w') as f:
         json.dump(data, f)

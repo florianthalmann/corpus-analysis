@@ -6,9 +6,9 @@ from alignments import get_alignment_segments, get_affinity_matrix,\
     get_alignment_matrix, segments_to_matrix
 from multi_alignment import align_sequences
 from graphs import to_alignment_graph, get_component_labels, to_matrix
-from util import profile, plot_matrix, plot_hist, buffered_run
+from util import profile, plot_matrix, plot_hist, plot, buffered_run
 from graph_tool.topology import transitive_closure
-from hierarchies import make_hierarchical
+from hierarchies import make_hierarchical, build_hierarchy_bottom_up
 
 corpus = '../../FAST/fifteen-songs-dataset2/'
 audio = os.path.join(corpus, 'tuned_audio')
@@ -69,19 +69,26 @@ def run(song):
     msa = buffered_run('data/'+song+'-msa.npy',
         lambda: align_sequences(multinomial)[0])
     #g, s, i = to_alignment_graph([len(s) for s in sequences], sas)
-    TEST_INDEX = 61
+    TEST_INDEX = 60
     #plot_hists(sas[TEST_INDEX])
     
-    #g, s, i = to_alignment_graph([len(sequences[TEST_INDEX])], [sas[TEST_INDEX]])
-    #c = get_component_labels(g)
     #plot_matrix(to_matrix(g), 'results/oufuku1.png')
     #plot_matrix(to_matrix(transitive_closure(g)), 'results/oufuku2.png')
     
     size = len(sequences[TEST_INDEX])
-    plot_matrix(segments_to_matrix(sas[TEST_INDEX],
-        (size,size)), 'results/transitive1.png')
-    plot_matrix(segments_to_matrix(make_hierarchical(sas[TEST_INDEX], 10, 4),
-        (size,size)), 'results/transitive2.png')
+    #plot_matrix(segments_to_matrix(sas[TEST_INDEX],
+    #    (size,size)), 'results/transitive1.png')
+    hierarchy = make_hierarchical(sas[TEST_INDEX], 10, 4)
+    #plot_matrix(segments_to_matrix(hierarchy, (size,size)), 'results/transitive2.png')
+    
+    # g, s, i = to_alignment_graph([len(sequences[TEST_INDEX])], [sas[TEST_INDEX]])
+    # plot(get_component_labels(g), 'results/labels1.png')
+    
+    g, s, i = to_alignment_graph([len(sequences[TEST_INDEX])], [hierarchy])
+    #plot(get_component_labels(g), 'results/labels2.png')
+    
+    build_hierarchy_bottom_up(get_component_labels(g))
+    
     
     #profile(lambda: to_alignment_graph([len(s) for s in sequences], sas))
     #profile(lambda: get_alignment(chords, chords, 16, 4, 0))

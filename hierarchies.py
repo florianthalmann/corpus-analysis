@@ -1,6 +1,6 @@
 import math
 from functools import reduce
-from collections import OrderedDict
+from collections import OrderedDict, defaultdict
 import numpy as np
 import sortednp as snp
 from patterns import Pattern, segments_to_patterns, patterns_to_segments
@@ -54,10 +54,13 @@ def add_transitivity(patterns):
             p.add_new_translations(new_t)
     return list(OrderedDict.fromkeys(patterns))
 
+def group_adjacent(numbers, max_dist=1):#groups adjacent numbers if within max_dist
+    return np.array(reduce(
+        lambda s,t: s+[[t]] if (len(s) == 0 or t-s[-1][-1] > max_dist)
+            else s[:-1]+[s[-1]+[t]], numbers, []))
+
 def filter_out_dense_infreq(numbers, min_dist, freqs):
-    #groups adjacent numbers if within min_dist
-    areas = reduce(lambda s,t: s+[[t]] if (len(s) == 0 or t-s[-1][-1] > min_dist)
-        else s[:-1]+[s[-1]+[t]], numbers, [])
+    areas = group_adjacent(numbers, min_dist)
     #keep only highest frequency number in each area
     return np.array([a[argmax([freqs[t] for t in a])] for a in areas])
 
@@ -98,6 +101,63 @@ def make_hierarchical(segments, min_len, min_dist):
     patterns = merge_patterns(patterns)
     print(patterns)
     return patterns_to_segments(patterns)
+
+def get_most_frequent_pair(sequence):
+    pairs = np.dstack([sequence[:-1], sequence[1:]])[0]
+    unique, counts = np.unique(pairs, axis=0, return_counts=True)
+    index = np.argmax(counts)
+    if counts[index] > 1:
+        return unique[index]
+
+def thin_out(a, min_dist=2):
+    return np.array(reduce(lambda r,i:
+        r+[i] if len(r)==0 or abs(i-r[-1]) >= min_dist else r, a, []))
+
+def get_locs_of_pair(sequence, pair, overlapping=False):
+    pairs = np.dstack([sequence[:-1], sequence[1:]])[0]
+    indices = np.where(np.all(pairs == pair, axis=1))[0]
+    return indices if overlapping else thin_out(indices)
+
+def replace_pairs(sequence, indices, replacement):
+    sequence[indices] = replacement
+    return np.delete(sequence, indices+1)
+
+def replace_in_tree(tree, element, replacement):
+    return [replace_in_tree(t, element, replacement) if type(t) == list
+        else replacement if t == element else t for t in tree]
+
+def build_hierarchy_bottom_up(sequence):
+    pair = get_most_frequent_pair(sequence)
+    next_index = int(np.max(sequence)+1)
+    new_types = dict()
+    #group recurring adjacent pairs into types
+    while pair is not None:
+        locations = get_locs_of_pair(sequence, pair)
+        new_types[next_index] = pair
+        sequence = replace_pairs(sequence, locations, next_index)
+        next_index += 1
+        pair = get_most_frequent_pair(sequence)
+    #merge types that always cooccur
+    to_delete = []
+    for t in new_types.keys():
+        parents = [k for (k,v) in new_types.items() if t in v]
+        if len(parents) == 1:
+            parent = parents[0]
+            occs = np.count_nonzero(np.concatenate([sequence, new_types[parent]]) == t)
+            if occs <= 1:
+                new_types[parent] = np.concatenate(
+                    [new_types[t] if p == t else [p] for p in new_types[parent]])
+                to_delete.append(t)
+    #delete merged types
+    for t in to_delete:
+        del new_types[t]
+    print(new_types)
+    #make hierarchy
+    hierarchy = sequence.tolist()
+    for t in reversed(list(new_types.keys())):
+        hierarchy = replace_in_tree(hierarchy, t, new_types[t].tolist())
+    print(hierarchy)
+    return hierarchy
 
 #print(add_transitivity([Pattern(2, 4, [0,10,30]), Pattern(3, 2, [0,10,18])]))
 
