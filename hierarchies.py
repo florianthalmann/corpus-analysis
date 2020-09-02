@@ -102,9 +102,12 @@ def make_hierarchical(segments, min_len, min_dist):
     print(patterns)
     return patterns_to_segments(patterns)
 
-def get_most_frequent_pair(sequence):
+def get_most_frequent_pair(sequence, overlapping=False):
     pairs = np.dstack([sequence[:-1], sequence[1:]])[0]
     unique, counts = np.unique(pairs, axis=0, return_counts=True)
+    if not overlapping:#could be optimized..
+        unique = unique[counts > 1]
+        counts = [len(get_locs_of_pair(sequence, p)) for p in unique]
     index = np.argmax(counts)
     if counts[index] > 1:
         return unique[index]
@@ -137,6 +140,7 @@ def flatten(hierarchy):
         return [a for h in hierarchy for a in flatten(h)]
     return [hierarchy]
 
+#groupings on top
 def to_labels(sequence, new_types):
     layers = []
     type_lengths = {k:len(flatten((to_hierarchy(np.array([k]), new_types))))
@@ -149,6 +153,10 @@ def to_labels(sequence, new_types):
             if s in new_types else [s] for s in sequence])
     layers.append(sequence)
     return np.dstack(layers)[0]
+
+#leaves at bottom
+def to_labels2(sequence, new_types):
+    return
 
 def build_hierarchy_bottom_up(sequence):
     pair = get_most_frequent_pair(sequence)
@@ -177,7 +185,7 @@ def build_hierarchy_bottom_up(sequence):
         del new_types[t]
     print(new_types)
     #make hierarchy
-    #print(to_hierarchy(sequence, new_types))
+    print(to_hierarchy(sequence, new_types))
     return to_labels(sequence, new_types)
 
 #print(add_transitivity([Pattern(2, 4, [0,10,30]), Pattern(3, 2, [0,10,18])]))
