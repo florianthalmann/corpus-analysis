@@ -9,6 +9,7 @@ from graphs import to_alignment_graph, get_component_labels, to_matrix
 from util import profile, plot_matrix, plot_hist, plot, buffered_run
 from graph_tool.topology import transitive_closure
 from hierarchies import make_hierarchical, build_hierarchy_bottom_up
+from hcomparison import get_relative_meet_triples
 
 corpus = '../../FAST/fifteen-songs-dataset2/'
 audio = os.path.join(corpus, 'tuned_audio')
@@ -87,8 +88,11 @@ def run(song):
     g, s, i = to_alignment_graph([len(sequences[TEST_INDEX])], [hierarchy])
     #plot(get_component_labels(g), 'results/labels2.png')
     
-    build_hierarchy_bottom_up(get_component_labels(g))
+    hierarchy = build_hierarchy_bottom_up(get_component_labels(g))
     
+    plot_matrix(hierarchy)#, 'results/layers.jpg')
+    
+    get_relative_meet_triples(hierarchy)
     
     #profile(lambda: to_alignment_graph([len(s) for s in sequences], sas))
     #profile(lambda: get_alignment(chords, chords, 16, 4, 0))

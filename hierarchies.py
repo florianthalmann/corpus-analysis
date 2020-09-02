@@ -126,6 +126,30 @@ def replace_in_tree(tree, element, replacement):
     return [replace_in_tree(t, element, replacement) if type(t) == list
         else replacement if t == element else t for t in tree]
 
+def to_hierarchy(sequence, new_types):
+    hierarchy = sequence.tolist()
+    for t in reversed(list(new_types.keys())):
+        hierarchy = replace_in_tree(hierarchy, t, new_types[t].tolist())
+    return hierarchy
+
+def flatten(hierarchy):
+    if type(hierarchy) == list:
+        return [a for h in hierarchy for a in flatten(h)]
+    return [hierarchy]
+
+def to_labels(sequence, new_types):
+    layers = []
+    type_lengths = {k:len(flatten((to_hierarchy(np.array([k]), new_types))))
+        for k in new_types.keys()}
+    print(type_lengths)
+    while len(np.intersect1d(sequence, list(new_types.keys()))) > 0:
+        layers.append(np.concatenate([np.repeat(s, type_lengths[s])
+            if s in new_types else [s] for s in sequence]))
+        sequence = np.concatenate([new_types[s]
+            if s in new_types else [s] for s in sequence])
+    layers.append(sequence)
+    return np.dstack(layers)[0]
+
 def build_hierarchy_bottom_up(sequence):
     pair = get_most_frequent_pair(sequence)
     next_index = int(np.max(sequence)+1)
@@ -153,11 +177,8 @@ def build_hierarchy_bottom_up(sequence):
         del new_types[t]
     print(new_types)
     #make hierarchy
-    hierarchy = sequence.tolist()
-    for t in reversed(list(new_types.keys())):
-        hierarchy = replace_in_tree(hierarchy, t, new_types[t].tolist())
-    print(hierarchy)
-    return hierarchy
+    #print(to_hierarchy(sequence, new_types))
+    return to_labels(sequence, new_types)
 
 #print(add_transitivity([Pattern(2, 4, [0,10,30]), Pattern(3, 2, [0,10,18])]))
 
