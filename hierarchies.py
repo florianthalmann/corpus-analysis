@@ -157,10 +157,10 @@ def to_labels(sequence, new_types):
 #leaves at bottom
 def to_labels2(sequence, new_types):
     labels = to_labels(sequence, new_types)
-    print(labels)
     numlevels = labels.shape[1]
-    uniques = [ordered_unique(np.flip(l)) for l in labels]
-    return np.array([np.hstack([u, np.repeat(-1, numlevels-len(u))])
+    uniques = [ordered_unique(l) for l in labels]
+    main = np.max(sequence)+1#overarching main section
+    return np.array([np.hstack([[main], np.repeat(u[0], numlevels-len(u)), u])
         for u in uniques])
 
 def build_hierarchy_bottom_up(sequence):
