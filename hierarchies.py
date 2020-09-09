@@ -4,7 +4,7 @@ from collections import OrderedDict, defaultdict
 import numpy as np
 import sortednp as snp
 from patterns import Pattern, segments_to_patterns, patterns_to_segments
-from util import argmax
+from util import argmax, ordered_unique
 
 # returns the min dist between p and any parents of p in patterns
 def min_dist_from_parents(p, patterns):
@@ -156,7 +156,12 @@ def to_labels(sequence, new_types):
 
 #leaves at bottom
 def to_labels2(sequence, new_types):
-    return
+    labels = to_labels(sequence, new_types)
+    print(labels)
+    numlevels = labels.shape[1]
+    uniques = [ordered_unique(np.flip(l)) for l in labels]
+    return np.array([np.hstack([u, np.repeat(-1, numlevels-len(u))])
+        for u in uniques])
 
 def build_hierarchy_bottom_up(sequence):
     pair = get_most_frequent_pair(sequence)
@@ -186,7 +191,7 @@ def build_hierarchy_bottom_up(sequence):
     print(new_types)
     #make hierarchy
     print(to_hierarchy(sequence, new_types))
-    return to_labels(sequence, new_types)
+    return to_labels2(sequence, new_types)
 
 #print(add_transitivity([Pattern(2, 4, [0,10,30]), Pattern(3, 2, [0,10,18])]))
 

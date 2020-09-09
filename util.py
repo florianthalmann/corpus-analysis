@@ -3,6 +3,10 @@ import numpy as np
 from matplotlib import pyplot as plt
 import seaborn as sns
 
+def ordered_unique(a):
+    _, idx = np.unique(a, return_index=True)
+    return a[np.sort(idx)]
+
 def argmax(a):
     return max(enumerate(a), key=lambda x: x[1])[0]
 

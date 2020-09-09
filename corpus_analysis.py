@@ -90,9 +90,11 @@ def run(song):
     
     hierarchy = build_hierarchy_bottom_up(get_component_labels(g))
     
-    plot_matrix(hierarchy)#, 'results/layers.jpg')
+    #plot_matrix(hierarchy)#, 'results/layers.jpg')
     
-    get_relative_meet_triples(hierarchy)
+    profile(lambda:  get_relative_meet_triples(hierarchy))
+    
+    #plot_matrix(matrix)
     
     #profile(lambda: to_alignment_graph([len(s) for s in sequences], sas))
     #profile(lambda: get_alignment(chords, chords, 16, 4, 0))
