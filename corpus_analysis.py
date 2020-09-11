@@ -5,7 +5,8 @@ from features import get_beatwise_chords, to_multinomial, extract_essentia
 from alignments import get_alignment_segments, get_affinity_matrix,\
     get_alignment_matrix, segments_to_matrix
 from multi_alignment import align_sequences
-from graphs import to_alignment_graph, get_component_labels, to_matrix
+from graphs import to_alignment_graph, to_structure_graph,\
+    get_component_labels, to_matrix
 from util import profile, plot_matrix, plot_hist, plot, buffered_run
 from graph_tool.topology import transitive_closure
 from hierarchies import make_hierarchical, build_hierarchy_bottom_up
@@ -60,7 +61,7 @@ def plot_hists(alignment):
     dias = [s[0][1]-s[0][0] for s in alignment]
     plot_hist(dias, 'results/hist_dias4.png')
 
-def run(song):
+def get_alignments(song):
     sequences = buffered_run('data/'+song+'-chords.npy',
         lambda: get_sequences(song))
     sas = buffered_run('data/'+song+'-salign.npy',
@@ -69,6 +70,18 @@ def run(song):
         lambda: to_multinomial(sequences))
     msa = buffered_run('data/'+song+'-msa.npy',
         lambda: align_sequences(multinomial)[0])
+    return sequences, sas, multinomial, msa
+
+def get_structure_graph(song):
+    sequences, sas, multinomial, msa = get_alignments(song)
+    g, s, i = to_alignment_graph([len(s) for s in sequences], sas)
+    graph, matrix = to_structure_graph(msa, g)
+    #plot_matrix(matrix)
+    hierarchy = build_hierarchy_bottom_up(get_component_labels(graph))
+    plot_matrix(hierarchy)
+
+def run(song):
+    sequences, sas, multinomial, msa = get_alignments(song)
     #g, s, i = to_alignment_graph([len(s) for s in sequences], sas)
     TEST_INDEX = 60
     #plot_hists(sas[TEST_INDEX])
@@ -92,12 +105,13 @@ def run(song):
     
     #plot_matrix(hierarchy)#, 'results/layers.jpg')
     
-    profile(lambda:  get_relative_meet_triples(hierarchy))
+    #profile(lambda:  get_relative_meet_triples(hierarchy))
+    matrix = get_relative_meet_triples(hierarchy)
     
-    #plot_matrix(matrix)
+    plot_matrix(matrix)
     
     #profile(lambda: to_alignment_graph([len(s) for s in sequences], sas))
     #profile(lambda: get_alignment(chords, chords, 16, 4, 0))
     #print(timeit.timeit(lambda: get_alignment(chords, chords, 16, 4, 0), number=1))
 
-run(songs[0])
+get_structure_graph(songs[0])

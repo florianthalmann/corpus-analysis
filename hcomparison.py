@@ -15,30 +15,25 @@ def get_meet_triples(hlabels):
     return triples
 
 def get_relative_meet_triples(hlabels):
-    print(hlabels[:20])
+    print(hlabels[:5])
     #return count too!!!
     triples = get_meet_triples(hlabels)
+    print(triples[:10], len(triples))
+    relative = np.subtract(triples.T, triples.T[0]).T
+    matrix = np.zeros((len(hlabels), len(hlabels)), dtype=int)
+    for r in relative:
+        matrix[r[1],r[2]] += 1
+    
+    #unique = list(set([tuple(r) for r in relative]))
+    #print(unique[:10], len(unique))
+    
     #print(len(triples))
     #print(triples[:50])
-    return triples
+    #return triples
+    return matrix
 
-# get_relative_meet_triples(np.array([[271,  0,   0,   0],
-#  [271,  201, 182,   1],
-#  [271,  201, 182,   2],
-#  [271,  201, 182,   3],
-#  [271,  201, 201,   4],
-#  [271,  201, 201,   5],
-#  [271,  201, 201,   6],
-#  [271,  201, 201,   7],
-#  [271,  201, 201,   8],
-#  [271,  201, 201,   9],
-#  [271,  201, 182,   1],
-#  [271,  201, 182,   2],
-#  [271,  201, 182,   3],
-#  [271,  201, 201,   4],
-#  [271,  201, 201,   5],
-#  [271,  201, 201,   6],
-#  [271,  201, 201,   7],
-#  [271,  201, 201,   8],
-#  [271,  201, 201,   9],
-#  [271,  201, 182,   1]]))
+# get_relative_meet_triples(np.array([[271,0,0,0],[271,201,182,1],[271,201,182,2],
+# [271,201,182,3],[271,201,201,4],[271,201,201,5],[271,201,201,6],[271,201,201,7],
+# [271,201,201,8],[271,201,201,9],[271,201,182,1],[271,201,182,2],[271,201,182,3],
+# [271,201,201,4],[271,201,201,5],[271,201,201,6],[271,201,201,7],[271,201,201,8],
+# [271,201,201,9],[271,201,182,1]]))

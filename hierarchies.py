@@ -95,11 +95,11 @@ def merge_patterns(patterns):
 def make_hierarchical(segments, min_len, min_dist):
     patterns = segments_to_patterns(segments)
     patterns = add_transitivity(remove_overlaps(patterns, min_len, min_dist))
-    print(patterns)
+    #print(patterns)
     patterns = remove_dense_areas(patterns, min_dist)
-    print(patterns)
+    #print(patterns)
     patterns = merge_patterns(patterns)
-    print(patterns)
+    #print(patterns)
     return patterns_to_segments(patterns)
 
 def get_most_frequent_pair(sequence, overlapping=False):
@@ -145,7 +145,6 @@ def to_labels(sequence, new_types):
     layers = []
     type_lengths = {k:len(flatten((to_hierarchy(np.array([k]), new_types))))
         for k in new_types.keys()}
-    print(type_lengths)
     while len(np.intersect1d(sequence, list(new_types.keys()))) > 0:
         layers.append(np.concatenate([np.repeat(s, type_lengths[s])
             if s in new_types else [s] for s in sequence]))
@@ -188,7 +187,7 @@ def build_hierarchy_bottom_up(sequence):
     #delete merged types
     for t in to_delete:
         del new_types[t]
-    print(new_types)
+    #print(new_types)
     #make hierarchy
     print(to_hierarchy(sequence, new_types))
     return to_labels2(sequence, new_types)
