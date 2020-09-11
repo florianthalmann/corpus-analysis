@@ -41,7 +41,7 @@ def split_at_gaps(path):
     gaps = np.nonzero(diffs > 1)[0]+1
     return np.split(path, gaps)
 
-def extract_alignment_segments(A):
+def matrix_to_segments(A):
     #get arrays of nonzero diagonal elements
     paths = [d[A[tuple(d.T)] != 0] for d in get_diagonal_indices(A)]
     paths = [p for p in paths if len(p) > 0]
@@ -110,7 +110,7 @@ def get_alignment_segments(a, b, min_len, min_dist, max_gap_size):
     symmetric = np.array_equal(a, b)
     matrix = get_affinity_matrix(a, b, True, max_gap_size)
     if symmetric: matrix = np.triu(matrix)
-    segments = extract_alignment_segments(matrix)
+    segments = matrix_to_segments(matrix)
     return filter_segments(segments, min_len, min_dist, symmetric, matrix.shape)
 
 def segments_to_matrix(segments, shape):

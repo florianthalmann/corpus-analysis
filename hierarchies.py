@@ -92,7 +92,7 @@ def merge_patterns(patterns):
                 p.p = -1 #mark for deletion
     return filter_and_sort_patterns([p for p in patterns if p.p >= 0]) #filter out marked
 
-def make_hierarchical(segments, min_len, min_dist):
+def make_segments_hierarchical(segments, min_len, min_dist):
     patterns = segments_to_patterns(segments)
     patterns = add_transitivity(remove_overlaps(patterns, min_len, min_dist))
     #print(patterns)

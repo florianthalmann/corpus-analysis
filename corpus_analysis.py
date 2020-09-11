@@ -3,14 +3,11 @@ import numpy as np
 from multiprocessing import Pool
 from features import get_beatwise_chords, to_multinomial, extract_essentia
 from alignments import get_alignment_segments, get_affinity_matrix,\
-    get_alignment_matrix, segments_to_matrix
+    get_alignment_matrix
 from multi_alignment import align_sequences
-from graphs import to_alignment_graph, to_structure_graph,\
-    get_component_labels, to_matrix
 from util import profile, plot_matrix, plot_hist, plot, buffered_run
-from graph_tool.topology import transitive_closure
-from hierarchies import make_hierarchical, build_hierarchy_bottom_up
 from hcomparison import get_relative_meet_triples
+from structure import shared_structure, simple_structure
 
 corpus = '../../FAST/fifteen-songs-dataset2/'
 audio = os.path.join(corpus, 'tuned_audio')
@@ -72,46 +69,15 @@ def get_alignments(song):
         lambda: align_sequences(multinomial)[0])
     return sequences, sas, multinomial, msa
 
-def get_structure_graph(song):
-    sequences, sas, multinomial, msa = get_alignments(song)
-    g, s, i = to_alignment_graph([len(s) for s in sequences], sas)
-    graph, matrix = to_structure_graph(msa, g)
-    #plot_matrix(matrix)
-    hierarchy = build_hierarchy_bottom_up(get_component_labels(graph))
-    plot_matrix(hierarchy)
-
 def run(song):
     sequences, sas, multinomial, msa = get_alignments(song)
-    #g, s, i = to_alignment_graph([len(s) for s in sequences], sas)
-    TEST_INDEX = 60
-    #plot_hists(sas[TEST_INDEX])
+    shared_structure(sequences, sas, multinomial, msa)
+    #profile(lambda: shared_structure(sequences, sas, multinomial, msa))
     
-    #plot_matrix(to_matrix(g), 'results/oufuku1.png')
-    #plot_matrix(to_matrix(transitive_closure(g)), 'results/oufuku2.png')
-    
-    size = len(sequences[TEST_INDEX])
-    #plot_matrix(segments_to_matrix(sas[TEST_INDEX],
-    #    (size,size)), 'results/transitive1.png')
-    hierarchy = make_hierarchical(sas[TEST_INDEX], 10, 4)
-    #plot_matrix(segments_to_matrix(hierarchy, (size,size)), 'results/transitive2.png')
-    
-    # g, s, i = to_alignment_graph([len(sequences[TEST_INDEX])], [sas[TEST_INDEX]])
-    # plot(get_component_labels(g), 'results/labels1.png')
-    
-    g, s, i = to_alignment_graph([len(sequences[TEST_INDEX])], [hierarchy])
-    #plot(get_component_labels(g), 'results/labels2.png')
-    
-    hierarchy = build_hierarchy_bottom_up(get_component_labels(g))
-    
-    #plot_matrix(hierarchy)#, 'results/layers.jpg')
-    
-    #profile(lambda:  get_relative_meet_triples(hierarchy))
-    matrix = get_relative_meet_triples(hierarchy)
-    
-    plot_matrix(matrix)
-    
-    #profile(lambda: to_alignment_graph([len(s) for s in sequences], sas))
-    #profile(lambda: get_alignment(chords, chords, 16, 4, 0))
-    #print(timeit.timeit(lambda: get_alignment(chords, chords, 16, 4, 0), number=1))
+    # TEST_INDEX = 60
+    # plot_hists(sas[TEST_INDEX])
+    # hierarchy = simple_structure(sequences[TEST_INDEX], sas[TEST_INDEX])
+    # matrix = get_relative_meet_triples(hierarchy)
+    # plot_matrix(matrix)
 
-get_structure_graph(songs[0])
+run(songs[0])
