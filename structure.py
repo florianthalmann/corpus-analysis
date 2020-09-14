@@ -18,8 +18,8 @@ def simple_structure(sequence, self_alignment):
     #plot_matrix(hierarchy)
     return hierarchy
 
-def shared_structure(sequences, selfs, mutuals, multinomial, msa):
-    ag, s, i = alignment_graph([len(s) for s in sequences], selfs, mutuals)
+def shared_structure(sequences, selfs, pairings, mutuals, msa):
+    ag, s, i = alignment_graph([len(s) for s in sequences], selfs, pairings, mutuals)
     #g = transitive_closure(g)
     sg, _, _ = structure_graph(msa, ag)
     matrix = adjacency_matrix(sg)

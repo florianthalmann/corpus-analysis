@@ -56,9 +56,11 @@ def get_random_pairings(length):
     return perm.reshape((2,-1)).T
 
 def get_mutual_alignments(sequences, num_pairings=5, max_gaps=0):
-    pairings = [get_random_pairings(len(sequences)) for i in range(num_pairings)]
-    return [get_alignment_segments(sequences[p[0]], sequences[p[1]], 16, 4, max_gaps)
-        for ps in pairings for p in ps]
+    pairings = np.concatenate([get_random_pairings(len(sequences))
+        for i in range(num_pairings)])
+    alignments = [get_alignment_segments(sequences[p[0]], sequences[p[1]],
+        16, 4, max_gaps) for p in pairings[:10]]
+    return [pairings, alignments]
 
 def plot_hists(alignment):
     points = [p for s in alignment
@@ -74,18 +76,18 @@ def get_alignments(song):
         lambda: get_sequences(song))
     selfs = buffered_run('data/'+song+'-salign.npy',
         lambda: get_self_alignments(sequences, 4))
-    mutuals = buffered_run('data/'+song+'-malign.npy',
-        lambda: get_mutual_alignments(sequences, 5, 4))
+    pairings, mutuals = buffered_run('data/'+song+'-malign.npy',
+        lambda: get_mutual_alignments(sequences, 1, 4))
     multinomial = buffered_run('data/'+song+'-mulnom.npy',
         lambda: to_multinomial(sequences))
     msa = buffered_run('data/'+song+'-msa.npy',
         lambda: align_sequences(multinomial)[0])
-    return sequences, selfs, mutuals, multinomial, msa
+    return sequences, selfs, pairings, mutuals, msa
 
 def run(song):
-    sequences, selfs, mutuals, multinomial, msa = get_alignments(song)
+    sequences, selfs, pairings, mutuals, msa = get_alignments(song)
     plot_matrix(segments_to_matrix(mutuals[0]))
-    shared_structure(sequences, selfs, mutuals, multinomial, msa)
+    shared_structure(sequences, selfs, pairings, mutuals, msa)
     #profile(lambda: shared_structure(sequences, sas, multinomial, msa))
     
     # TEST_INDEX = 60

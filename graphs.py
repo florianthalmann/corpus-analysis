@@ -21,7 +21,7 @@ def graph_from_matrix(matrix):
     #graph_draw(g, output_size=(1000, 1000), output="results/structure.pdf")
     return g
 
-def alignment_graph(lengths=[], self_alignments=[], multi_alignments=[]):
+def alignment_graph(lengths=[], self_alignments=[], pairings=[], mutual_alignments=[]):
     print('making graph')
     g = Graph(directed=False)
     seq_index = g.new_vertex_property("int")
@@ -30,10 +30,18 @@ def alignment_graph(lengths=[], self_alignments=[], multi_alignments=[]):
     g.add_vertex(sum(lengths))
     seq_index.a = np.concatenate([np.repeat(i,l) for i,l in enumerate(lengths)])
     time.a = np.concatenate([np.arange(l) for l in lengths])
-    #add self_alignments
+    #add self-alignments
     for i,a in enumerate(self_alignments):
         pairs = np.concatenate(a, axis=0)
         indices = (np.arange(lengths[i]) + sum(lengths[:i]))[pairs]
+        g.add_edge_list(indices)
+    #add mutual alignments
+    for i,a in enumerate(mutual_alignments):
+        j, k = pairings[i]
+        pairs = np.concatenate(a, axis=0)
+        indicesJ = (np.arange(lengths[j]) + sum(lengths[:j]))[pairs.T[0]]
+        indicesK = (np.arange(lengths[k]) + sum(lengths[:k]))[pairs.T[1]]
+        indices = np.vstack([indicesJ, indicesK])
         g.add_edge_list(indices)
     g.add_edge_list([(b, a) for (a, b) in g.edges()])
     print('created alignment graph', g)
