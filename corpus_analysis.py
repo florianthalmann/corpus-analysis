@@ -1,9 +1,9 @@
-import os, json, timeit
+import os, json, timeit, random
 import numpy as np
 from multiprocessing import Pool
 from features import get_beatwise_chords, to_multinomial, extract_essentia
 from alignments import get_alignment_segments, get_affinity_matrix,\
-    get_alignment_matrix
+    get_alignment_matrix, segments_to_matrix
 from multi_alignment import align_sequences
 from util import profile, plot_matrix, plot_hist, plot, buffered_run
 from hcomparison import get_relative_meet_triples
@@ -49,6 +49,17 @@ def plot_matrices(sequence, max_gaps=0):
 def get_self_alignments(sequences, max_gaps=0):
     return [get_alignment_segments(s, s, 16, 4, max_gaps) for s in sequences]
 
+def get_random_pairings(length):
+    perm = np.random.permutation(np.arange(length))
+    #add another pairing for the odd one out
+    if length % 2 == 1: perm = np.append(perm, random.randint(0, length-1))
+    return perm.reshape((2,-1)).T
+
+def get_mutual_alignments(sequences, num_pairings=5, max_gaps=0):
+    pairings = [get_random_pairings(len(sequences)) for i in range(num_pairings)]
+    return [get_alignment_segments(sequences[p[0]], sequences[p[1]], 16, 4, max_gaps)
+        for ps in pairings for p in ps]
+
 def plot_hists(alignment):
     points = [p for s in alignment
         for p in [s[0][0], s[0][1], s[-1][0], s[-1][1]]]
@@ -61,17 +72,20 @@ def plot_hists(alignment):
 def get_alignments(song):
     sequences = buffered_run('data/'+song+'-chords.npy',
         lambda: get_sequences(song))
-    sas = buffered_run('data/'+song+'-salign.npy',
+    selfs = buffered_run('data/'+song+'-salign.npy',
         lambda: get_self_alignments(sequences, 4))
+    mutuals = buffered_run('data/'+song+'-malign.npy',
+        lambda: get_mutual_alignments(sequences, 5, 4))
     multinomial = buffered_run('data/'+song+'-mulnom.npy',
         lambda: to_multinomial(sequences))
     msa = buffered_run('data/'+song+'-msa.npy',
         lambda: align_sequences(multinomial)[0])
-    return sequences, sas, multinomial, msa
+    return sequences, selfs, mutuals, multinomial, msa
 
 def run(song):
-    sequences, sas, multinomial, msa = get_alignments(song)
-    shared_structure(sequences, sas, multinomial, msa)
+    sequences, selfs, mutuals, multinomial, msa = get_alignments(song)
+    plot_matrix(segments_to_matrix(mutuals[0]))
+    shared_structure(sequences, selfs, mutuals, multinomial, msa)
     #profile(lambda: shared_structure(sequences, sas, multinomial, msa))
     
     # TEST_INDEX = 60

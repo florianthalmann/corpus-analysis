@@ -113,8 +113,9 @@ def get_alignment_segments(a, b, min_len, min_dist, max_gap_size):
     segments = matrix_to_segments(matrix)
     return filter_segments(segments, min_len, min_dist, symmetric, matrix.shape)
 
-def segments_to_matrix(segments, shape):
+def segments_to_matrix(segments, shape=None):
     points = np.concatenate(segments)
+    if not shape: shape = tuple(np.max(points, axis=0)+1)
     matrix = np.zeros(shape)
     matrix[points.T[0], points.T[1]] = 1
     return matrix
