@@ -21,9 +21,10 @@ def simple_structure(sequence, self_alignment):
 def shared_structure(sequences, selfs, pairings, mutuals, msa):
     ag, s, i = alignment_graph([len(s) for s in sequences], selfs, pairings, mutuals)
     #g = transitive_closure(g)
-    sg, _, _ = structure_graph(msa, ag)
+    sg, cm, _ = structure_graph(msa, ag)
     matrix = adjacency_matrix(sg)
     #plot_matrix(matrix, 'results/structure1.png')
+    #plot_matrix(cm)
     segments = matrix_to_segments(matrix)
     segments = make_segments_hierarchical(segments, MIN_LENGTH, MIN_DIST)
     #plot_matrix(segments_to_matrix(segments, matrix.shape), 'results/structure2.png')

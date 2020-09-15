@@ -108,9 +108,10 @@ def get_most_frequent_pair(sequence, overlapping=False):
     if not overlapping:#could be optimized..
         unique = unique[counts > 1]
         counts = [len(get_locs_of_pair(sequence, p)) for p in unique]
-    index = np.argmax(counts)
-    if counts[index] > 1:
-        return unique[index]
+    if len(counts) > 0:
+        index = np.argmax(counts)
+        if counts[index] > 1:
+            return unique[index]
 
 def thin_out(a, min_dist=2):
     return np.array(reduce(lambda r,i:

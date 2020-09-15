@@ -41,9 +41,8 @@ def alignment_graph(lengths=[], self_alignments=[], pairings=[], mutual_alignmen
         pairs = np.concatenate(a, axis=0)
         indicesJ = (np.arange(lengths[j]) + sum(lengths[:j]))[pairs.T[0]]
         indicesK = (np.arange(lengths[k]) + sum(lengths[:k]))[pairs.T[1]]
-        indices = np.vstack([indicesJ, indicesK])
-        g.add_edge_list(indices)
-    g.add_edge_list([(b, a) for (a, b) in g.edges()])
+        g.add_edge_list(np.vstack([indicesJ, indicesK]).T)
+    #g.add_edge_list([(b, a) for (a, b) in g.edges()])
     print('created alignment graph', g)
     #g = prune_isolated_vertices(g)
     #print('pruned alignment graph', g)
@@ -61,6 +60,8 @@ def structure_graph(msa, alignment_graph, mask_threshold=.5):
     edge_ps = edge_ps[np.where(np.all(edge_ps != -1, axis=1))] #filter out non-partitioned
     conn_matrix = np.zeros((num_partitions, num_partitions), dtype=int)
     np.add.at(conn_matrix, tuple(edge_ps.T), 1)
+    np.add.at(conn_matrix, tuple(np.flip(edge_ps, axis=1).T), 1)
+    conn_matrix = np.triu(conn_matrix, k=1)
     max_conn = np.max(conn_matrix)
     conn_matrix[np.where(conn_matrix < mask_threshold*max_conn)] = 0
     #create graph
