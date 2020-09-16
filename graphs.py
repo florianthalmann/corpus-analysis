@@ -21,7 +21,7 @@ def graph_from_matrix(matrix):
     #graph_draw(g, output_size=(1000, 1000), output="results/structure.pdf")
     return g
 
-def alignment_graph(lengths=[], self_alignments=[], pairings=[], mutual_alignments=[]):
+def alignment_graph(lengths=[], pairings=[], alignments=[]):
     print('making graph')
     g = Graph(directed=False)
     seq_index = g.new_vertex_property("int")
@@ -30,14 +30,8 @@ def alignment_graph(lengths=[], self_alignments=[], pairings=[], mutual_alignmen
     g.add_vertex(sum(lengths))
     seq_index.a = np.concatenate([np.repeat(i,l) for i,l in enumerate(lengths)])
     time.a = np.concatenate([np.arange(l) for l in lengths])
-    #add self-alignments
-    for i,a in enumerate(self_alignments):
-        if len(a) > 0:
-            pairs = np.concatenate(a, axis=0)
-            indices = (np.arange(lengths[i]) + sum(lengths[:i]))[pairs]
-            g.add_edge_list(indices)
-    #add mutual alignments
-    for i,a in enumerate(mutual_alignments):
+    #add edges (alignments)
+    for i,a in enumerate(alignments):
         if len(a) > 0:
             j, k = pairings[i]
             pairs = np.concatenate(a, axis=0)
@@ -70,10 +64,11 @@ def structure_graph(msa, alignment_graph, mask_threshold=.5):
     conn_matrix[np.where(conn_matrix < mask_threshold*max_conn)] = 0
     #create graph
     g = graph_from_matrix(conn_matrix)
-    graph_draw(g, output_size=(1000, 1000), vertex_fill_color=g.vertex_index,
-        output="results/box_of_rain_bars_s.pdf")
     print('created structure graph', g)
     return g, conn_matrix, matches
+
+def pattern_graph(pairings=[], alignments=[]):
+    return
 
 def component_labels(g):
     labels, hist = label_components(g)

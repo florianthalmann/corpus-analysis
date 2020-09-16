@@ -12,19 +12,19 @@ def simple_structure(sequence, self_alignment):
     #plot_matrix(segments_to_matrix(sas[TEST_INDEX], (size,size)), 'results/transitive1.png')
     hierarchy = make_segments_hierarchical(self_alignment, MIN_LENGTH, MIN_DIST)
     #plot_matrix(segments_to_matrix(hierarchy, (size,size)), 'results/transitive2.png')
-    ag, s, i = alignment_graph([len(sequence)], [hierarchy])
+    ag, s, i = alignment_graph([len(sequence)], [[0, 0]], [hierarchy])
     #plot(component_labels(g), 'results/labels1.png')
     hierarchy = build_hierarchy_bottom_up(component_labels(ag))
     #plot_matrix(hierarchy)
     return hierarchy
 
-def shared_structure(sequences, selfs, pairings, mutuals, msa):
-    ag, s, i = alignment_graph([len(s) for s in sequences], selfs, pairings, mutuals)
+def shared_structure(sequences, pairings, alignments, msa):
+    ag, s, i = alignment_graph([len(s) for s in sequences], pairings, alignments)
     #g = transitive_closure(g)
     sg, cm, _ = structure_graph(msa, ag)
     matrix = adjacency_matrix(sg)
     #plot_matrix(matrix, 'results/structure1.png')
-    #plot_matrix(cm)
+    plot_matrix(cm)
     segments = matrix_to_segments(matrix)
     segments = make_segments_hierarchical(segments, MIN_LENGTH, MIN_DIST)
     #plot_matrix(segments_to_matrix(segments, matrix.shape), 'results/structure2.png')

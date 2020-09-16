@@ -15,8 +15,8 @@ features = os.path.join(corpus, 'features')
 with open(os.path.join(corpus, 'dataset.json')) as f:
     dataset = json.load(f)
 
-DATA = 'data_bars/'
-BARS = True
+DATA = 'data/'
+BARS = False
 MIN_LEN = 16
 MIN_DIST = 4
 MAX_GAPS = 1
@@ -83,22 +83,26 @@ def plot_hists(alignment):
 def get_alignments(song):
     sequences = buffered_run(DATA+song+'-chords.npy',
         lambda: get_sequences(song))
-    selfs = buffered_run(DATA+song+'-salign.npy',
+    selfs = buffered_run(DATA+song+'_'+str(MAX_GAPS)+'_'+str(MIN_LEN)
+        +'_'+str(MIN_DIST)+'-salign.npy',
         lambda: get_self_alignments(sequences, MAX_GAPS))
-    pairings = buffered_run(DATA+song+'-pairs.npy',
+    pairings = buffered_run(DATA+song+str(NUM_MUTUAL)+'-pairs.npy',
         lambda: get_pairings(sequences, NUM_MUTUAL))
-    mutuals = buffered_run(DATA+song+'-malign.npy',
+    mutuals = buffered_run(DATA+song+'_'+str(MAX_GAPS)+'_'+str(MIN_LEN)
+        +'_'+str(MIN_DIST)+'-malign.npy',
         lambda: get_mutual_alignments(sequences, pairings, MAX_GAPS))
     multinomial = buffered_run(DATA+song+'-mulnom.npy',
         lambda: to_multinomial(sequences))
     msa = buffered_run(DATA+song+'-msa.npy',
         lambda: align_sequences(multinomial)[0])
-    return sequences, selfs, pairings, mutuals, msa
+    pairings = np.concatenate((pairings, #add self-alignments to pairings
+        np.stack((np.arange(len(sequences)), np.arange(len(sequences)))).T))
+    return sequences, pairings, np.concatenate((mutuals, selfs)), msa
 
 def run(song):
-    sequences, selfs, pairings, mutuals, msa = get_alignments(song)
+    sequences, pairings, alignments, msa = get_alignments(song)
     #plot_matrix(segments_to_matrix(mutuals[0]))
-    shared_structure(sequences, selfs, pairings, mutuals, msa)
+    shared_structure(sequences, pairings, alignments, msa)
     #profile(lambda: shared_structure(sequences, sas, multinomial, msa))
     
     # TEST_INDEX = 60
