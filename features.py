@@ -14,6 +14,11 @@ def load_beats(path):
         beats = list(csv.reader(f, delimiter='\t'))
     return [float(b[0]) for b in beats]
 
+def load_bars(path):
+    with open(path) as f:
+        beats = list(csv.reader(f, delimiter='\t'))
+    return [float(b[0]) for b in beats if int(b[1]) == 1]
+
 def go_index_to_pcset(index):
   root = int(index%12);
   type = math.floor(index/12)
@@ -37,10 +42,10 @@ def summarize(feature, timepoints):
     modes = [np.argmax(get_overlaps(t, f_intervals)) for t in t_intervals]
     return [feature[m][1] for m in modes]
 
-def get_beatwise_chords(beatsFile, chordsFile):
-    beats = load_beats(beatsFile)
+def get_summarized_chords(beatsFile, chordsFile, bars=False):
+    time = load_bars(beatsFile) if bars else load_beats(beatsFile)
     chords = load_json(chordsFile)[0]
-    return np.array([go_index_to_pcset(m) for m in summarize(chords, beats)])
+    return np.array([go_index_to_pcset(m) for m in summarize(chords, time)])
 
 def to_multinomial(sequences):
     unique = np.unique(np.concatenate(sequences), axis=0)

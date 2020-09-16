@@ -1,7 +1,7 @@
 import os, json, timeit, random
 import numpy as np
 from multiprocessing import Pool
-from features import get_beatwise_chords, to_multinomial, extract_essentia
+from features import get_summarized_chords, to_multinomial, extract_essentia
 from alignments import get_alignment_segments, get_affinity_matrix,\
     get_alignment_matrix, segments_to_matrix
 from multi_alignment import align_sequences
@@ -15,9 +15,11 @@ features = os.path.join(corpus, 'features')
 with open(os.path.join(corpus, 'dataset.json')) as f:
     dataset = json.load(f)
 
+DATA = 'data_bars/'
+BARS = True
 MIN_LEN = 16
 MIN_DIST = 4
-MAX_GAPS = 4
+MAX_GAPS = 1
 NUM_MUTUAL = 5
 
 def get_subdirs(path):
@@ -42,7 +44,7 @@ def get_feature_path(song, version):
 def get_sequences(song):
     versions = list(dataset[song].keys())
     paths = [get_feature_path(song, v) for v in versions]
-    return [get_beatwise_chords(p+'_madbars.json', p+'_gochords.json')
+    return [get_summarized_chords(p+'_madbars.json', p+'_gochords.json', BARS)
         for p in paths]
 
 def plot_matrices(sequence, max_gaps=0):
@@ -79,17 +81,17 @@ def plot_hists(alignment):
     plot_hist(dias, 'results/hist_dias4.png')
 
 def get_alignments(song):
-    sequences = buffered_run('data/'+song+'-chords.npy',
+    sequences = buffered_run(DATA+song+'-chords.npy',
         lambda: get_sequences(song))
-    selfs = buffered_run('data/'+song+'-salign.npy',
+    selfs = buffered_run(DATA+song+'-salign.npy',
         lambda: get_self_alignments(sequences, MAX_GAPS))
-    pairings = buffered_run('data/'+song+'-pairs.npy',
+    pairings = buffered_run(DATA+song+'-pairs.npy',
         lambda: get_pairings(sequences, NUM_MUTUAL))
-    mutuals = buffered_run('data/'+song+'-malign.npy',
+    mutuals = buffered_run(DATA+song+'-malign.npy',
         lambda: get_mutual_alignments(sequences, pairings, MAX_GAPS))
-    multinomial = buffered_run('data/'+song+'-mulnom.npy',
+    multinomial = buffered_run(DATA+song+'-mulnom.npy',
         lambda: to_multinomial(sequences))
-    msa = buffered_run('data/'+song+'-msa.npy',
+    msa = buffered_run(DATA+song+'-msa.npy',
         lambda: align_sequences(multinomial)[0])
     return sequences, selfs, pairings, mutuals, msa
 
@@ -105,4 +107,4 @@ def run(song):
     # matrix = get_relative_meet_triples(hierarchy)
     # plot_matrix(matrix)
 
-run(songs[0])
+run(songs[1])

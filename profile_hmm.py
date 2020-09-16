@@ -23,7 +23,6 @@ class ProfileHMM(object):
         #    self.model = HiddenMarkovModel()
     
     def fit(self, data, distribution_inertia=0.0, edge_inertia=0.0, max_iterations=1e8):
-        print("fit")
         return self.model.fit(data, max_iterations=max_iterations,
             lr_decay=LR_DECAY, edge_inertia=edge_inertia,
             distribution_inertia=distribution_inertia, return_history=True,

@@ -32,22 +32,24 @@ def alignment_graph(lengths=[], self_alignments=[], pairings=[], mutual_alignmen
     time.a = np.concatenate([np.arange(l) for l in lengths])
     #add self-alignments
     for i,a in enumerate(self_alignments):
-        pairs = np.concatenate(a, axis=0)
-        indices = (np.arange(lengths[i]) + sum(lengths[:i]))[pairs]
-        g.add_edge_list(indices)
+        if len(a) > 0:
+            pairs = np.concatenate(a, axis=0)
+            indices = (np.arange(lengths[i]) + sum(lengths[:i]))[pairs]
+            g.add_edge_list(indices)
     #add mutual alignments
     for i,a in enumerate(mutual_alignments):
-        j, k = pairings[i]
-        pairs = np.concatenate(a, axis=0)
-        indicesJ = (np.arange(lengths[j]) + sum(lengths[:j]))[pairs.T[0]]
-        indicesK = (np.arange(lengths[k]) + sum(lengths[:k]))[pairs.T[1]]
-        g.add_edge_list(np.vstack([indicesJ, indicesK]).T)
+        if len(a) > 0:
+            j, k = pairings[i]
+            pairs = np.concatenate(a, axis=0)
+            indicesJ = (np.arange(lengths[j]) + sum(lengths[:j]))[pairs.T[0]]
+            indicesK = (np.arange(lengths[k]) + sum(lengths[:k]))[pairs.T[1]]
+            g.add_edge_list(np.vstack([indicesJ, indicesK]).T)
     #g.add_edge_list([(b, a) for (a, b) in g.edges()])
     print('created alignment graph', g)
     #g = prune_isolated_vertices(g)
     #print('pruned alignment graph', g)
     #g = transitive_closure(g)
-    #graph_draw(g, output_size=(1000, 1000), output="results/box3.pdf")
+    #graph_draw(g, output_size=(1000, 1000), output="results/casey_jones_bars.pdf")
     return g, seq_index, time
 
 def structure_graph(msa, alignment_graph, mask_threshold=.5):
@@ -55,6 +57,8 @@ def structure_graph(msa, alignment_graph, mask_threshold=.5):
     matches = alignment_graph.new_vertex_property("int")
     matches.a = np.concatenate(msa)
     num_partitions = np.max(matches.a)+1
+    # graph_draw(alignment_graph, output_size=(1000, 1000), vertex_fill_color=matches,
+    #     output="results/box_of_rain_bars_c.pdf")
     #create connection matrix
     edge_ps = matches.a[alignment_graph.get_edges()] #partition memberships for edges
     edge_ps = edge_ps[np.where(np.all(edge_ps != -1, axis=1))] #filter out non-partitioned
@@ -66,6 +70,8 @@ def structure_graph(msa, alignment_graph, mask_threshold=.5):
     conn_matrix[np.where(conn_matrix < mask_threshold*max_conn)] = 0
     #create graph
     g = graph_from_matrix(conn_matrix)
+    graph_draw(g, output_size=(1000, 1000), vertex_fill_color=g.vertex_index,
+        output="results/box_of_rain_bars_s.pdf")
     print('created structure graph', g)
     return g, conn_matrix, matches
 
