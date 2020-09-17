@@ -6,7 +6,7 @@ from alignments import get_alignment_segments, get_affinity_matrix,\
     get_alignment_matrix, segments_to_matrix
 from multi_alignment import align_sequences
 from util import profile, plot_matrix, plot_hist, plot, buffered_run
-from hcomparison import get_relative_meet_triples
+from hcomparison import get_relative_meet_triples, get_meet_matrix
 from structure import shared_structure, simple_structure
 
 corpus = '../../FAST/fifteen-songs-dataset2/'
@@ -19,7 +19,7 @@ DATA = 'data/'
 BARS = False
 MIN_LEN = 16
 MIN_DIST = 4
-MAX_GAPS = 1
+MAX_GAPS = 4
 NUM_MUTUAL = 5
 
 def get_subdirs(path):
@@ -83,32 +83,39 @@ def plot_hists(alignment):
 def get_alignments(song):
     sequences = buffered_run(DATA+song+'-chords.npy',
         lambda: get_sequences(song))
-    selfs = buffered_run(DATA+song+'_'+str(MAX_GAPS)+'_'+str(MIN_LEN)
-        +'_'+str(MIN_DIST)+'-salign.npy',
+    selfs = buffered_run(DATA+song+'-salign'+str(MAX_GAPS)+'_'+str(MIN_LEN)
+        +'_'+str(MIN_DIST)+'.npy',
         lambda: get_self_alignments(sequences, MAX_GAPS))
-    pairings = buffered_run(DATA+song+str(NUM_MUTUAL)+'-pairs.npy',
+    pairings = buffered_run(DATA+song+'-pairs'+str(NUM_MUTUAL)+'.npy',
         lambda: get_pairings(sequences, NUM_MUTUAL))
-    mutuals = buffered_run(DATA+song+'_'+str(MAX_GAPS)+'_'+str(MIN_LEN)
-        +'_'+str(MIN_DIST)+'-malign.npy',
+    mutuals = buffered_run(DATA+song+'-malign'+str(MAX_GAPS)+'_'+str(MIN_LEN)
+            +'_'+str(MIN_DIST)+'_'+str(NUM_MUTUAL)+'.npy',
         lambda: get_mutual_alignments(sequences, pairings, MAX_GAPS))
     multinomial = buffered_run(DATA+song+'-mulnom.npy',
         lambda: to_multinomial(sequences))
     msa = buffered_run(DATA+song+'-msa.npy',
         lambda: align_sequences(multinomial)[0])
-    pairings = np.concatenate((pairings, #add self-alignments to pairings
-        np.stack((np.arange(len(sequences)), np.arange(len(sequences)))).T))
-    return sequences, pairings, np.concatenate((mutuals, selfs)), msa
+    pairings = np.concatenate((#add self-alignments to pairings
+        np.stack((np.arange(len(sequences)), np.arange(len(sequences)))).T,
+        pairings))
+    alignments = np.concatenate((selfs, mutuals))
+    return sequences, pairings, alignments, multinomial, msa
 
 def run(song):
-    sequences, pairings, alignments, msa = get_alignments(song)
+    sequences, pairings, alignments, multinomial, msa = get_alignments(song)
     #plot_matrix(segments_to_matrix(mutuals[0]))
-    shared_structure(sequences, pairings, alignments, msa)
+    #shared_structure(sequences, pairings, alignments, msa)
     #profile(lambda: shared_structure(sequences, sas, multinomial, msa))
     
-    # TEST_INDEX = 60
-    # plot_hists(sas[TEST_INDEX])
-    # hierarchy = simple_structure(sequences[TEST_INDEX], sas[TEST_INDEX])
-    # matrix = get_relative_meet_triples(hierarchy)
-    # plot_matrix(matrix)
+    I1 = 62
+    I2 = 60
+    #plot_hists(alignments[TEST_INDEX])
+    h1 = simple_structure(multinomial[I1], alignments[I1])
+    h2 = simple_structure(multinomial[I2], alignments[I2])
+    print(h1)
+    print(h2)
+    #matrix = get_relative_meet_triples(hierarchy)
+    #matrix = get_meet_matrix(hierarchy)
+    #plot_matrix(matrix, 'results/meet_abs0_60-.png')
 
-run(songs[1])
+run(songs[0])

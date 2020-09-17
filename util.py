@@ -3,6 +3,10 @@ import numpy as np
 from matplotlib import pyplot as plt
 import seaborn as sns
 
+def mode(a, axis=0):
+    values, counts = np.unique(a, axis=axis, return_counts=True)
+    return values[counts.argmax()]
+
 def ordered_unique(a):
     _, idx = np.unique(a, return_index=True)
     return a[np.sort(idx)]

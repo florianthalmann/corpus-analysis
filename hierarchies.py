@@ -163,6 +163,17 @@ def to_labels2(sequence, new_types):
     return np.array([np.hstack([[main], np.repeat(u[0], numlevels-len(u)), u])
         for u in uniques])
 
+def to_sections(new_types):
+    sections = []
+    keys = list(new_types.keys())
+    for k in keys:
+        section = new_types[k]
+        while len(np.intersect1d(section, keys)) > 0:
+            section = np.concatenate([new_types[s]
+                if s in new_types else [s] for s in section])
+        sections.append(section)
+    return sections
+
 def build_hierarchy_bottom_up(sequence):
     pair = get_most_frequent_pair(sequence)
     next_index = int(np.max(sequence)+1)
@@ -188,10 +199,18 @@ def build_hierarchy_bottom_up(sequence):
     #delete merged types
     for t in to_delete:
         del new_types[t]
-    #print(new_types)
     #make hierarchy
-    print(to_hierarchy(sequence, new_types))
-    return to_labels2(sequence, new_types)
+    #print(to_hierarchy(sequence, new_types))
+    return new_types
+
+def get_hierarchy(sequence):
+    return to_hierarchy(sequence, build_hierarchy_bottom_up(sequence))
+
+def get_hierarchy_labels(sequence):
+    return to_labels2(sequence, build_hierarchy_bottom_up(sequence))
+
+def get_hierarchy_sections(sequence):
+    return to_sections(build_hierarchy_bottom_up(sequence))
 
 #print(add_transitivity([Pattern(2, 4, [0,10,30]), Pattern(3, 2, [0,10,18])]))
 

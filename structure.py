@@ -1,8 +1,10 @@
+import numpy as np
 from alignments import matrix_to_segments, segments_to_matrix
 from graphs import alignment_graph, structure_graph, component_labels,\
     adjacency_matrix, graph_from_matrix
-from hierarchies import build_hierarchy_bottom_up, make_segments_hierarchical
-from util import plot_matrix
+from hierarchies import build_hierarchy_bottom_up, make_segments_hierarchical,\
+    get_hierarchy_sections
+from util import plot_matrix, mode
 
 MIN_LENGTH = 10
 MIN_DIST = 4
@@ -14,9 +16,20 @@ def simple_structure(sequence, self_alignment):
     #plot_matrix(segments_to_matrix(hierarchy, (size,size)), 'results/transitive2.png')
     ag, s, i = alignment_graph([len(sequence)], [[0, 0]], [hierarchy])
     #plot(component_labels(g), 'results/labels1.png')
-    hierarchy = build_hierarchy_bottom_up(component_labels(ag))
+    #print(sequence[:10])
+    #connected component label for each position in sequence
+    comp_labels = component_labels(ag)
+    #most frequent value in sequence for each component
+    comp_values = np.array([mode(sequence[np.where(comp_labels == l)])
+        for l in range(np.max(comp_labels)+1)])
+    #print(comp_values[comp_labels][:10])
+    sections = get_hierarchy_sections(comp_labels)
+    labeled_sections = [comp_values[s] for s in sections]
+    #print(labeled_sections)
+    return labeled_sections
+    
     #plot_matrix(hierarchy)
-    return hierarchy
+    #return sections
 
 def shared_structure(sequences, pairings, alignments, msa):
     ag, s, i = alignment_graph([len(s) for s in sequences], pairings, alignments)
