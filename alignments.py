@@ -97,7 +97,8 @@ def filter_segments(segments, min_len, min_dist, symmetric, shape):
     #remove area around diagonal if symmetric
     diagonal = np.dstack((np.arange(shape[0]), np.arange(shape[0])))[0] \
         if symmetric else np.array([])
-    remaining = remove_filter_and_sort(segments, diagonal, padding, min_len)
+    diapad = max(padding, min_len-1)#too close to diagonal means small transl vecs
+    remaining = remove_filter_and_sort(segments, diagonal, diapad, min_len)
     selected = []
     #iteratively take longest segment and remove overlaps
     while len(remaining) > 0:
