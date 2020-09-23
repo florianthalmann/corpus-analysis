@@ -7,7 +7,7 @@ from alignments import get_alignment_segments, get_affinity_matrix,\
 from multi_alignment import align_sequences
 from util import profile, plot_matrix, plot_hist, plot, buffered_run
 from hcomparison import get_relative_meet_triples, get_meet_matrix
-from structure import shared_structure, simple_structure
+from structure import shared_structure, simple_structure, illustrate_transitivity
 
 corpus = '../../FAST/fifteen-songs-dataset2/'
 audio = os.path.join(corpus, 'tuned_audio')
@@ -18,9 +18,10 @@ with open(os.path.join(corpus, 'dataset.json')) as f:
 DATA = 'data/'
 BARS = False
 MIN_LEN = 16
-MIN_DIST = 4
+MIN_DIST = 1 # >= 1
 MAX_GAPS = 4
-NUM_MUTUAL = 5
+MAX_GAP_RATIO = .25
+NUM_MUTUAL = 0
 
 def get_subdirs(path):
     return [f.path for f in os.scandir(path) if f.is_dir()]
@@ -47,14 +48,14 @@ def get_sequences(song):
     return [get_summarized_chords(p+'_madbars.json', p+'_gochords.json', BARS)
         for p in paths]
 
-def plot_matrices(sequence, max_gaps=0):
-    matrix = get_affinity_matrix(sequence, sequence, True, max_gaps)
-    matrix2 = get_alignment_matrix(sequence, sequence, MIN_LEN, MIN_DIST, max_gaps)
-    plot_matrix(matrix, 'results/aff'+str(max_gaps))
-    plot_matrix(matrix2, 'results/ali'+str(max_gaps))
+def plot_matrices(sequence):
+    matrix = get_affinity_matrix(sequence, sequence, True, MAX_GAPS)
+    matrix2 = get_alignment_matrix(sequence, sequence, MIN_LEN, MIN_DIST, MAX_GAPS)
+    plot_matrix(matrix, 'results/aff'+str(MAX_GAPS))
+    plot_matrix(matrix2, 'results/ali'+str(MAX_GAPS))
 
-def get_self_alignments(sequences, max_gaps=0):
-    return [get_alignment_segments(s, s, MIN_LEN, MIN_DIST, max_gaps)
+def get_self_alignments(sequences):
+    return [get_alignment_segments(s, s, MIN_LEN, MIN_DIST, MAX_GAPS, MAX_GAP_RATIO)
         for s in sequences]
 
 def get_random_pairings(length):
@@ -63,13 +64,13 @@ def get_random_pairings(length):
     if length % 2 == 1: perm = np.append(perm, random.randint(0, length-1))
     return perm.reshape((2,-1)).T
 
-def get_pairings(sequences, num_pairings=5):
+def get_pairings(sequences):
     return np.concatenate([get_random_pairings(len(sequences))
-        for i in range(num_pairings)])
+        for i in range(NUM_MUTUAL)])
 
-def get_mutual_alignments(sequences, pairings, max_gaps=0):
+def get_mutual_alignments(sequences, pairings):
     return [get_alignment_segments(sequences[p[0]], sequences[p[1]],
-        MIN_LEN, MIN_DIST, max_gaps) for p in pairings]
+        MIN_LEN, MIN_DIST, MAX_GAPS, MAX_GAP_RATIO) for p in pairings]
 
 def plot_hists(alignment):
     points = [p for s in alignment
@@ -83,22 +84,23 @@ def plot_hists(alignment):
 def get_alignments(song):
     sequences = buffered_run(DATA+song+'-chords.npy',
         lambda: get_sequences(song))
-    selfs = buffered_run(DATA+song+'-salign'+str(MAX_GAPS)+'_'+str(MIN_LEN)
-        +'_'+str(MIN_DIST)+'.npy',
-        lambda: get_self_alignments(sequences, MAX_GAPS))
-    pairings = buffered_run(DATA+song+'-pairs'+str(NUM_MUTUAL)+'.npy',
-        lambda: get_pairings(sequences, NUM_MUTUAL))
-    mutuals = buffered_run(DATA+song+'-malign'+str(MAX_GAPS)+'_'+str(MIN_LEN)
-            +'_'+str(MIN_DIST)+'_'+str(NUM_MUTUAL)+'.npy',
-        lambda: get_mutual_alignments(sequences, pairings, MAX_GAPS))
+    selfs = buffered_run(DATA+song+'-salign'+str(MAX_GAPS)+'_'+str(MAX_GAP_RATIO)
+        +'_'+str(MIN_LEN)+'_'+str(MIN_DIST)+'.npy',
+        lambda: get_self_alignments(sequences))
+    if NUM_MUTUAL > 0:
+        pairings = buffered_run(DATA+song+'-pairs'+str(NUM_MUTUAL)+'.npy',
+            lambda: get_pairings(sequences, NUM_MUTUAL))
+        mutuals = buffered_run(DATA+song+'-malign'+str(MAX_GAPS)
+                +'_'+str(MAX_GAP_RATIO)+'_'+str(MIN_LEN)
+                +'_'+str(MIN_DIST)+'_'+str(NUM_MUTUAL)+'.npy',
+            lambda: get_mutual_alignments(sequences, pairings))
     multinomial = buffered_run(DATA+song+'-mulnom.npy',
         lambda: to_multinomial(sequences))
     msa = buffered_run(DATA+song+'-msa.npy',
         lambda: align_sequences(multinomial)[0])
-    pairings = np.concatenate((#add self-alignments to pairings
-        np.stack((np.arange(len(sequences)), np.arange(len(sequences)))).T,
-        pairings))
-    alignments = np.concatenate((selfs, mutuals))
+    selfp = np.stack((np.arange(len(sequences)), np.arange(len(sequences)))).T
+    pairings = np.concatenate((selfp, pairings)) if NUM_MUTUAL > 0 else selfp
+    alignments = np.concatenate((selfs, mutuals)) if NUM_MUTUAL > 0 else selfs
     return sequences, pairings, alignments, multinomial, msa
 
 def run(song):
@@ -107,13 +109,18 @@ def run(song):
     #shared_structure(sequences, pairings, alignments, msa)
     #profile(lambda: shared_structure(sequences, sas, multinomial, msa))
     
-    I1 = 62
+    I1 = 63
     I2 = 60
-    #plot_hists(alignments[TEST_INDEX])
-    h1 = simple_structure(multinomial[I1], alignments[I1])
-    h2 = simple_structure(multinomial[I2], alignments[I2])
-    print(h1)
-    print(h2)
+    
+    illustrate_transitivity(multinomial[I1], alignments[I1])
+    
+    # plot_matrix(segments_to_matrix(alignments[I1]))
+    # plot_matrix(segments_to_matrix(alignments[I2]))
+    # #plot_hists(alignments[TEST_INDEX])
+    # h1 = simple_structure(multinomial[I1], alignments[I1])
+    # h2 = simple_structure(multinomial[I2], alignments[I2])
+    # print(h1)
+    # print(h2)
     #matrix = get_relative_meet_triples(hierarchy)
     #matrix = get_meet_matrix(hierarchy)
     #plot_matrix(matrix, 'results/meet_abs0_60-.png')

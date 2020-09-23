@@ -19,6 +19,7 @@ def get_affinity_matrix(a, b, equality, smoothing=0):
     #create affinity or equality matrix
     matrix = np.all(a[:, None] == b[None, :], axis=2).astype(int) if equality \
         else 1-pairwise_distances(a, b, metric="cosine")
+    unsmoothed = matrix
     #only keep upper triangle in symmetric case
     if symmetric: matrix = np.triu(matrix, k=1)
     #smooth with a median filter
@@ -30,7 +31,7 @@ def get_affinity_matrix(a, b, equality, smoothing=0):
         else:
             smoothed = [median_filter(d, smoothing) for d in diagonals]
         matrix = from_diagonals(smoothed, matrix.shape)
-    return matrix
+    return matrix, unsmoothed
 
 #returns a list of arrays of index pairs
 def get_diagonal_indices(A):
@@ -91,8 +92,7 @@ def remove_filter_and_sort(segments, ref, padding, min_len):
     return segments
 
 def filter_segments(segments, min_len, min_dist, symmetric, shape):
-    padding = min_dist-1
-    segments = [s for s in segments if len(s) >= min_len]
+    padding = max(min_dist-1, 0)
     segments = sorted(segments, key=lambda s: (len(s), max(s[0]), min(s[0])), reverse=True)
     #remove area around diagonal if symmetric
     diagonal = np.dstack((np.arange(shape[0]), np.arange(shape[0])))[0] \
@@ -100,18 +100,23 @@ def filter_segments(segments, min_len, min_dist, symmetric, shape):
     diapad = max(padding, min_len-1)#too close to diagonal means small transl vecs
     remaining = remove_filter_and_sort(segments, diagonal, diapad, min_len)
     selected = []
-    #iteratively take longest segment and remove overlaps
+    #iteratively take longest segment and remove area around it
     while len(remaining) > 0:
         best = remaining.pop(0)
         selected.append(best)
         remaining = remove_filter_and_sort(remaining, best, padding, min_len)
     return selected
 
-def get_alignment_segments(a, b, min_len, min_dist, max_gap_size):
+def get_alignment_segments(a, b, min_len, min_dist, max_gap_size, max_gap_ratio):
     symmetric = np.array_equal(a, b)
-    matrix = get_affinity_matrix(a, b, True, max_gap_size)
+    matrix, unsmoothed = get_affinity_matrix(a, b, True, max_gap_size)
     if symmetric: matrix = np.triu(matrix)
     segments = matrix_to_segments(matrix)
+    #keep only segments longer than min_len and with a gap ratio below max_gap_ratio
+    segments = [s for s in segments if len(s) >= min_len]
+    if max_gap_size > 0:
+        segments = [s for s in segments
+            if np.sum(unsmoothed[tuple(s.T)]) >= (1-max_gap_ratio)*len(s)]
     return filter_segments(segments, min_len, min_dist, symmetric, matrix.shape)
 
 def segments_to_matrix(segments, shape=None):
