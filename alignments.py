@@ -119,11 +119,14 @@ def get_alignment_segments(a, b, min_len, min_dist, max_gap_size, max_gap_ratio)
             if np.sum(unsmoothed[tuple(s.T)]) >= (1-max_gap_ratio)*len(s)]
     return filter_segments(segments, min_len, min_dist, symmetric, matrix.shape)
 
-def segments_to_matrix(segments, shape=None):
+def segments_to_matrix(segments, shape=None, sum=False):
     points = np.concatenate(segments)
     if not shape: shape = tuple(np.max(points, axis=0)+1)
     matrix = np.zeros(shape)
-    matrix[points.T[0], points.T[1]] = 1
+    if sum:
+        np.add.at(matrix, tuple(points.T), 1)
+    else:
+        matrix[points.T[0], points.T[1]] = 1
     return matrix
 
 def get_alignment_matrix(a, b, min_len, min_dist, max_gap_size):
