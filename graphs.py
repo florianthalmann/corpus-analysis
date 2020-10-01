@@ -56,52 +56,11 @@ def alignment_graph(lengths=[], pairings=[], alignments=[]):
     #graph_draw(g, output_size=(1000, 1000), output="results/casey_jones_bars.pdf")
     return g, seq_index, time, alm_index, seg_index
 
-#remove all alignments that are not reinforced by others from a simple a-graph
-def clean_up(g, time, seg_index):
-    #plot_matrix(np.triu(adjacency_matrix(g)), "results/clean0.png")
-    graph_draw(g, output_size=(1000, 1000), output="results/clean_up0.pdf")
-    reduced = Graph(directed=False)
-    reduced.add_vertex(len(g.get_vertices()))
-    edge_combos = []
-    #for each vertex find best combinations of neighbors 
-    for v in g.get_vertices():#[49:50]:
-        n = sorted(g.get_out_neighbors(v))
-        if len(n) > 0:
-            #split into connected segments
-            vertex_combos = list(product(*group_adjacent(sorted(n))))
-            edge_combos.append([])
-            for i,c in enumerate(vertex_combos):
-                #make a subgraph
-                filt = g.new_vertex_property("bool")
-                filt.a[[v]+list(c)] = True
-                gg = GraphView(g, vfilt=filt)
-                #check if elements of n in same clique
-                #cliques = list(max_cliques(gg))
-                #samecli = any(len(np.intersect1d(n, c)) == len(n) for c in cliques)
-                #or more simply, rate by how many edges there are
-                edge_combos[-1].append([g.edge_index[e] for e in gg.edges()])
-                edges = g.get_edges([g.edge_index])
-                #if samecli:
-                #    votes.append(np.array(n) - v)
-                #    reduced.add_edge_list([(a,b) for i,a in enumerate(n) for b in n[i+1:]])
-                #graph_draw(gg, vertex_text=g.vertex_index, output_size=(1000, 1000),
-                #    output="results/clean_upp"+str(i)+".pdf")
-    seg_combos = []
-    
-    #look for combos with highest number of edges and lowest number of segments
-    for ec in edge_combos:
-        max_num_edges = max([len(c) for c in ec])
-        largest_combos = [c for c in ec if len(c) == max_num_edges]
-        #convert to segment combos
-        segs = [np.unique(seg_index.a[lc]) for lc in largest_combos]
-        min_num_segs = min([len(s) for s in segs])
-        seg_combos.append([s for s in segs if len(s) == min_num_segs])
-        #print(max_num_edges, min_num_segs)
-    
-    #combine into sets
+#combine a sequence of potential segment combinations into a consensus
+def integrate_segment_combos(seg_combos):
     sets = []
     ratings = []
-    for k,sc in enumerate(seg_combos):#[35:37]):
+    for k,sc in enumerate(seg_combos):
         if len(sets) == 0:
             sets = [set(c) for c in sc]
             ratings = [len(c) for c in sc]
@@ -120,29 +79,77 @@ def clean_up(g, time, seg_index):
                 sets.append(set(c))
                 ratings.append(max_rating)
                 #ADD INTERSECTION TOO??
-        print(k, len(sc), len(sets), len(ratings), max(ratings) if len(ratings) > 0 else 0, sum(ratings) if len(ratings) > 0 else 0)
-    #print(sets[1], ratings)
-    best = np.array(list(sets[np.argmax(ratings)]))
-    #print(seg_index.a[:500])
-    print(sorted(best))
-    alm_indices = seg_index.a[g.get_edges()]
-    #print(np.where(np.isin(edge_indices, best)))
-    #print(g.get_edges()[:10])
+        #print(k, len(sc), len(sets), len(ratings), max(ratings) if len(ratings) > 0 else 0, sum(ratings) if len(ratings) > 0 else 0)
+    return sets, ratings
+
+#remove all alignments that are not reinforced by others from a simple a-graph
+def clean_up(g, time, seg_index):
+    #plot_matrix(np.triu(adjacency_matrix(g)), "results/clean0.png")
+    graph_draw(g, output_size=(1000, 1000), output="results/clean_up0.pdf")
+    edge_combos = []
+    #for each vertex find best combinations of neighbors 
+    for v in g.get_vertices():#[49:50]:
+        n = sorted(g.get_out_neighbors(v))
+        #split into connected segments
+        vertex_combos = list(product(*group_adjacent(sorted(n))))
+        edge_combos.append([])
+        for i,c in enumerate(vertex_combos):
+            #make a subgraph
+            filt = g.new_vertex_property("bool")
+            filt.a[[v]+list(c)] = True
+            gg = GraphView(g, vfilt=filt)
+            #check if elements of n in same clique
+            #cliques = list(max_cliques(gg))
+            #samecli = any(len(np.intersect1d(n, c)) == len(n) for c in cliques)
+            #or more simply, rate by how many edges there are
+            edge_combos[-1].append([g.edge_index[e] for e in gg.edges()])
+            edges = g.get_edges([g.edge_index])
+            #if samecli:
+            #    votes.append(np.array(n) - v)
+            #    reduced.add_edge_list([(a,b) for i,a in enumerate(n) for b in n[i+1:]])
+            #graph_draw(gg, vertex_text=g.vertex_index, output_size=(1000, 1000),
+            #    output="results/clean_upp"+str(i)+".pdf")
+    
+    #look for combos with highest number of edges and lowest number of segments
+    seg_combos = []
+    for ec in edge_combos:
+        max_num_edges = max([len(c) for c in ec])
+        largest_combos = [c for c in ec if len(c) == max_num_edges]
+        #convert to segment combos
+        segs = [np.unique(seg_index.a[lc]) for lc in largest_combos]
+        min_num_segs = min([len(s) for s in segs])
+        seg_combos.append([s for s in segs if len(s) == min_num_segs])
+        #print(max_num_edges, min_num_segs)
+    
+    #iteratively select best segment combination for remaining nodes
+    sets, ratings = integrate_segment_combos(seg_combos)
+    best = list(sets[ratings.index(max(ratings))])
+    print(len(sets), best)
+    
+    threshold = 0.01 #0.01 works well for first example....
+    while max(ratings) > threshold*g.num_edges():
+        edges = g.get_edges([seg_index])
+        involved_edges = edges[np.where(np.isin(edges[:,2], best))]
+        involved_vertices = np.unique(np.concatenate(involved_edges[:,:2]))
+        remaining_vertices = np.setdiff1d(g.get_vertices(), involved_vertices)
+        print(len(involved_vertices), len(remaining_vertices), len(seg_combos))
+        remaining_combos = [seg_combos[v] for v in remaining_vertices]
+        
+        sets, ratings = integrate_segment_combos(remaining_combos)
+        print(len(sets), max(ratings), list(sets[ratings.index(max(ratings))]))
+        if max(ratings) > threshold*g.num_edges():
+            best = best + list(sets[ratings.index(max(ratings))])
+    
+    #print(edges[:100])
+    reduced = Graph(directed=False)
+    reduced.add_vertex(len(g.get_vertices()))
     edges = g.get_edges([seg_index])
     edges = edges[np.where(np.isin(edges[:,2], best))]
-    #print(edges[:100])
     reduced.add_edge_list(edges)
     print(reduced)
-    #remove_parallel_edges(reduced)
-    #reduced.add_edge_list(np.concatenate(edges))
-    #ww = reduced.new_edge_property("float")
-    #ww.a = np.concatenate(weights)
-    #print(reduced)
-    plot_matrix(np.triu(adjacency_matrix(reduced)), "results/clean2.png")
-    #graph_draw(reduced, output_size=(1000, 1000), output="results/clean_up1.pdf")
-    #votes = [tuple(v) for v in votes]
-    #print('counting')
-    #print(Counter(votes))
+    #plot_matrix(np.triu(adjacency_matrix(reduced)), "results/cleani2.png")
+    graph_draw(reduced, output_size=(1000, 1000), output="results/clean_up1.pdf")
+    return reduced
 
 def structure_graph(msa, alignment_graph, mask_threshold=.5):
     msa = [[int(m[1:]) if len(m) > 0 else -1 for m in a] for a in msa]
