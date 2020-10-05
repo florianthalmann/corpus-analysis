@@ -63,22 +63,42 @@ def alignment_graph(lengths=[], pairings=[], alignments=[]):
 def integrate_segment_combos(seg_combos):
     sets = []
     ratings = []
+    subset_buffer = {}
     for k,sc in enumerate(seg_combos):
         if len(sets) == 0:
             sets = [c for c in sc]
-            ratings = [len(c) for c in sc]
+            ratings = np.array([len(c) for c in sc])
+            for c in sc: subset_buffer[str(c)] = np.array([], dtype=int)
         else:
             for c in sc:
-                isects = [snp.intersect(c, s) for s in sets]
-                max_rating = len(c)
-                for i,isect in enumerate(isects):
-                    if len(isect) == len(c): #subset of existing set
-                        ratings[i] += len(c)
-                    elif len(isect) == len(sets[i]): #superset of existing
-                        max_rating = max(max_rating, ratings[i]+len(c))
-                sets.append(c)
-                ratings.append(max_rating)
+                key = str(c)
+                lenc = len(c)
+                exists = key in subset_buffer
+                subset_locs = subset_buffer[key] if exists \
+                    else np.array([], dtype=int)
+                #calculate intersections where c not a known subset
+                isects = [c if i in subset_locs and subset_locs[i]
+                    else snp.intersect(c, s) for i,s in enumerate(sets)]
+                ilengths = np.array([len(i) for i in isects])
+                #update locations where c subset of existing sets
+                subset_locs = np.concatenate((subset_locs,
+                    ilengths[len(subset_locs):] == lenc))
+                subset_buffer[key] = subset_locs
+                #update ratings where c subset
+                np.add.at(ratings, np.nonzero(subset_locs), lenc)
+                #add set if not added before
+                if not exists:
+                    #get max rating at locations where c superset
+                    setlengths = np.array([len(s) for s in sets])
+                    superset_locs = np.nonzero(ilengths == setlengths)[0]
+                    max_rating = lenc
+                    if len(superset_locs) > 0:
+                        max_rating += np.max(ratings[superset_locs])
+                    #append c to sets with appropriate rating
+                    sets.append(c)
+                    ratings = np.append(ratings, [max_rating])
         #print(k, len(sc), len(sets), len(ratings), max(ratings) if len(ratings) > 0 else 0, sum(ratings) if len(ratings) > 0 else 0)
+    print(len(sets))
     return sets, ratings
 
 #remove all alignments that are not reinforced by others from a simple a-graph
@@ -122,13 +142,16 @@ def clean_up(g, time, seg_index):
         #convert to segment combos
         segs = [np.unique(seg_index.a[lc]) for lc in largest_combos]
         min_num_segs = min([len(s) for s in segs])
-        seg_combos.append([s for s in segs if len(s) == min_num_segs])
+        if min_num_segs > 0:
+            seg_combos.append([s for s in segs if len(s) == min_num_segs])
+        else:
+            seg_combos.append([])
         #print(max_num_edges, min_num_segs)
     
     #iteratively select best segment combination for remaining nodes
     sets, ratings = integrate_segment_combos(seg_combos)
-    best = list(sets[ratings.index(max(ratings))])
-    print(len(sets), best)
+    best = list(sets[np.argmax(ratings)])
+    print(len(sets), np.max(ratings), best)
     
     threshold = 0.1 #0.01 works well for first example....
     edges = g.get_edges([seg_index])
@@ -140,9 +163,9 @@ def clean_up(g, time, seg_index):
         remaining_combos = [seg_combos[v] for v in remaining_vertices]
         
         sets, ratings = integrate_segment_combos(remaining_combos)
-        print(len(sets), max(ratings), list(sets[ratings.index(max(ratings))]))
         if max(ratings) > threshold*g.num_edges():
-            best = best + list(sets[ratings.index(max(ratings))])
+            best = best + list(sets[np.argmax(ratings)])
+            print(len(sets), np.max(ratings), list(sets[np.argmax(ratings)]))
     
     #print(edges[:100])
     reduced = Graph(directed=False)
