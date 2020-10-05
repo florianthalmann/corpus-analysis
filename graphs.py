@@ -58,7 +58,8 @@ def alignment_graph(lengths=[], pairings=[], alignments=[]):
     return g, seq_index, time, alm_index, seg_index
 
 #combine a sequence of potential segment combinations into a consensus
-#(seg_combos have to be sorted)
+#(individual seg_combos have to be sorted)
+#can easily be made into beam search to speed up
 def integrate_segment_combos(seg_combos):
     sets = []
     ratings = []
@@ -67,11 +68,8 @@ def integrate_segment_combos(seg_combos):
             sets = [c for c in sc]
             ratings = [len(c) for c in sc]
         else:
-            newsets = []
-            additions = []
             for c in sc:
                 isects = [snp.intersect(c, s) for s in sets]
-                imax = np.argmax([len(i) for i in isects])
                 max_rating = len(c)
                 for i,isect in enumerate(isects):
                     if len(isect) == len(c): #subset of existing set
@@ -80,7 +78,6 @@ def integrate_segment_combos(seg_combos):
                         max_rating = max(max_rating, ratings[i]+len(c))
                 sets.append(c)
                 ratings.append(max_rating)
-                #ADD INTERSECTION TOO??
         #print(k, len(sc), len(sets), len(ratings), max(ratings) if len(ratings) > 0 else 0, sum(ratings) if len(ratings) > 0 else 0)
     return sets, ratings
 
@@ -88,6 +85,7 @@ def integrate_segment_combos(seg_combos):
 def clean_up(g, time, seg_index):
     #plot_matrix(np.triu(adjacency_matrix(g)), "results/clean0.png")
     #graph_draw(g, output_size=(1000, 1000), output="results/clean_up0.pdf")
+    out_edges = [g.get_out_edges(v, [g.edge_index]) for v in g.get_vertices()]
     edge_combos = []
     #for each vertex find best combinations of neighbors 
     for v in g.get_vertices():#[49:50]:
@@ -96,15 +94,20 @@ def clean_up(g, time, seg_index):
         vertex_combos = list(product(*group_adjacent(sorted(n))))
         edge_combos.append([])
         for i,c in enumerate(vertex_combos):
-            #make a subgraph
-            filt = g.new_vertex_property("bool")
-            filt.a[[v]+list(c)] = True
-            gg = GraphView(g, vfilt=filt)
-            #check if elements of n in same clique
-            #cliques = list(max_cliques(gg))
-            #samecli = any(len(np.intersect1d(n, c)) == len(n) for c in cliques)
-            #or more simply, rate by how many edges there are
-            edge_combos[-1].append([e[2] for e in gg.get_edges([g.edge_index])])
+            #collect internal edges of subgraph
+            vertices = [v]+list(c)
+            edges = np.concatenate([out_edges[v] for v in vertices])
+            shared = edges[np.where(np.isin(edges[:,1], vertices))]
+            edge_combos[-1].append(sorted(shared[:,2]))
+            # filt = g.new_vertex_property("bool")
+            # filt.a[[v]+list(c)] = True
+            # gg = GraphView(g, vfilt=filt)
+            # #check if elements of n in same clique
+            # #cliques = list(max_cliques(gg))
+            # #samecli = any(len(np.intersect1d(n, c)) == len(n) for c in cliques)
+            # #or more simply, rate by how many edges there are
+            # edge_combos[-1].append([e[2] for e in gg.get_edges([g.edge_index])])
+            
             #if samecli:
             #    votes.append(np.array(n) - v)
             #    reduced.add_edge_list([(a,b) for i,a in enumerate(n) for b in n[i+1:]])
