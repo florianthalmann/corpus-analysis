@@ -1,10 +1,10 @@
 import math
-from functools import reduce
 from collections import OrderedDict, defaultdict
 import numpy as np
 import sortednp as snp
 from patterns import Pattern, segments_to_patterns, patterns_to_segments
-from util import argmax, ordered_unique
+from alignments import segments_to_matrix
+from util import argmax, ordered_unique, plot_matrix, group_adjacent
 
 # returns the min dist between p and any parents of p in patterns
 def min_dist_from_parents(p, patterns):
@@ -14,34 +14,31 @@ def min_dist_from_parents(p, patterns):
     return math.inf
 
 # filter and sort list of patterns based on given params
-def filter_and_sort_patterns(patterns, min_len=0, min_dist=0, parents=[]):
+def filter_and_sort_patterns(patterns, min_len=0, min_dist=0, parents=[], occs_length=False):
     #filter patterns that are too short or too close to parents
     min_dists = [min_dist_from_parents(p, parents) for p in patterns]
     filtered = [p for i,p in enumerate(patterns)
         if p.l >= min_len and min_dists[i] >= min_dist]
     #sort by position and smallest vector
     secondary = sorted(filtered, key=lambda p: (p.p, min(p.t)))
-    #reverse sort by min(dist from parents, length)
-    return sorted(secondary, key=
-        lambda p: min(min_dists[patterns.index(p)], p.l), reverse=True)
+    #reverse sort by min(dist from parents, length/occs_length)
+    return sorted(secondary, key=lambda p: 
+        min(min_dists[patterns.index(p)], p.l*len(p.t) if occs_length else p.l),
+        reverse=True)
 
 # removes any pattern overlaps, starting with longest pattern,
 # adjusting shorter ones to fit within limits
 def remove_overlaps(patterns, min_len, min_dist):
     result = []
-    patterns = filter_and_sort_patterns(patterns, min_len, min_dist, result)
+    patterns = filter_and_sort_patterns(patterns, min_len, min_dist, result, True)
     while len(patterns) > 0:
         next = patterns.pop(0)
         result.append(next)
         new_boundaries = next.to_boundaries()
         for b in new_boundaries:
             patterns = [q for p in patterns for q in p.divide_at_absolute(b)]
-        patterns = filter_and_sort_patterns(patterns, min_len, min_dist, result)
-    print(result)
+        patterns = filter_and_sort_patterns(patterns, min_len, min_dist, result, True)
     return result
-
-def remove_contradictions(patterns, min_dist):#possible before transitivity??
-    return
 
 def add_transitivity(patterns):
     patterns = filter_and_sort_patterns(patterns)
@@ -50,14 +47,28 @@ def add_transitivity(patterns):
             #find absolute positions of p in q and add translations of q to p
             pos = [q.p+r for r in q.internal_positions(p)]
             new_t = [p+t for t in q.t for p in pos]
-            #if len(new_t) > 0: print(q)
+            #if len(new_t) > 0: print(q, new_t)
             p.add_new_translations(new_t)
-    return list(OrderedDict.fromkeys(patterns))
+    return list(OrderedDict.fromkeys(patterns)) #unique patterns
 
-def group_adjacent(numbers, max_dist=1):#groups adjacent numbers if within max_dist
-    return np.array(reduce(
-        lambda s,t: s+[[t]] if (len(s) == 0 or t-s[-1][-1] > max_dist)
-            else s[:-1]+[s[-1]+[t]], numbers, []))
+def add_transitivity2(patterns):
+    patterns = filter_and_sort_patterns(patterns)
+    new_patterns = []
+    for i,p in enumerate(patterns):
+        #print(p)
+        for q in patterns[:i]:
+            #find absolute positions of p in q and add translations of q to p
+            apps = q.partial_appearances(p)
+            #full appearances: update p
+            pos = [q.p+a[0] for a in apps if a[2] == p.l]
+            new_t = [p+t for t in q.t for p in pos]
+            p.add_new_translations(new_t)
+            #partial appearances: add new patterns
+            for a in [a for a in apps if a[2] < p.l]:
+                new_p = Pattern(p.p+a[1], a[2], p.t)
+                new_p.add_new_translations([q.p+a[0]+t for t in q.t])
+                new_patterns.append(new_p)
+    return list(OrderedDict.fromkeys(patterns + new_patterns)) #unique patterns
 
 def filter_out_dense_infreq(numbers, min_dist, freqs):
     areas = group_adjacent(numbers, min_dist)
@@ -92,14 +103,23 @@ def merge_patterns(patterns):
                 p.p = -1 #mark for deletion
     return filter_and_sort_patterns([p for p in patterns if p.p >= 0]) #filter out marked
 
-def make_segments_hierarchical(segments, min_len, min_dist):
+def make_segments_hierarchical(segments, min_len, min_dist, path=None, size=None):
+    if path: plot_matrix(segments_to_matrix(segments, (size,size)), path+'t1.png')
     patterns = segments_to_patterns(segments)
-    patterns = add_transitivity(remove_overlaps(patterns, min_len, min_dist))
-    #print(patterns)
-    patterns = remove_dense_areas(patterns, min_dist)
+    print(patterns)
+    #patterns = remove_overlaps(patterns, min_len, min_dist)
+    #if path: plot_matrix(segments_to_matrix(patterns_to_segments(patterns), (size,size)), path+'t2.png')
+    patterns = add_transitivity2(patterns)
+    if path: plot_matrix(segments_to_matrix(patterns_to_segments(patterns), (size,size)), path+'t2.png')
+    print(patterns)
+    #patterns = remove_dense_areas(patterns, min_dist)
     #print(patterns)
     patterns = merge_patterns(patterns)
-    #print(patterns)
+    if path: plot_matrix(segments_to_matrix(patterns_to_segments(patterns), (size,size)), path+'t3.png')
+    print(patterns)
+    patterns = remove_overlaps(patterns, min_len, min_dist)
+    if path: plot_matrix(segments_to_matrix(patterns_to_segments(patterns), (size,size)), path+'t4.png')
+    print(patterns)
     return patterns_to_segments(patterns)
 
 def get_most_frequent_pair(sequence, overlapping=False):
@@ -212,5 +232,8 @@ def get_hierarchy_labels(sequence):
 def get_hierarchy_sections(sequence):
     return to_sections(build_hierarchy_bottom_up(sequence))
 
-#print(add_transitivity([Pattern(2, 4, [0,10,30]), Pattern(3, 2, [0,10,18])]))
+# print(add_transitivity([Pattern(2, 4, [0,10,30]), Pattern(3, 2, [0,10,18])]))
+# print(add_transitivity2([Pattern(2, 4, [0,10,30]), Pattern(3, 2, [0,10,18])]))
+# print(add_transitivity2([Pattern(2, 4, [0,10,30]), Pattern(4, 3, [0,10,18])]))
+# print(add_transitivity2([Pattern(2, 4, [0,10,30]), Pattern(1, 3, [0,10,18])]))
 

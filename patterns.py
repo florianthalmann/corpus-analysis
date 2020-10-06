@@ -1,3 +1,4 @@
+from collections import OrderedDict
 from heapq import merge
 from functools import reduce
 import numpy as np
@@ -54,11 +55,26 @@ class Pattern:
         return len(snp.kway_intersect(np.arange(self.p, self.p+self.l),
             np.arange(other.p, other.p+other.l))) > 0
     
-    #returns relative positions of occurrences of other fully appearing in self
-    def internal_positions(self, other):
+    #returns relative positions of occurrences of other in self where at least
+    #the given proportion of other is in self
+    def internal_positions(self, other, proportion=1):
         return np.sort(np.unique([o[0]-s[0]
             for s in self.to_occurrences() for o in other.to_occurrences()
-            if len(snp.intersect(s, o)) == len(o)]))
+            if len(snp.intersect(s, o)) >= len(o)*proportion]))
+    
+    #returns triples (p,s,l) for each position p at which a segment of other
+    #starting at s with length l occurs in an occurrence of self
+    def partial_appearances(self, other):
+        appearances = []
+        for s in self.to_occurrences():
+            for o in other.to_occurrences():
+                i = snp.intersect(s, o)
+                if len(i) > 0:
+                    if i[0] == o[0]: #beginning contained
+                        appearances.append((o[0]-s[0], 0, len(i)))
+                    else: #end contained
+                        appearances.append((0, other.l-len(i), len(i)))
+        return list(OrderedDict.fromkeys(appearances)) #unique
     
     def divide_at_relative(self, pos):
         if 0 < pos and pos < self.l:
