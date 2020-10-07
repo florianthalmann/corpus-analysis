@@ -1,4 +1,4 @@
-from itertools import product, groupby, chain
+from itertools import product, chain
 from collections import Counter
 import numpy as np
 import sortednp as snp
@@ -74,6 +74,7 @@ def integrate_segment_combos(seg_combos):
                 key = str(c)
                 lenc = len(c)
                 exists = key in subset_buffer
+                #keep a buffer of all the locations where c a subset
                 subset_locs = subset_buffer[key] if exists \
                     else np.array([], dtype=int)
                 #calculate intersections where c not a known subset
@@ -98,7 +99,6 @@ def integrate_segment_combos(seg_combos):
                     sets.append(c)
                     ratings = np.append(ratings, [max_rating])
         #print(k, len(sc), len(sets), len(ratings), max(ratings) if len(ratings) > 0 else 0, sum(ratings) if len(ratings) > 0 else 0)
-    print(len(sets))
     return sets, ratings
 
 #remove all alignments that are not reinforced by others from a simple a-graph

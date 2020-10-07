@@ -3,7 +3,7 @@ from collections import OrderedDict, defaultdict
 import numpy as np
 import sortednp as snp
 from patterns import Pattern, segments_to_patterns, patterns_to_segments
-from alignments import segments_to_matrix
+from alignment.affinity import segments_to_matrix
 from util import argmax, ordered_unique, plot_matrix, group_adjacent
 
 # filter and sort list of patterns based on given params

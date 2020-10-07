@@ -1,6 +1,7 @@
 import itertools, math, json, sys
 import numpy as np
-from pomegranate import HiddenMarkovModel, DiscreteDistribution, MultivariateGaussianDistribution, State#, from_json
+from pomegranate import HiddenMarkovModel, DiscreteDistribution,\
+    MultivariateGaussianDistribution, State#, from_json
 
 INITIAL_EMPHASIS = 10 #emphasis of values of initializing sequence
 LR_DECAY = 0.0

@@ -1,7 +1,7 @@
 import timeit
 import numpy as np
 from sklearn.metrics import pairwise_distances
-from util import median_filter, symmetric
+from .util import median_filter, symmetric
 
 def to_diagonals(A):
     return [A.diagonal(i).T for i in range(-A.shape[0]+1, A.shape[1])]

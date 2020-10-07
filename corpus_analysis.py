@@ -2,12 +2,13 @@ import os, json, timeit, random
 import numpy as np
 from multiprocessing import Pool
 from features import get_summarized_chords, to_multinomial, extract_essentia
-from alignments import get_alignment_segments, get_affinity_matrix,\
+from alignment.affinity import get_alignment_segments, get_affinity_matrix,\
     get_alignment_matrix, segments_to_matrix
-from multi_alignment import align_sequences
+from alignment.multi_alignment import align_sequences
 from util import profile, plot_matrix, plot_hist, plot, buffered_run
 from hcomparison import get_relative_meet_triples, get_meet_matrix
 from structure import shared_structure, simple_structure, illustrate_transitivity
+from alignment.smith_waterman import smith_waterman
 
 corpus = '../../FAST/fifteen-songs-dataset2/'
 audio = os.path.join(corpus, 'tuned_audio')
@@ -110,9 +111,13 @@ def run(song):
     #profile(lambda: shared_structure(sequences, sas, multinomial, msa))
     
     I1 = 63
-    I2 = 60
+    I2 = 62
     
-    illustrate_transitivity(multinomial[I1], alignments[I1])
+    #print(multinomial[I1])
+    plot_matrix(segments_to_matrix([smith_waterman(multinomial[I1], multinomial[I2])]))
+    
+    
+    #illustrate_transitivity(multinomial[I1], alignments[I1])
     
     # plot_matrix(segments_to_matrix(alignments[I1]))
     # plot_matrix(segments_to_matrix(alignments[I2]))

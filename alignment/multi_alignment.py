@@ -2,7 +2,7 @@ import sys, json, operator, time, itertools
 import numpy as np
 from os import path
 import argparse
-from profile_hmm import ProfileHMM, FlankedProfileHMM
+from .profile_hmm import ProfileHMM, FlankedProfileHMM
 
 def load_json(path):
     with open(path) as ofile:
