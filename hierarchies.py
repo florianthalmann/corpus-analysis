@@ -1,4 +1,4 @@
-import math
+from math import sqrt
 from collections import OrderedDict, defaultdict
 import numpy as np
 import sortednp as snp
@@ -6,24 +6,21 @@ from patterns import Pattern, segments_to_patterns, patterns_to_segments
 from alignments import segments_to_matrix
 from util import argmax, ordered_unique, plot_matrix, group_adjacent
 
-# returns the min dist between p and any parents of p in patterns
-def min_dist_from_parents(p, patterns):
-    parents = [q for q in patterns if q.contains(p)]
-    if len(parents) > 0:
-        return min([p.distance(q) for q in parents])
-    return math.inf
-
 # filter and sort list of patterns based on given params
-def filter_and_sort_patterns(patterns, min_len=0, min_dist=0, parents=[], occs_length=False):
-    #filter patterns that are too short or too close to parents
-    min_dists = [min_dist_from_parents(p, parents) for p in patterns]
-    filtered = [p for i,p in enumerate(patterns)
-        if p.l >= min_len and min_dists[i] >= min_dist]
+def filter_and_sort_patterns(patterns, min_len=0, min_dist=0, refs=[], occs_length=False):
+    #filter out patterns that are too short
+    patterns = [p for p in patterns if p.l >= min_len]
+    #remove translations that are too close to references
+    ref_segs = [s for r in refs for s in r.to_segments()]
+    min_dists = [p.remove_close_occs(ref_segs, min_dist) for p in patterns]
+    #remove patterns with no remaining translations
+    patterns = [p for p in patterns if len(p.t) > 1]
     #sort by position and smallest vector
-    secondary = sorted(filtered, key=lambda p: (p.p, min(p.t)))
-    #reverse sort by min(dist from parents, length/occs_length)
-    return sorted(secondary, key=lambda p: 
-        min(min_dists[patterns.index(p)], p.l*len(p.t) if occs_length else p.l),
+    secondary = sorted(patterns, key=lambda p: (p.p, min(p.t)))
+    #reverse sort by min(dist from refs, length/occs_length)
+    return sorted(secondary, key=lambda p:
+        p.l*sqrt(len(p.t)) if occs_length else p.l,
+        #min(min_dists[patterns.index(p)], p.l*len(p.t) if occs_length else p.l),
         reverse=True)
 
 # removes any pattern overlaps, starting with longest pattern,
@@ -40,12 +37,12 @@ def remove_overlaps(patterns, min_len, min_dist):
         patterns = filter_and_sort_patterns(patterns, min_len, min_dist, result, True)
     return result
 
-def add_transitivity(patterns):
+def add_transitivity(patterns, proportion=1):
     patterns = filter_and_sort_patterns(patterns)
     for i,p in enumerate(patterns):
         for q in patterns[:i]:
             #find absolute positions of p in q and add translations of q to p
-            pos = [q.p+r for r in q.internal_positions(p)]
+            pos = [q.p+r for r in q.internal_positions(p, proportion)]
             new_t = [p+t for t in q.t for p in pos]
             #if len(new_t) > 0: print(q, new_t)
             p.add_new_translations(new_t)
@@ -104,22 +101,21 @@ def merge_patterns(patterns):
     return filter_and_sort_patterns([p for p in patterns if p.p >= 0]) #filter out marked
 
 def make_segments_hierarchical(segments, min_len, min_dist, path=None, size=None):
-    if path: plot_matrix(segments_to_matrix(segments, (size,size)), path+'t1.png')
     patterns = segments_to_patterns(segments)
-    print(patterns)
-    #patterns = remove_overlaps(patterns, min_len, min_dist)
-    #if path: plot_matrix(segments_to_matrix(patterns_to_segments(patterns), (size,size)), path+'t2.png')
-    patterns = add_transitivity2(patterns)
-    if path: plot_matrix(segments_to_matrix(patterns_to_segments(patterns), (size,size)), path+'t2.png')
-    print(patterns)
-    #patterns = remove_dense_areas(patterns, min_dist)
-    #print(patterns)
+    # if path: plot_matrix(segments_to_matrix(patterns_to_segments(patterns), (size,size)), path+'t1.png')
+    # print(patterns)
+    patterns = add_transitivity(patterns, 0.8)
+    # if path: plot_matrix(segments_to_matrix(patterns_to_segments(patterns), (size,size)), path+'t2.png')
+    # print(patterns)
     patterns = merge_patterns(patterns)
-    if path: plot_matrix(segments_to_matrix(patterns_to_segments(patterns), (size,size)), path+'t3.png')
-    print(patterns)
+    # if path: plot_matrix(segments_to_matrix(patterns_to_segments(patterns), (size,size)), path+'t3.png')
+    # print(patterns)
     patterns = remove_overlaps(patterns, min_len, min_dist)
-    if path: plot_matrix(segments_to_matrix(patterns_to_segments(patterns), (size,size)), path+'t4.png')
-    print(patterns)
+    # if path: plot_matrix(segments_to_matrix(patterns_to_segments(patterns), (size,size)), path+'t4.png')
+    # print(patterns)
+    patterns = add_transitivity(patterns, 0.8)
+    # if path: plot_matrix(segments_to_matrix(patterns_to_segments(patterns), (size,size)), path+'t5.png')
+    # print(patterns)
     return patterns_to_segments(patterns)
 
 def get_most_frequent_pair(sequence, overlapping=False):
@@ -236,4 +232,6 @@ def get_hierarchy_sections(sequence):
 # print(add_transitivity2([Pattern(2, 4, [0,10,30]), Pattern(3, 2, [0,10,18])]))
 # print(add_transitivity2([Pattern(2, 4, [0,10,30]), Pattern(4, 3, [0,10,18])]))
 # print(add_transitivity2([Pattern(2, 4, [0,10,30]), Pattern(1, 3, [0,10,18])]))
-
+# remove_overlaps([Pattern(2, 4, [0,10,30]), Pattern(1, 3, [0,10,18])], 0, 1)
+# remove_overlaps([Pattern(31, 71, [0, 92, 260, 350]), Pattern(196, 95, [0, 256]),
+#     Pattern(16, 15, [0, 260, 516]), Pattern(86, 16, [0, 92, 348])], 0, 3)

@@ -1,3 +1,4 @@
+import math
 from collections import OrderedDict
 from heapq import merge
 from functools import reduce
@@ -47,9 +48,34 @@ class Pattern:
     def contains(self, other):
         return len(np.setdiff1d(other.to_indices(), self.to_indices())) == 0
     
+    def overlaps(self, other):
+        #print(other.to_indices(), self.to_indices())
+        #print(snp.intersect(other.to_indices(), self.to_indices()))
+        return len(snp.intersect(other.to_indices(), self.to_indices())) > 0
+    
     def distance(self, other):
-        return min([abs((self.p+t)-(other.p+u))
-            for t in self.t for u in other.t])
+        return min([abs(t-u) for t in self.t for u in other.t])
+    
+    #removes all occurrences that are closer than min_dist from any of the given
+    #reference patterns' occurrences. returns the remaining minimum distance from
+    #any reference
+    def remove_close_occs(self, ref_segs, min_dist):
+        segs = self.to_segments()
+        to_be_removed = []
+        min_dist_from_refs = math.inf
+        for i,t in enumerate(segs):
+            #NOT CALC IF T ALREADY TO BE REMOVED!!!
+            dists = [segment_dist(t,u) for u in ref_segs]
+            #BREAK DIST CALC WHEN NONZERO < MIN_DIST
+            nonzero = [d for d in dists if d > 0]
+            if len(nonzero) > 0:
+                min_nonzero = min(nonzero)
+                if min_nonzero < min_dist:
+                    to_be_removed.append(seg_index_to_t_index(i, len(self.t)))
+                else:
+                    min_dist_from_refs = min(min_dist_from_refs, min_nonzero)
+        self.t = [t for i,t in enumerate(self.t) if i not in to_be_removed]
+        return min_dist_from_refs
     
     def first_occ_overlaps(self, other):
         return len(snp.kway_intersect(np.arange(self.p, self.p+self.l),
@@ -99,6 +125,18 @@ def segments_to_patterns(segments):
 #ignores translations beyond first two
 def patterns_to_segments(patterns):
     return [s for p in patterns for s in p.to_segments()]
+
+#returns the distance between s1 and s2 if they overlap, else inf
+def segment_dist(s1, s2):
+    #s1, s2 = sorted([s1, s2], key=lambda s: s[0][0])
+    if s2[0][0] < s1[0][0]:
+        s1, s2 = s2, s1
+    if s2[0][0] < s1[-1][0]:
+        return abs((s1[0][1]-s1[0][0])-(s2[0][1]-s2[0][0]))
+    else: return math.inf
+
+def seg_index_to_t_index(i, num_t):
+    return [j for i in range(num_t) for j in range(i+1,num_t)][i]
 
 #print(Pattern(3, 2, [0,10,18]).to_boundaries())
 #print(Pattern(3, 2, [0,10,18]).to_indices())
