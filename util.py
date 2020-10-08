@@ -4,6 +4,11 @@ import numpy as np
 from matplotlib import pyplot as plt
 import seaborn as sns
 
+def flatten(array):
+    if isinstance(array, list):
+        return [b for a in array for b in flatten(a)]
+    return [array]
+
 def group_adjacent(numbers, max_dist=1):#groups adjacent numbers if within max_dist
     return np.array(reduce(
         lambda s,t: s+[[t]] if (len(s) == 0 or t-s[-1][-1] > max_dist)

@@ -1,6 +1,8 @@
-import os, csv, math, subprocess
+import os, csv, math, subprocess, json
+from itertools import repeat
+from collections import OrderedDict
 import numpy as np
-from util import load_json
+from util import load_json, flatten
 
 def extract_essentia(path, outpath):
     if not os.path.isfile(outpath):
@@ -19,8 +21,28 @@ def load_bars(path):
         beats = list(csv.reader(f, delimiter='\t'))
     return [float(b[0]) for b in beats if int(b[1]) == 1]
 
+def get_pitch_class(label):
+    pc = {'C': 0, 'D': 2, 'E': 4, 'F': 5, 'G': 7, 'A': 9, 'B': 11}[label[0]]
+    if len(label) > 1 and label[1] == 'b': pc -= 1
+    if len(label) > 1 and label[1] == '#': pc += 1
+    return pc
+
+def get_triad_quality(label):
+    if label.find('dim') >= 0: return 3
+    elif label.find('aug') >= 0: return 2
+    elif label.find('m') >= 0: return 1
+    return 0
+
+def label_to_go_index(label):
+    return get_pitch_class(label) + math.floor(12 * get_triad_quality(label))
+
+def go_index_to_label(index):
+    name = ['C','Db','D','Eb','E','F','F#','G','Ab','A','Bb','B'][int(index%12)]
+    type = ['', 'm', 'aug', 'dim'][math.floor(index/12)]
+    return name+type
+
 def go_index_to_pcset(index):
-  root = int(index%12);
+  root = int(index%12)
   type = math.floor(index/12)
   pcset = [root, root+4, root+7] if type == 0 else \
     [root, root+3, root+7] if type == 1 else \
@@ -40,15 +62,47 @@ def summarize(feature, timepoints):
     t_intervals = to_intervals(timepoints)
     f_intervals = to_intervals([f[0] for f in feature])
     modes = [np.argmax(get_overlaps(t, f_intervals)) for t in t_intervals]
-    return [feature[m][1] for m in modes]
+    return np.array([feature[m][1] for m in modes], dtype=int)
 
 def get_summarized_chords(beatsFile, chordsFile, bars=False):
     time = load_bars(beatsFile) if bars else load_beats(beatsFile)
     chords = load_json(chordsFile)[0]
-    return np.array([go_index_to_pcset(m) for m in summarize(chords, time)])
+    return summarize(chords, time)
 
 def to_multinomial(sequences):
     unique = np.unique(np.concatenate(sequences), axis=0)
     unique_index = lambda f: np.where(np.all(unique == f, axis=1))[0][0]
     return [np.array([unique_index(f) for f in s]) for s in sequences]
-    
+
+def get_labels(array):
+    lens = [len(flatten(a)) for a in array]
+    array = [str(a) for a in array]
+    unique = list(OrderedDict.fromkeys(array))
+    return flatten([list(repeat(unique.index(a), lens[i]))
+        for i,a in enumerate(array)])
+
+def to_hierarchy_labels(leadsheet):
+    beats = [label_to_go_index(a) for s in leadsheet for b in s for a in b]
+    bars = get_labels([b for s in leadsheet for b in s])
+    sections = get_labels(leadsheet)
+    top = list(repeat(0, len(sections)))
+    return np.array([top, sections, bars, beats])
+
+def parse_section(name, leadsheet):
+    value = leadsheet[name.replace('.','')]
+    if isinstance(value, str):
+        return parse_section(value, leadsheet)
+    elif isinstance(value, list):
+        return [parse_section(v, leadsheet) if isinstance(v, str) else v for v in value]
+    return value
+
+def load_leadsheets(path, songs):
+    leadsheets = []
+    for s in songs:
+        with open(os.path.join(path, s+'.json')) as f:
+            l = json.load(f)
+            leadsheets.append(parse_section('_form', l))
+    return [to_hierarchy_labels(l) for l in leadsheets]
+
+#print(get_labels([[0,0],[1,2],[0,0],[5,5],[1,2],[0,0]]))
+#print(label_to_go_index("A"))

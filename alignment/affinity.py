@@ -14,10 +14,15 @@ def from_diagonals(ds, shape):
         np.tile(np.arange(shape[0])[:,None], (1, shape[1])))
     return ds[dia_indices, ele_indices]
 
+def get_equality(a, b):
+    if len(a.shape) > 1:
+        return np.all(a[:, None] == b[None, :], axis=2).astype(int)
+    return a[:, None] == b[None, :]
+
 def get_affinity_matrix(a, b, equality, smoothing=0):
     symmetric = np.array_equal(a, b)
     #create affinity or equality matrix
-    matrix = np.all(a[:, None] == b[None, :], axis=2).astype(int) if equality \
+    matrix = get_equality(a, b) if equality \
         else 1-pairwise_distances(a, b, metric="cosine")
     unsmoothed = matrix
     #only keep upper triangle in symmetric case
