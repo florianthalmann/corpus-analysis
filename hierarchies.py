@@ -1,4 +1,5 @@
 from math import sqrt
+from functools import reduce
 from collections import OrderedDict, defaultdict
 import numpy as np
 import sortednp as snp
@@ -146,10 +147,10 @@ def replace_in_tree(tree, element, replacement):
     return [replace_in_tree(t, element, replacement) if type(t) == list
         else replacement if t == element else t for t in tree]
 
-def to_hierarchy(sequence, new_types):
+def to_hierarchy(sequence, sections):
     hierarchy = sequence.tolist()
-    for t in reversed(list(new_types.keys())):
-        hierarchy = replace_in_tree(hierarchy, t, new_types[t].tolist())
+    for t in reversed(list(sections.keys())):
+        hierarchy = replace_in_tree(hierarchy, t, sections[t].tolist())
     return hierarchy
 
 def flatten(hierarchy):
@@ -158,75 +159,87 @@ def flatten(hierarchy):
     return [hierarchy]
 
 #groupings on top
-def to_labels(sequence, new_types):
+def to_labels(sequence, sections):
     layers = []
-    type_lengths = {k:len(flatten((to_hierarchy(np.array([k]), new_types))))
-        for k in new_types.keys()}
-    while len(np.intersect1d(sequence, list(new_types.keys()))) > 0:
-        layers.append(np.concatenate([np.repeat(s, type_lengths[s])
-            if s in new_types else [s] for s in sequence]))
-        sequence = np.concatenate([new_types[s]
-            if s in new_types else [s] for s in sequence])
+    section_lengths = {k:len(flatten((to_hierarchy(np.array([k]), sections))))
+        for k in sections.keys()}
+    while len(np.intersect1d(sequence, list(sections.keys()))) > 0:
+        layers.append(np.concatenate([np.repeat(s, section_lengths[s])
+            if s in sections else [s] for s in sequence]))
+        sequence = np.concatenate([sections[s]
+            if s in sections else [s] for s in sequence])
     layers.append(sequence)
     return np.dstack(layers)[0]
 
 #leaves at bottom
-def to_labels2(sequence, new_types):
-    labels = to_labels(sequence, new_types)
+def to_labels2(sequence, sections):
+    labels = to_labels(sequence, sections)
     numlevels = labels.shape[1]
     uniques = [ordered_unique(l) for l in labels]
     main = np.max(sequence)+1#overarching main section
     return np.array([np.hstack([[main], np.repeat(u[0], numlevels-len(u)), u])
-        for u in uniques])
+        for u in uniques]).T
 
-def to_sections(new_types):
+def to_sections(sections):
     sections = []
-    keys = list(new_types.keys())
+    keys = list(sections.keys())
     for k in keys:
-        section = new_types[k]
+        section = sections[k]
         while len(np.intersect1d(section, keys)) > 0:
-            section = np.concatenate([new_types[s]
-                if s in new_types else [s] for s in section])
+            section = np.concatenate([sections[s]
+                if s in sections else [s] for s in section])
         sections.append(section)
     return sections
 
 def build_hierarchy_bottom_up(sequence):
     pair = get_most_frequent_pair(sequence)
     next_index = int(np.max(sequence)+1)
-    new_types = dict()
-    #group recurring adjacent pairs into types
+    sections = dict()
+    #group recurring adjacent pairs into sections
     while pair is not None:
         locations = get_locs_of_pair(sequence, pair)
-        new_types[next_index] = pair
+        sections[next_index] = pair
         sequence = replace_pairs(sequence, locations, next_index)
         next_index += 1
         pair = get_most_frequent_pair(sequence)
-    #merge types that always cooccur
+    #merge sections that always cooccur
     to_delete = []
-    for t in new_types.keys():
-        parents = [k for (k,v) in new_types.items() if t in v]
+    for t in sections.keys():
+        parents = [k for (k,v) in sections.items() if t in v]
         if len(parents) == 1:
             parent = parents[0]
-            occs = np.count_nonzero(np.concatenate([sequence, new_types[parent]]) == t)
+            occs = np.count_nonzero(np.concatenate([sequence, sections[parent]]) == t)
             if occs <= 1:
-                new_types[parent] = np.concatenate(
-                    [new_types[t] if p == t else [p] for p in new_types[parent]])
+                sections[parent] = np.concatenate(
+                    [sections[t] if p == t else [p] for p in sections[parent]])
                 to_delete.append(t)
-    #delete merged types
+    #delete merged sections
     for t in to_delete:
-        del new_types[t]
+        del sections[t]
+    #add sections for remaining adjacent surface objects
+    ungrouped = np.where(np.isin(sequence, list(sections.keys())) == False)[0]
+    groups = np.split(ungrouped, np.where(np.diff(ungrouped) != 1)[0]+1)
+    for g in reversed(groups):
+        if len(g) > 1:
+            sections[next_index] = sequence[g]
+            sequence[g[0]] = next_index
+            sequence = np.delete(sequence, g[1:])
+            next_index += 1
     #make hierarchy
-    #print(to_hierarchy(sequence, new_types))
-    return new_types
+    #print(to_hierarchy(sequence, sections))
+    return sequence, sections
 
 def get_hierarchy(sequence):
-    return to_hierarchy(sequence, build_hierarchy_bottom_up(sequence))
+    sequence, sections = build_hierarchy_bottom_up(sequence)
+    return to_hierarchy(sequence, sections)
 
 def get_hierarchy_labels(sequence):
-    return to_labels2(sequence, build_hierarchy_bottom_up(sequence))
+    sequence, sections = build_hierarchy_bottom_up(sequence)
+    return to_labels2(sequence, sections)
 
 def get_hierarchy_sections(sequence):
-    return to_sections(build_hierarchy_bottom_up(sequence))
+    sequence, sections = build_hierarchy_bottom_up(sequence)
+    return to_sections(sequence, sections)
 
 # print(add_transitivity([Pattern(2, 4, [0,10,30]), Pattern(3, 2, [0,10,18])]))
 # print(add_transitivity2([Pattern(2, 4, [0,10,30]), Pattern(3, 2, [0,10,18])]))
