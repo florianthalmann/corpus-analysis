@@ -3,6 +3,27 @@ import numpy as np
 from sklearn.metrics import pairwise_distances
 from .util import median_filter, symmetric
 
+def fill_gaps(a, gap_size, gap_ratio):
+    diffs = np.diff(a)
+    gaps = np.nonzero(diffs)[0]+1
+    segs = np.split(a, gaps)
+    return np.concatenate([np.repeat(1, len(s))
+        if i > 0 and i < len(segs)-1 and s[0] == 0 and len(s) <= gap_size
+            and len(s)/(len(segs[i-1])+len(s)+len(segs[i+1])) <= gap_ratio
+        else s
+        for i,s in enumerate(segs)])
+
+def smooth_matrix(matrix, symmetric, max_gaps, max_gap_ratio):
+    func = lambda d: median_filter(d, max_gaps)
+    #func = lambda d: fill_gaps(d, max_gaps, max_gap_ratio)
+    diagonals = to_diagonals(matrix)
+    if symmetric: #only smooth upper triangle
+        smoothed = [func(d) if i >= matrix.shape[0] else d
+            for i, d in enumerate(diagonals)]
+    else:
+        smoothed = [func(d) for d in diagonals]
+    return from_diagonals(smoothed, matrix.shape)
+
 def to_diagonals(A):
     return [A.diagonal(i).T for i in range(-A.shape[0]+1, A.shape[1])]
 
@@ -19,7 +40,7 @@ def get_equality(a, b):
         return np.all(a[:, None] == b[None, :], axis=2).astype(int)
     return a[:, None] == b[None, :]
 
-def get_affinity_matrix(a, b, equality, smoothing=0):
+def get_affinity_matrix(a, b, equality, max_gaps, max_gap_ratio):
     symmetric = np.array_equal(a, b)
     #create affinity or equality matrix
     matrix = get_equality(a, b) if equality \
@@ -28,14 +49,8 @@ def get_affinity_matrix(a, b, equality, smoothing=0):
     #only keep upper triangle in symmetric case
     if symmetric: matrix = np.triu(matrix, k=1)
     #smooth with a median filter
-    if smoothing > 0:
-        diagonals = to_diagonals(matrix)
-        if symmetric: #only smooth upper triangle
-            smoothed = [median_filter(d, smoothing) if i >= len(a) else d
-                for i, d in enumerate(diagonals)]
-        else:
-            smoothed = [median_filter(d, smoothing) for d in diagonals]
-        matrix = from_diagonals(smoothed, matrix.shape)
+    if max_gaps > 0:
+        matrix = smooth_matrix(matrix, symmetric, max_gaps, max_gap_ratio)
     return matrix, unsmoothed
 
 #returns a list of arrays of index pairs
@@ -114,7 +129,7 @@ def filter_segments(segments, min_len, min_dist, symmetric, shape):
 
 def get_alignment_segments(a, b, min_len, min_dist, max_gap_size, max_gap_ratio):
     symmetric = np.array_equal(a, b)
-    matrix, unsmoothed = get_affinity_matrix(a, b, True, max_gap_size)
+    matrix, unsmoothed = get_affinity_matrix(a, b, True, max_gap_size, max_gap_ratio)
     if symmetric: matrix = np.triu(matrix)
     segments = matrix_to_segments(matrix)
     #keep only segments longer than min_len and with a gap ratio below max_gap_ratio
@@ -134,6 +149,6 @@ def segments_to_matrix(segments, shape=None, sum=False):
         matrix[points.T[0], points.T[1]] = 1
     return matrix
 
-def get_alignment_matrix(a, b, min_len, min_dist, max_gap_size):
-    segments = get_alignment_segments(a, b, min_len, min_dist, max_gap_size)
+def get_alignment_matrix(a, b, min_len, min_dist, max_gap_size, max_gap_ratio):
+    segments = get_alignment_segments(a, b, min_len, min_dist, max_gap_size, max_gap_ratio)
     return segments_to_matrix(segments, (len(a), len(b)))
