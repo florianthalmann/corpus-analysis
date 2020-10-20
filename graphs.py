@@ -1,4 +1,4 @@
-from itertools import product, chain
+from itertools import product, chain, groupby
 from collections import Counter
 import numpy as np
 import sortednp as snp
@@ -60,7 +60,8 @@ def alignment_graph(lengths=[], pairings=[], alignments=[]):
 #combine a sequence of potential segment combinations into a consensus
 #(individual seg_combos have to be sorted)
 #can easily be made into beam search to speed up
-def integrate_segment_combos(seg_combos):
+def integrate_segment_combos(seg_combos, incomp_segs):
+    seg_combos = [s for s in seg_combos if len(s) > 0]
     sets = []
     ratings = []
     subset_buffer = {}
@@ -78,7 +79,7 @@ def integrate_segment_combos(seg_combos):
                 subset_locs = subset_buffer[key] if exists \
                     else np.array([], dtype=int)
                 #calculate intersections where c not a known subset
-                isects = [c if i in subset_locs and subset_locs[i]
+                isects = [c if len(subset_locs) > i and subset_locs[i] > 0
                     else snp.intersect(c, s) for i,s in enumerate(sets)]
                 ilengths = np.array([len(i) for i in isects])
                 #update locations where c subset of existing sets
@@ -97,9 +98,32 @@ def integrate_segment_combos(seg_combos):
                         max_rating += np.max(ratings[superset_locs])
                     #append c to sets with appropriate rating
                     sets.append(c)
+                    subset_buffer[key] = []
                     ratings = np.append(ratings, [max_rating])
+                    #append union if possible
+                    for k,i in enumerate(isects):
+                        if len(i) < len(c) and len(i) < len(sets[k]):
+                            union = np.unique(np.concatenate([c, sets[k]]))
+                            key = str(union)
+                            if not key in subset_buffer and\
+                                not any(len(snp.intersect(j, union)) > 1 for j in incomp_segs):
+                                sets.append(union)
+                                subset_buffer[key] = []
+                                ratings = np.append(ratings, [max_rating+ratings[k]])
         #print(k, len(sc), len(sets), len(ratings), max(ratings) if len(ratings) > 0 else 0, sum(ratings) if len(ratings) > 0 else 0)
+    #[print(ratings[i], s) for i, s in enumerate(sets)]
     return sets, ratings
+
+def get_incompatible_segs(g, seg_index, out_edges):
+    incomp = []
+    for v in g.get_vertices():
+        for vs in group_adjacent(sorted(g.get_out_neighbors(v))):
+            edges = out_edges[v][np.where(np.isin(out_edges[v][:,1], vs))][:,2]
+            incomp.append(list(np.unique(seg_index.a[edges])))
+    #keep only unique supersets
+    incomp = [k for k,_ in groupby(sorted(incomp))]
+    incomp = list(filter(lambda f: not any(set(f) < set(g) for g in incomp), incomp))
+    return [np.array(k) for k in incomp if len(k) > 1]
 
 #remove all alignments that are not reinforced by others from a simple a-graph
 def clean_up(g, time, seg_index):
@@ -111,14 +135,14 @@ def clean_up(g, time, seg_index):
     for v in g.get_vertices():#[49:50]:
         n = sorted(g.get_out_neighbors(v))
         #split into connected segments
-        vertex_combos = list(product(*group_adjacent(sorted(n))))
+        vertex_combos = list(product(*group_adjacent(n)))
         edge_combos.append([])
-        for i,c in enumerate(vertex_combos):
+        for c in vertex_combos:
             #collect internal edges of subgraph
             vertices = [v]+list(c)
             edges = np.concatenate([out_edges[v] for v in vertices])
             shared = edges[np.where(np.isin(edges[:,1], vertices))]
-            edge_combos[-1].append(sorted(shared[:,2]))
+            edge_combos[-1].append(np.unique(shared[:,2]))
             # filt = g.new_vertex_property("bool")
             # filt.a[[v]+list(c)] = True
             # gg = GraphView(g, vfilt=filt)
@@ -148,8 +172,12 @@ def clean_up(g, time, seg_index):
             seg_combos.append([])
         #print(max_num_edges, min_num_segs)
     
+    incompatible = get_incompatible_segs(g, seg_index, out_edges)
+    print(incompatible)
+    
+    #[print(i, list(e), list(edge_combos[i])) for i,e in enumerate(seg_combos)]
     #iteratively select best segment combination for remaining nodes
-    sets, ratings = integrate_segment_combos(seg_combos)
+    sets, ratings = integrate_segment_combos(seg_combos, incompatible)
     best = list(sets[np.argmax(ratings)])
     print(len(sets), np.max(ratings), best)
     
@@ -162,7 +190,7 @@ def clean_up(g, time, seg_index):
         print(len(involved_vertices), len(remaining_vertices), len(seg_combos))
         remaining_combos = [seg_combos[v] for v in remaining_vertices]
         
-        sets, ratings = integrate_segment_combos(remaining_combos)
+        sets, ratings = integrate_segment_combos(remaining_combos, incompatible)
         if max(ratings) > threshold*g.num_edges():
             best = best + list(sets[np.argmax(ratings)])
             print(len(sets), np.max(ratings), list(sets[np.argmax(ratings)]))
@@ -206,3 +234,4 @@ def pattern_graph(sequences, pairings, alignments):
 def component_labels(g):
     labels, hist = label_components(g)
     return labels.a
+
