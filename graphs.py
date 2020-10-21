@@ -65,16 +65,20 @@ def integrate_segment_combos(seg_combos, incomp_segs):
     sets = []
     ratings = []
     subset_buffer = {}
+    positions = {}
     for k,sc in enumerate(seg_combos):
         if len(sets) == 0:
             sets = [c for c in sc]
             ratings = np.array([len(c) for c in sc])
-            for c in sc: subset_buffer[str(c)] = np.array([], dtype=int)
+            for i,c in enumerate(sc):
+                key = str(list(c))
+                positions[key] = i
+                subset_buffer[key] = np.array([], dtype=int)
         else:
             for c in sc:
-                key = str(c)
+                key = str(list(c))
                 lenc = len(c)
-                exists = key in subset_buffer
+                exists = key in positions
                 #keep a buffer of all the locations where c a subset
                 subset_locs = subset_buffer[key] if exists \
                     else np.array([], dtype=int)
@@ -88,8 +92,8 @@ def integrate_segment_combos(seg_combos, incomp_segs):
                 subset_buffer[key] = subset_locs
                 #update ratings where c subset
                 np.add.at(ratings, np.nonzero(subset_locs), lenc)
-                #add set if not added before
-                if not exists:
+                #add set if not added before and if not a subset of another
+                if not exists and not np.any(subset_locs):
                     #get max rating at locations where c superset
                     setlengths = np.array([len(s) for s in sets])
                     superset_locs = np.nonzero(ilengths == setlengths)[0]
@@ -98,18 +102,26 @@ def integrate_segment_combos(seg_combos, incomp_segs):
                         max_rating += np.max(ratings[superset_locs])
                     #append c to sets with appropriate rating
                     sets.append(c)
-                    subset_buffer[key] = []
+                    subset_buffer[key] = np.array([], dtype=int)
                     ratings = np.append(ratings, [max_rating])
                     #append union if possible
                     for k,i in enumerate(isects):
+                        #neither is a subset of the other
                         if len(i) < len(c) and len(i) < len(sets[k]):
                             union = np.unique(np.concatenate([c, sets[k]]))
-                            key = str(union)
-                            if not key in subset_buffer and\
-                                not any(len(snp.intersect(j, union)) > 1 for j in incomp_segs):
+                            ukey = str(list(union))
+                            #union not added yet and no incompatible segments
+                            if not ukey in positions and\
+                                    not any(len(snp.intersect(j, union)) > 1 for j in incomp_segs):
+                                positions[ukey] = len(sets)
                                 sets.append(union)
-                                subset_buffer[key] = []
-                                ratings = np.append(ratings, [max_rating+ratings[k]])
+                                subset_buffer[key] = np.array([], dtype=int)
+                                #rating of union = sum - rating of intersection
+                                rating = max_rating+ratings[k]
+                                ikey = str(list(i))
+                                if ikey in positions:
+                                    rating -= ratings[positions[ikey]]
+                                ratings = np.append(ratings, [rating])
         #print(k, len(sc), len(sets), len(ratings), max(ratings) if len(ratings) > 0 else 0, sum(ratings) if len(ratings) > 0 else 0)
     #[print(ratings[i], s) for i, s in enumerate(sets)]
     return sets, ratings
@@ -135,14 +147,14 @@ def clean_up(g, time, seg_index):
     for v in g.get_vertices():#[49:50]:
         n = sorted(g.get_out_neighbors(v))
         #split into connected segments
-        vertex_combos = list(product(*group_adjacent(n)))
+        vertex_combos = list(product(*group_adjacent(sorted(n))))
         edge_combos.append([])
         for c in vertex_combos:
             #collect internal edges of subgraph
             vertices = [v]+list(c)
             edges = np.concatenate([out_edges[v] for v in vertices])
             shared = edges[np.where(np.isin(edges[:,1], vertices))]
-            edge_combos[-1].append(np.unique(shared[:,2]))
+            edge_combos[-1].append(sorted(shared[:,2]))
             # filt = g.new_vertex_property("bool")
             # filt.a[[v]+list(c)] = True
             # gg = GraphView(g, vfilt=filt)
@@ -173,7 +185,6 @@ def clean_up(g, time, seg_index):
         #print(max_num_edges, min_num_segs)
     
     incompatible = get_incompatible_segs(g, seg_index, out_edges)
-    print(incompatible)
     
     #[print(i, list(e), list(edge_combos[i])) for i,e in enumerate(seg_combos)]
     #iteratively select best segment combination for remaining nodes
@@ -183,7 +194,7 @@ def clean_up(g, time, seg_index):
     
     threshold = 0.1 #0.01 works well for first example....
     edges = g.get_edges([seg_index])
-    while max(ratings) > threshold*g.num_edges():
+    while len(ratings) > 0 and max(ratings) > threshold*g.num_edges():
         involved_edges = edges[np.where(np.isin(edges[:,2], best))]
         involved_vertices = np.unique(np.concatenate(involved_edges[:,:2]))
         remaining_vertices = np.setdiff1d(g.get_vertices(), involved_vertices)
@@ -191,7 +202,7 @@ def clean_up(g, time, seg_index):
         remaining_combos = [seg_combos[v] for v in remaining_vertices]
         
         sets, ratings = integrate_segment_combos(remaining_combos, incompatible)
-        if max(ratings) > threshold*g.num_edges():
+        if len(ratings) > 0 and max(ratings) > threshold*g.num_edges():
             best = best + list(sets[np.argmax(ratings)])
             print(len(sets), np.max(ratings), list(sets[np.argmax(ratings)]))
     
