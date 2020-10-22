@@ -1,12 +1,12 @@
-import os, json, cProfile
+import os, json, cProfile, math
 from functools import reduce
 import numpy as np
 from matplotlib import pyplot as plt
 import seaborn as sns
 
-def flatten(array):
-    if isinstance(array, list):
-        return [b for a in array for b in flatten(a)]
+def flatten(array, iterations=math.inf):#iterations -1 is deep flatten
+    if iterations >= 0 and isinstance(array, list):
+        return [b for a in array for b in flatten(a, iterations-1)]
     return [array]
 
 def group_adjacent(numbers, max_dist=1):#groups adjacent numbers if within max_dist

@@ -82,11 +82,13 @@ def get_labels(array):
         for i,a in enumerate(array)])
 
 def to_hierarchy_labels(leadsheet):
-    beats = [label_to_go_index(a) for s in leadsheet for b in s for a in b]
-    bars = get_labels([b for s in leadsheet for b in s])
-    sections = get_labels(leadsheet)
-    top = list(repeat(0, len(sections)))
-    return np.array([top, sections, bars, beats])
+    labels = []
+    while any(isinstance(s, list) for s in leadsheet):
+        labels.append(get_labels(leadsheet))
+        leadsheet = flatten(leadsheet, 1)
+    labels.append([label_to_go_index(b) for b in leadsheet]) #add raw chords
+    labels.insert(0, list(repeat(0, len(labels[0]))))
+    return np.array(labels)
 
 def parse_section(name, leadsheet):
     value = leadsheet[name.replace('.','')]
@@ -99,9 +101,11 @@ def parse_section(name, leadsheet):
 def load_leadsheets(path, songs):
     leadsheets = []
     for s in songs:
+        print(s)
         with open(os.path.join(path, s+'.json')) as f:
             l = json.load(f)
             leadsheets.append(parse_section('_form', l))
+    print('DONE')
     return [to_hierarchy_labels(l) for l in leadsheets]
 
 #print(get_labels([[0,0],[1,2],[0,0],[5,5],[1,2],[0,0]]))

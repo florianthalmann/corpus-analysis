@@ -9,12 +9,12 @@ from corpus_analysis.alignment.affinity import get_alignment_segments, get_affin
 from corpus_analysis.alignment.multi_alignment import align_sequences
 from corpus_analysis.alignment.smith_waterman import smith_waterman
 from corpus_analysis.util import profile, plot_matrix, plot_hist, plot, buffered_run
-from corpus_analysis.hcomparison import get_relative_meet_triples, get_meet_matrix
+from corpus_analysis.structure.hcomparison import get_relative_meet_triples, get_meet_matrix
 from corpus_analysis.structure.structure import shared_structure, simple_structure,\
     illustrate_transitivity
 from corpus_analysis.structure.laplacian import laplacian_segmentation
 
-corpus = '../../FAST/fifteen-songs-dataset2/'
+corpus = '../fifteen-songs-dataset2/'
 audio = os.path.join(corpus, 'tuned_audio')
 features = os.path.join(corpus, 'features')
 leadsheets = os.path.join(corpus, 'leadsheets')
@@ -116,7 +116,7 @@ def evaluate_hierarchy(reference, estimate):
     sw = np.array(smith_waterman(reference[-1,:], estimate[-1,:])[0])
     #plot_matrix(segments_to_matrix([sw], (400,400)))
     print('smith waterman', len(sw))
-    ref, est = reference[:-1,sw[:,0]], estimate[:-1,sw[:,1]]
+    ref, est = reference[:,sw[:,0]], estimate[:,sw[:,1]]
     lm = lmeasure(get_intervals(ref), ref, get_intervals(est), est)
     print('raw lmeasure', lm)
     #rethink this multiplication...
@@ -128,7 +128,7 @@ def run():
     #plot_matrix(segments_to_matrix(mutuals[0]))
     #shared_structure(sequences, pairings, alignments, msa)
     #profile(lambda: shared_structure(sequences, sas, multinomial, msa))
-    groundtruth = load_leadsheets(leadsheets, songs[:4])
+    groundtruth = load_leadsheets(leadsheets, songs)
     print("ground", groundtruth[song_index])
     #plot_matrix(get_alignment_matrix(sequences[62], sequences[62],
     #    MIN_LEN, MIN_DIST, MAX_GAPS, MAX_GAP_RATIO), 's4.png')

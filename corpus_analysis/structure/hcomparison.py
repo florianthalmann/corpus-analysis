@@ -1,5 +1,5 @@
 import numpy as np
-from .util import plot_matrix
+from ..util import plot_matrix
 
 def get_meet_matrix(hlabels):
     matrix = np.zeros((len(hlabels), len(hlabels)), dtype=int)
