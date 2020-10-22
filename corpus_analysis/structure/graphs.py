@@ -9,7 +9,7 @@ from graph_tool.spectral import adjacency
 from graph_tool.inference.blockmodel import BlockState
 from graph_tool.topology import transitive_closure, all_paths, max_cliques
 from graph_tool.util import find_edge
-from util import group_adjacent, plot, plot_matrix
+from ..util import group_adjacent, plot, plot_matrix
 
 def adjacency_matrix(graph, weight=None):
     return adjacency(graph, weight).toarray().T
@@ -115,7 +115,7 @@ def integrate_segment_combos(seg_combos, incomp_segs):
                                     not any(len(snp.intersect(j, union)) > 1 for j in incomp_segs):
                                 positions[ukey] = len(sets)
                                 sets.append(union)
-                                subset_buffer[key] = np.array([], dtype=int)
+                                subset_buffer[ukey] = np.array([], dtype=int)
                                 #rating of union = sum - rating of intersection
                                 rating = max_rating+ratings[k]
                                 ikey = str(list(i))

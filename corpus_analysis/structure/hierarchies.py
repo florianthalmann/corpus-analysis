@@ -3,9 +3,9 @@ from functools import reduce
 from collections import OrderedDict, defaultdict
 import numpy as np
 import sortednp as snp
-from patterns import Pattern, segments_to_patterns, patterns_to_segments
-from alignment.affinity import segments_to_matrix
-from util import argmax, ordered_unique, plot_matrix, group_adjacent
+from .patterns import Pattern, segments_to_patterns, patterns_to_segments
+from ..alignment.affinity import segments_to_matrix
+from ..util import argmax, ordered_unique, plot_matrix, group_adjacent
 
 # filter and sort list of patterns based on given params
 def filter_and_sort_patterns(patterns, min_len=0, min_dist=0, refs=[], occs_length=False):
@@ -101,11 +101,12 @@ def merge_patterns(patterns):
                 p.p = -1 #mark for deletion
     return filter_and_sort_patterns([p for p in patterns if p.p >= 0]) #filter out marked
 
-def make_segments_hierarchical(segments, min_len, min_dist, path=None, size=None):
+def make_segments_hierarchical(segments, min_len, min_dist, size=None, path=None):
     patterns = segments_to_patterns(segments)
     # if path: plot_matrix(segments_to_matrix(patterns_to_segments(patterns), (size,size)), path+'t1.png')
     # print(patterns)
-    patterns = add_transitivity(patterns, 0.8)
+    #patterns = add_transitivity2(patterns)
+    patterns = add_transitivity(patterns, 0.9)
     # if path: plot_matrix(segments_to_matrix(patterns_to_segments(patterns), (size,size)), path+'t2.png')
     # print(patterns)
     patterns = merge_patterns(patterns)
@@ -114,9 +115,11 @@ def make_segments_hierarchical(segments, min_len, min_dist, path=None, size=None
     patterns = remove_overlaps(patterns, min_len, min_dist)
     # if path: plot_matrix(segments_to_matrix(patterns_to_segments(patterns), (size,size)), path+'t4.png')
     # print(patterns)
-    patterns = add_transitivity(patterns, 0.8)
+    #patterns = add_transitivity2(patterns)
+    patterns = add_transitivity(patterns, 0.9)
     # if path: plot_matrix(segments_to_matrix(patterns_to_segments(patterns), (size,size)), path+'t5.png')
     # print(patterns)
+    #plot_matrix(segments_to_matrix(patterns_to_segments(patterns), (size,size)))
     return patterns_to_segments(patterns)
 
 def get_most_frequent_pair(sequence, overlapping=False):

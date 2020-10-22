@@ -2,7 +2,7 @@ import os, csv, math, subprocess, json
 from itertools import repeat
 from collections import OrderedDict
 import numpy as np
-from util import load_json, flatten
+from .util import load_json, flatten
 
 def extract_essentia(path, outpath):
     if not os.path.isfile(outpath):

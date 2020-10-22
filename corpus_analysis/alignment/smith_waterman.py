@@ -19,6 +19,6 @@ def traceback(H):
     if H[i, j] == 0: return []
     return traceback(H[0:i, 0:j]) + [[i-1, j-1]]
 
-def smith_waterman(a, b, match_score=3, gap_cost=2):
+def smith_waterman(a, b, match_score=3, gap_cost=5):
     H = matrix(a, b, match_score, gap_cost)
-    return traceback(H)
+    return traceback(H), H
