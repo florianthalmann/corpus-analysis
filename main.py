@@ -116,7 +116,7 @@ def evaluate_hierarchy(reference, estimate):
     sw = np.array(smith_waterman(reference[-1,:], estimate[-1,:])[0])
     #plot_matrix(segments_to_matrix([sw], (400,400)))
     print('smith waterman', len(sw))
-    ref, est = reference[:,sw[:,0]], estimate[:,sw[:,1]]
+    ref, est = reference[:-1,sw[:,0]], estimate[:-1,sw[:,1]]
     lm = lmeasure(get_intervals(ref), ref, get_intervals(est), est)
     print('raw lmeasure', lm)
     #rethink this multiplication...
@@ -159,10 +159,10 @@ def run():
     #plot_matrix(groundtruth[0])
     #plot_matrix(structure)
     
-    # print("laplacian", evaluate_hierarchy(groundtruth[0], laplacian))
-    # print("improved", evaluate_hierarchy(groundtruth[0], structure))
-    # structure[-1] = sequences[I1]
-    # print("original", evaluate_hierarchy(groundtruth[0], structure))
+    print("laplacian", evaluate_hierarchy(groundtruth[0], laplacian))
+    print("improved", evaluate_hierarchy(groundtruth[0], structure))
+    structure[-1] = sequences[I1]
+    print("original", evaluate_hierarchy(groundtruth[0], structure))
     
     #print(evaluate_hierarchy(groundtruth[1], structure))
     
