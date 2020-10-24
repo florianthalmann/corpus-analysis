@@ -1,4 +1,3 @@
-import timeit
 import numpy as np
 from sklearn.metrics import pairwise_distances
 from .util import median_filter, symmetric
@@ -96,38 +95,47 @@ def move_before_shorter(l, i):
     j = next((k for k in range(i+1, len(l)) if len(a) < len(l[i])), len(l))
     l.insert(j, l.pop(i))
 
+def get_min_dist(s, refs, ref_locs, ref_starts, ref_ends):
+    dists = np.abs(ref_locs-(s[0][1]-s[0][0]))[
+        np.where(np.logical_and(s[-1][0]-ref_starts > 0, ref_ends-s[0][0] > 0))]
+    return np.min(dists) if len(refs) > 0 and len(dists) > 0 else 1
+
+#sort by length and minimum distance from refs
+def sort_segments(segments, refs):
+    ref_locs = np.array([r[0][1]-r[0][0] for r in refs])
+    ref_starts = np.array([r[0][0] for r in refs])
+    ref_ends = np.array([r[-1][0] for r in refs])
+    #min distance from ref segments that overlap with s
+    min_dist = lambda s: get_min_dist(s, refs, ref_locs, ref_starts, ref_ends)
+    return sorted(segments, key=lambda s: len(s)*min_dist(s), reverse=True)
+
 #removes the area of width 2*padding+1 around the given ref and rearranges
-def remove_filter_and_sort(segments, ref, padding, min_len):
-    #remove overlaps with areas around ref segment
-    if len(ref) > 0:
-        area = get_padded_area(ref, padding)
+def remove_filter_and_sort(segments, refs, padding, min_len):
+    #remove overlaps with areas around last added ref segment
+    if len(refs) > 0 and len(refs[-1]) > 0:
+        area = get_padded_area(refs[-1], padding)
         segments = [d for s in segments for d in difference2(s, area)]
-        # changed = [i for i in range(len(segments))
-        #     if len(nooverlaps[i]) >= min_len
-        #     and len(nooverlaps[i]) != len(segments[i])][::-1]
-        # [move_before_shorter(nooverlaps, i) for i in changed]
     #remove short segments
     segments = [s for s in segments if len(s) >= min_len]
-    segments = sorted(segments, key=lambda s: (len(s), max(s[0]), min(s[0])), reverse=True)
-    return segments
+    return sort_segments(segments, refs)
 
-def filter_segments(segments, min_len, min_dist, symmetric, shape):
+def filter_segments(segments, count, min_len, min_dist, symmetric, shape):
     padding = max(min_dist-1, 0)
-    segments = sorted(segments, key=lambda s: (len(s), max(s[0]), min(s[0])), reverse=True)
-    #remove area around diagonal if symmetric
-    diagonal = np.dstack((np.arange(shape[0]), np.arange(shape[0])))[0] \
-        if symmetric else np.array([])
-    diapad = max(padding, min_len-1)#too close to diagonal means small transl vecs
-    remaining = remove_filter_and_sort(segments, diagonal, diapad, min_len)
+    segments = sort_segments(segments, [])
     selected = []
+    #remove area around diagonal if symmetric
+    if symmetric: 
+        selected.append(np.dstack((np.arange(shape[0]), np.arange(shape[0])))[0])
+    diapad = max(padding, min_len-1)#too close to diagonal means small transl vecs
+    remaining = remove_filter_and_sort(segments, selected, diapad, min_len)
     #iteratively take longest segment and remove area around it
-    while len(remaining) > 0:
-        best = remaining.pop(0)
-        selected.append(best)
-        remaining = remove_filter_and_sort(remaining, best, padding, min_len)
-    return selected
+    while len(selected) < count and len(remaining) > 0:
+        selected.append(remaining.pop(0))
+        remaining = remove_filter_and_sort(remaining, selected, padding, min_len)
+    #print([(len(s), s[0][1]-s[0][0]) for s in selected])
+    return selected[1:] if symmetric else selected #remove diagonal if symmetric
 
-def get_alignment_segments(a, b, min_len, min_dist, max_gap_size, max_gap_ratio):
+def get_alignment_segments(a, b, count, min_len, min_dist, max_gap_size, max_gap_ratio):
     symmetric = np.array_equal(a, b)
     matrix, unsmoothed = get_affinity_matrix(a, b, True, max_gap_size, max_gap_ratio)
     if symmetric: matrix = np.triu(matrix)
@@ -137,7 +145,7 @@ def get_alignment_segments(a, b, min_len, min_dist, max_gap_size, max_gap_ratio)
     if max_gap_size > 0:
         segments = [s for s in segments
             if np.sum(unsmoothed[tuple(s.T)]) >= (1-max_gap_ratio)*len(s)]
-    return filter_segments(segments, min_len, min_dist, symmetric, matrix.shape)
+    return filter_segments(segments, count, min_len, min_dist, symmetric, matrix.shape)
 
 def segments_to_matrix(segments, shape=None, sum=False):
     points = np.concatenate(segments)

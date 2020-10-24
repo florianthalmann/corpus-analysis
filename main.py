@@ -10,8 +10,7 @@ from corpus_analysis.alignment.multi_alignment import align_sequences
 from corpus_analysis.alignment.smith_waterman import smith_waterman
 from corpus_analysis.util import profile, plot_matrix, plot_hist, plot, buffered_run
 from corpus_analysis.structure.hcomparison import get_relative_meet_triples, get_meet_matrix
-from corpus_analysis.structure.structure import shared_structure, simple_structure,\
-    illustrate_transitivity
+from corpus_analysis.structure.structure import shared_structure, simple_structure
 from corpus_analysis.structure.laplacian import laplacian_segmentation
 
 corpus = '../fifteen-songs-dataset2/'
@@ -24,11 +23,14 @@ with open(os.path.join(corpus, 'dataset.json')) as f:
 DATA = 'data/'
 BARS = False
 #alignment
+SEG_COUNT = 40
 MIN_LEN = 16
 MIN_DIST = 1 # >= 1
 MAX_GAPS = 4
 MAX_GAP_RATIO = .2
 NUM_MUTUAL = 0
+MIN_LEN2 = 20
+MIN_DIST2 = 4
 
 def get_subdirs(path):
     return [f.path for f in os.scandir(path) if f.is_dir()]
@@ -61,9 +63,13 @@ def plot_matrices(sequence):
     plot_matrix(matrix, 'results/aff'+str(MAX_GAPS))
     plot_matrix(matrix2, 'results/ali'+str(MAX_GAPS))
 
+def get_self_alignment(sequence):
+    return get_alignment_segments(sequence, sequence, SEG_COUNT,
+        MIN_LEN, MIN_DIST, MAX_GAPS, MAX_GAP_RATIO)
+
 def get_self_alignments(sequences):
-    return [get_alignment_segments(s, s, MIN_LEN, MIN_DIST, MAX_GAPS, MAX_GAP_RATIO)
-        for s in sequences]
+    with Pool(processes=12) as pool:
+        return pool.map(get_self_alignment, sequences)
 
 def get_random_pairings(length):
     perm = np.random.permutation(np.arange(length))
@@ -75,9 +81,13 @@ def get_pairings(sequences):
     return np.concatenate([get_random_pairings(len(sequences))
         for i in range(NUM_MUTUAL)])
 
+def get_mutual_alignment(pairing_n_sequences):
+    pairing, sequences = pairing_n_sequences
+    return get_alignment_segments(sequences[pairing[0]], sequences[pairing[1]],
+        SEG_COUNT, MIN_LEN, MIN_DIST, MAX_GAPS, MAX_GAP_RATIO)
+
 def get_mutual_alignments(sequences, pairings):
-    return [get_alignment_segments(sequences[p[0]], sequences[p[1]],
-        MIN_LEN, MIN_DIST, MAX_GAPS, MAX_GAP_RATIO) for p in pairings]
+    return [get_mutual_alignment((p, sequences)) for p in pairings]
 
 def plot_hists(alignment):
     points = [p for s in alignment
@@ -89,24 +99,30 @@ def plot_hists(alignment):
     plot_hist(dias, 'results/hist_dias4.png')
 
 def get_alignments(song):
-    sequences = buffered_run(DATA+song+'-chords.npy',
+    sequences = buffered_run(DATA+song+'-chords',
         lambda: get_sequences(song))
-    selfs = buffered_run(DATA+song+'-salign'+str(MAX_GAPS)+'_'+str(MAX_GAP_RATIO)
-        +'_'+str(MIN_LEN)+'_'+str(MIN_DIST)+'.npy',
-        lambda: get_self_alignments(sequences))
+    selfs = buffered_run(DATA+song+'-salign',
+        lambda: get_self_alignments(sequences),
+        [SEG_COUNT, MAX_GAPS, MAX_GAP_RATIO, MIN_LEN, MIN_DIST])
     if NUM_MUTUAL > 0:
-        pairings = buffered_run(DATA+song+'-pairs'+str(NUM_MUTUAL)+'.npy',
-            lambda: get_pairings(sequences, NUM_MUTUAL))
-        mutuals = buffered_run(DATA+song+'-malign'+str(MAX_GAPS)
-                +'_'+str(MAX_GAP_RATIO)+'_'+str(MIN_LEN)
-                +'_'+str(MIN_DIST)+'_'+str(NUM_MUTUAL)+'.npy',
-            lambda: get_mutual_alignments(sequences, pairings))
-    msa = buffered_run(DATA+song+'-msa.npy',
+        pairings = buffered_run(DATA+song+'-pairs',
+            lambda: get_pairings(sequences), [NUM_MUTUAL])
+        mutuals = buffered_run(DATA+song+'-malign',
+            lambda: get_mutual_alignments(sequences, pairings),
+            [SEG_COUNT, MAX_GAPS, MAX_GAP_RATIO, MIN_LEN, MIN_DIST, NUM_MUTUAL])
+    msa = buffered_run(DATA+song+'-msa',
         lambda: align_sequences(sequences)[0])
     selfp = np.stack((np.arange(len(sequences)), np.arange(len(sequences)))).T
     pairings = np.concatenate((selfp, pairings)) if NUM_MUTUAL > 0 else selfp
     alignments = np.concatenate((selfs, mutuals)) if NUM_MUTUAL > 0 else selfs
     return sequences, pairings, alignments, msa
+
+def get_simple_structures(song, sequences, alignments):
+    return buffered_run(DATA+song+'-structs',
+        lambda: [simple_structure(s, a, MIN_LEN2, MIN_DIST2)
+            for s,a in zip(sequences, alignments)],
+        [SEG_COUNT, MAX_GAPS, MAX_GAP_RATIO, MIN_LEN, MIN_DIST, NUM_MUTUAL,
+            MIN_LEN2, MIN_DIST2])
 
 def get_intervals(levels):
     ivls = lambda l: np.stack([np.arange(l), np.arange(l)+1]).T
@@ -124,8 +140,13 @@ def evaluate_hierarchy(reference, estimate):
 
 def run():
     song_index = 0
-    sequences, pairings, alignments, msa = get_alignments(songs[0])
-    #plot_matrix(segments_to_matrix(mutuals[0]))
+    sequences, pairings, alignments, msa = get_alignments(songs[song_index])
+    #print(len(np.concatenate(alignments[7])), len(np.concatenate(alignments[8])))
+    print(sorted([len(a) for a in alignments]))
+    #plot_matrix(segments_to_matrix(alignments[7]))
+    # plot_matrix(segments_to_matrix(
+    #     get_alignment_segments(sequences[7], sequences[7], SEG_COUNT, MIN_LEN, MIN_DIST, 4, .2),
+    #     (len(sequences[7]), len(sequences[7]))))
     #shared_structure(sequences, pairings, alignments, msa)
     #profile(lambda: shared_structure(sequences, sas, multinomial, msa))
     groundtruth = load_leadsheets(leadsheets, songs)
@@ -134,14 +155,15 @@ def run():
     #    MIN_LEN, MIN_DIST, MAX_GAPS, MAX_GAP_RATIO), 's4.png')
     #print("done")
     
-    I1, I2 = 56, 62
+    I1, I2 = 7, 62
     
     #print(sequences[I1][:100], groundtruth[song_index][3][:100])
     # plot_matrix(segments_to_matrix(
     #     [smith_waterman(sequences[I1], groundtruth[song_index][3])],
     #     (len(sequences[I1]), len(groundtruth[song_index][3]))))
     
-    structure = simple_structure(sequences[I1], alignments[I1])
+    structure = simple_structure(sequences[I1], alignments[I1], MIN_LEN2, MIN_DIST2)
+    #structs = get_simple_structures(songs[song_index], sequences[7:8], alignments[7:8])
     #print(structure[:,:30])
     
     #print(sequences[I1])
@@ -159,10 +181,10 @@ def run():
     #plot_matrix(groundtruth[0])
     #plot_matrix(structure)
     
-    print("laplacian", evaluate_hierarchy(groundtruth[0], laplacian))
-    print("improved", evaluate_hierarchy(groundtruth[0], structure))
-    structure[-1] = sequences[I1]
-    print("original", evaluate_hierarchy(groundtruth[0], structure))
+    # print("laplacian", evaluate_hierarchy(groundtruth[0], laplacian))
+    # print("improved", evaluate_hierarchy(groundtruth[0], structure))
+    # structure[-1] = sequences[I1]
+    # print("original", evaluate_hierarchy(groundtruth[0], structure))
     
     #print(evaluate_hierarchy(groundtruth[1], structure))
     

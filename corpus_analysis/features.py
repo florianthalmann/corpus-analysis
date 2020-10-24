@@ -101,11 +101,9 @@ def parse_section(name, leadsheet):
 def load_leadsheets(path, songs):
     leadsheets = []
     for s in songs:
-        print(s)
         with open(os.path.join(path, s+'.json')) as f:
             l = json.load(f)
             leadsheets.append(parse_section('_form', l))
-    print('DONE')
     return [to_hierarchy_labels(l) for l in leadsheets]
 
 #print(get_labels([[0,0],[1,2],[0,0],[5,5],[1,2],[0,0]]))

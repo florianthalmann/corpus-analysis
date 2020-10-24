@@ -48,7 +48,8 @@ def load_json(path):
     with open(path) as f:
         return json.load(f)
 
-def buffered_run(path, func):
+def buffered_run(name, func, params=[]):
+    path = name+'_'.join(str(p) for p in params)+'.npy'
     if os.path.isfile(path):
         return np.load(path, allow_pickle=True)
     data = func()
