@@ -27,7 +27,7 @@ def graph_from_matrix(matrix):
     return g
 
 def alignment_graph(lengths=[], pairings=[], alignments=[]):
-    print('making graph')
+    #print('making graph')
     g = Graph(directed=False)
     seq_index = g.new_vertex_property("int")
     time = g.new_vertex_property("int")
@@ -50,7 +50,7 @@ def alignment_graph(lengths=[], pairings=[], alignments=[]):
                 np.repeat(i, len(pairs)), seg_indices]).T,
                 eprops=[alm_index, seg_index])
     #g.add_edge_list([(b, a) for (a, b) in g.edges()])
-    print('created alignment graph', g)
+    #print('created alignment graph', g)
     #g = prune_isolated_vertices(g)
     #print('pruned alignment graph', g)
     #g = transitive_closure(g)
@@ -190,7 +190,7 @@ def clean_up(g, time, seg_index):
     #iteratively select best segment combination for remaining nodes
     sets, ratings = integrate_segment_combos(seg_combos, incompatible)
     best = list(sets[np.argmax(ratings)])
-    print(len(sets), np.max(ratings), best)
+    #print(len(sets), np.max(ratings), best)
     
     threshold = 0.1 #0.01 works well for first example....
     edges = g.get_edges([seg_index])
@@ -198,13 +198,13 @@ def clean_up(g, time, seg_index):
         involved_edges = edges[np.where(np.isin(edges[:,2], best))]
         involved_vertices = np.unique(np.concatenate(involved_edges[:,:2]))
         remaining_vertices = np.setdiff1d(g.get_vertices(), involved_vertices)
-        print(len(involved_vertices), len(remaining_vertices), len(seg_combos))
+        #print(len(involved_vertices), len(remaining_vertices), len(seg_combos))
         remaining_combos = [seg_combos[v] for v in remaining_vertices]
         
         sets, ratings = integrate_segment_combos(remaining_combos, incompatible)
         if len(ratings) > 0 and max(ratings) > threshold*g.num_edges():
             best = best + list(sets[np.argmax(ratings)])
-            print(len(sets), np.max(ratings), list(sets[np.argmax(ratings)]))
+            #print(len(sets), np.max(ratings), list(sets[np.argmax(ratings)]))
     
     #print(edges[:100])
     reduced = Graph(directed=False)
@@ -212,7 +212,7 @@ def clean_up(g, time, seg_index):
     edges = g.get_edges([seg_index])
     edges = edges[np.where(np.isin(edges[:,2], best))]
     reduced.add_edge_list(edges)
-    print(reduced)
+    #print(reduced)
     #plot_matrix(np.triu(adjacency_matrix(reduced)), "results/cleani2.png")
     #graph_draw(reduced, output_size=(1000, 1000), output="results/clean_up1.pdf")
     return reduced
@@ -235,7 +235,7 @@ def structure_graph(msa, alignment_graph, mask_threshold=.5):
     conn_matrix[np.where(conn_matrix < mask_threshold*max_conn)] = 0
     #create graph
     g = graph_from_matrix(conn_matrix)
-    print('created structure graph', g)
+    #print('created structure graph', g)
     return g, conn_matrix, matches
 
 def pattern_graph(sequences, pairings, alignments):

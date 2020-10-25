@@ -7,7 +7,6 @@ from .hierarchies import make_segments_hierarchical,\
 from ..util import plot_matrix, mode, profile
 
 def clean_up_alignment(sequence, self_alignment):
-    print('cleaning up')
     g, s, i, a, seg  = alignment_graph([len(sequence)], [[0, 0]], [self_alignment])
     g2 = clean_up(g, i, seg)
     #profile(lambda: clean_up(g, i, seg))

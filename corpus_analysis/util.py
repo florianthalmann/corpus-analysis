@@ -1,8 +1,13 @@
-import os, json, cProfile, math
+import os, json, cProfile, math, tqdm
 from functools import reduce
+from multiprocessing import Pool, cpu_count
 import numpy as np
 from matplotlib import pyplot as plt
 import seaborn as sns
+
+def multiprocess(title, func, data):
+    with Pool(processes=cpu_count()-1) as pool:
+        return list(tqdm.tqdm(pool.imap(func, data), total=len(data)))
 
 def flatten(array, iterations=math.inf):#iterations -1 is deep flatten
     if iterations >= 0 and isinstance(array, list):
