@@ -1,17 +1,19 @@
-import os, json, timeit, random
+import os, json, timeit, random, itertools
 import numpy as np
 from mir_eval.hierarchy import lmeasure
 from corpus_analysis.features import get_summarized_chords, to_multinomial, extract_essentia,\
-    load_leadsheets
+    load_leadsheets, get_summarized_chords2
 from corpus_analysis.alignment.affinity import get_alignment_segments, get_affinity_matrix,\
     get_alignment_matrix, segments_to_matrix
 from corpus_analysis.alignment.multi_alignment import align_sequences
 from corpus_analysis.alignment.smith_waterman import smith_waterman
 from corpus_analysis.util import profile, plot_matrix, plot_hist, plot,\
-    buffered_run, multiprocess
+    buffered_run, multiprocess, plot_graph
 from corpus_analysis.structure.hcomparison import get_relative_meet_triples, get_meet_matrix
 from corpus_analysis.structure.structure import shared_structure, simple_structure
-from corpus_analysis.structure.laplacian import laplacian_segmentation
+from corpus_analysis.structure.laplacian import laplacian_segmentation, segment_file
+from corpus_analysis.structure.graphs import graph_from_matrix, adjacency_matrix
+import graph_tool
 
 corpus = '../fifteen-songs-dataset2/'
 audio = os.path.join(corpus, 'tuned_audio')
@@ -31,13 +33,19 @@ MAX_GAP_RATIO = .2
 NUM_MUTUAL = 0
 MIN_LEN2 = 20
 MIN_DIST2 = 4
+L_MAX_GAPS = 4
+L_MAX_GAP_RATIO = .2
 
 SONGS = list(DATASET.keys())
 
-def extract_features_for_song(song):
+def get_paths(song):
     versions = list(DATASET[song].keys())
     audio_paths = [os.path.join(audio, song, v).replace('.mp3','.wav') for v in versions]
     feature_paths = [get_feature_path(song, v)+'_freesound.json' for v in versions]
+    return audio_paths, feature_paths
+
+def extract_features_for_song(song):
+    audio_paths, feature_paths = get_paths(song)
     [extract_essentia(a, p) for (a, p) in zip(audio_paths, feature_paths)]
 
 def extract_features():
@@ -109,19 +117,61 @@ def get_simple_structures(song, sequences, alignments):
         [SEG_COUNT, MAX_GAPS, MAX_GAP_RATIO, MIN_LEN, MIN_DIST, NUM_MUTUAL,
             MIN_LEN2, MIN_DIST2])
 
+def get_laplacian_structure(sequence):
+    affinity = get_affinity_matrix(sequence, sequence, True,
+        L_MAX_GAPS, L_MAX_GAP_RATIO)[0]
+    struct = laplacian_segmentation(affinity)
+    return np.append(struct, [sequence], axis=0)
+
+def get_laplacian_structures(song, sequences):
+    return buffered_run(DATA+song+'-lstructs',
+        lambda: multiprocess('laplacian structures', get_laplacian_structure,
+        sequences), [L_MAX_GAPS, L_MAX_GAP_RATIO])
+
+def get_orig_laplacian_struct(song_n_audio_n_version):
+    song, audio, version = song_n_audio_n_version
+    struct, beat_times = segment_file(audio)
+    chords = get_summarized_chords2(beat_times,
+        get_feature_path(song, version)+'_gochords.json')
+    return np.append(struct, [chords], axis=0)
+
+def get_orig_laplacian_structs(song):
+    audio_files = get_paths(song)[0]
+    versions = list(DATASET[song].keys())
+    return buffered_run(DATA+song+'-olstructs',
+        lambda: multiprocess('original laplacian structures', get_orig_laplacian_struct,
+        list(zip(itertools.repeat(song), audio_files, versions))), [])
+
 def get_intervals(levels):
     ivls = lambda l: np.stack([np.arange(l), np.arange(l)+1]).T
     return [ivls(len(l)) for l in levels]
 
-def evaluate_hierarchy(reference, estimate):
+def evaluate_hierarchy(reference_n_estimate):
+    reference, estimate = reference_n_estimate
     sw = np.array(smith_waterman(reference[-1,:], estimate[-1,:])[0])
     #plot_matrix(segments_to_matrix([sw], (400,400)))
-    print('smith waterman', len(sw))
+    #print('smith waterman', len(sw))
     ref, est = reference[:,sw[:,0]], estimate[:,sw[:,1]]
     lm = lmeasure(get_intervals(ref), ref, get_intervals(est), est)
-    print('raw lmeasure', lm)
+    #print('raw lmeasure', lm)
     #rethink this multiplication...
-    return lm[0]*len(sw)/len(reference[0]), lm[1]*len(sw)/len(estimate[0]), lm[2]
+    return lm#lm[0]*len(sw)/len(reference[0]), lm[1]*len(sw)/len(estimate[0]), lm[2]
+
+def evaluate_hierarchies(song, reference, estimates):
+    return buffered_run(DATA+song+'-eval',
+        lambda: multiprocess('evaluate hierarchies', evaluate_hierarchy,
+        [(reference, e) for e in estimates]), [SEG_COUNT, MAX_GAPS,
+            MAX_GAP_RATIO, MIN_LEN, MIN_DIST, NUM_MUTUAL, MIN_LEN2, MIN_DIST2])
+
+def evaluate_hierarchies2(song, reference, estimates):
+    return buffered_run(DATA+song+'-eval',
+        lambda: multiprocess('evaluate hierarchies', evaluate_hierarchy,
+        [(reference, e) for e in estimates]), [L_MAX_GAPS, L_MAX_GAP_RATIO])
+
+def evaluate_hierarchies3(song, reference, estimates):
+    return buffered_run(DATA+song+'-eval',
+        lambda: multiprocess('evaluate hierarchies', evaluate_hierarchy,
+        [(reference, e) for e in estimates]), [])
 
 ######################
 
@@ -165,7 +215,23 @@ def run():
     #     (len(sequences[I1]), len(groundtruth[song_index][3]))))
     
     #structure = simple_structure(sequences[I1], alignments[I1], MIN_LEN2, MIN_DIST2)
+    #print(str(sequences[7]))
+    # plot_matrix(segments_to_matrix(alignments[7],
+    #     (len(sequences[7]),len(sequences[7]))), 'z1m.png')
+
+    #simplify_graph(alignments[7], len(sequences[7]))
+    
     structs = get_simple_structures(SONGS[song_index], sequences, alignments)
+    lstructs = get_laplacian_structures(SONGS[song_index], sequences)
+    #print(segment_file(get_paths(SONGS[song_index])[0][0]).shape)
+    flstructs = get_orig_laplacian_structs(SONGS[song_index])
+    #print(type(structs), type(lstructs))
+    evals = evaluate_hierarchies(SONGS[song_index], groundtruth[song_index], structs)
+    levals = evaluate_hierarchies2(SONGS[song_index], groundtruth[song_index], lstructs)
+    print(np.mean(evals, axis=0), np.mean([s.shape[0] for s in structs]))
+    print(np.mean(levals, axis=0), np.mean([s.shape[0] for s in lstructs]))
+    flevals = evaluate_hierarchies3(SONGS[song_index], groundtruth[song_index], flstructs)
+    print(np.mean(flevals, axis=0), np.mean([s.shape[0] for s in flstructs]))
     #print(structure[:,:30])
     
     #print(sequences[I1])
@@ -173,9 +239,7 @@ def run():
     #plot_matrix(smith_waterman(groundtruth[0][-1,:], sequences[I1])[1], 'sw1.png')
     #plot_matrix(smith_waterman(groundtruth[0][-1,:], structure[-1,:])[1], 'sw2.png')
     
-    am = get_affinity_matrix(sequences[I1], sequences[I1], True, 0, 0)[0]
-    laplacian = laplacian_segmentation(am)
-    laplacian = np.append(laplacian, [sequences[I1]], axis=0)
+    
     
     #print('original', len(np.array(smith_waterman(groundtruth[0][-1,:], sequences[I1])[0])))
     #print('improved', len(np.array(smith_waterman(groundtruth[0][-1,:], structure[-1,:])[0])))

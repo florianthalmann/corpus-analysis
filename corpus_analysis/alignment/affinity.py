@@ -126,6 +126,7 @@ def filter_segments(segments, count, min_len, min_dist, symmetric, shape):
     #remove area around diagonal if symmetric
     if symmetric: 
         selected.append(np.dstack((np.arange(shape[0]), np.arange(shape[0])))[0])
+        count += 1
     diapad = max(padding, min_len-1)#too close to diagonal means small transl vecs
     remaining = remove_filter_and_sort(segments, selected, diapad, min_len)
     #iteratively take longest segment and remove area around it

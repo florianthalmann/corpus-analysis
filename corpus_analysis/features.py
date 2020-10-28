@@ -64,6 +64,10 @@ def summarize(feature, timepoints):
     modes = [np.argmax(get_overlaps(t, f_intervals)) for t in t_intervals]
     return np.array([feature[m][1] for m in modes], dtype=int)
 
+def get_summarized_chords2(beat_times, chordsFile):
+    chords = load_json(chordsFile)[0]
+    return summarize(chords, beat_times)
+
 def get_summarized_chords(beatsFile, chordsFile, bars=False):
     time = load_bars(beatsFile) if bars else load_beats(beatsFile)
     chords = load_json(chordsFile)[0]

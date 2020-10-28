@@ -4,6 +4,7 @@ from multiprocessing import Pool, cpu_count
 import numpy as np
 from matplotlib import pyplot as plt
 import seaborn as sns
+from graph_tool.all import graph_draw
 
 def multiprocess(title, func, data):
     with Pool(processes=cpu_count()-1) as pool:
@@ -40,6 +41,9 @@ def plot_hist(data, path=None, binwidth=1):
     plt.savefig(path, dpi=1000) if path else plt.show()
     plt.clf()
 
+def plot_graph(graph, path):
+    graph_draw(graph, output_size=(1000, 1000), output=path, bg_color=[1,1,1,1])
+
 def plot(data, path=None):
     plt.plot(data)
     plt.savefig(path, dpi=1000) if path else plt.show()
@@ -54,11 +58,18 @@ def load_json(path):
         return json.load(f)
 
 def buffered_run(name, func, params=[]):
-    path = name+'_'.join(str(p) for p in params)+'.npy'
-    if os.path.isfile(path):
-        return np.load(path, allow_pickle=True)
+    path = name+'_'.join(str(p) for p in params)+'.np'
+    if os.path.isfile(path+'y'):
+        return np.load(path+'y', allow_pickle=True)
+    elif os.path.isfile(path+'z'):
+        loaded = np.load(path+'z', allow_pickle=True)
+        return [loaded[f] for f in loaded.files]
     data = func()
-    np.save(path, data)
+    try:
+        np.save(path+'y', data)
+    except ValueError:
+        os.remove(path+'y')#empty file saved despite error
+        np.savez_compressed(path+'z', *data)
     return data
 
 def profile(func):
