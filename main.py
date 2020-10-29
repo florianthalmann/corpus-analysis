@@ -190,6 +190,37 @@ def plot_hists(alignment):
     dias = [s[0][1]-s[0][0] for s in alignment]
     plot_hist(dias, 'results/hist_dias4.png')
 
+def simplify_graph(alignment, length):
+    g = graph_from_matrix(segments_to_matrix(alignment, (length, length)))
+    print(g)
+    g = graph_tool.all.Graph(g=g, directed=True)
+    print(g)
+    g = graph_tool.topology.transitive_closure(g)
+    plot_matrix(adjacency_matrix(g), 'ztc.png')
+    # plot_graph(g, 'z1g.png')
+    # state = graph_tool.inference.minimize_blockmodel_dl(g)
+    # state.draw(vertex_fill_color=state.b, output_size=(1000, 1000), bg_color=[1,1,1,1],
+    #     output="z1bh.png")
+    cliques = list(graph_tool.topology.max_cliques(g))
+    cliques = [c for c in cliques if len(c) > 2]
+    incli = g.new_vertex_property("bool")
+    incli.a = np.isin(g.get_vertices(), np.concatenate(list(cliques)))
+    cli = g.new_vertex_property("int")
+    for i,c in enumerate(cliques):
+        cli.a[c] = i
+    print([c for c in cliques if 10 in c])
+    print(sorted(cliques, key=lambda c: len(c), reverse=True)[:10])
+    #g = graph_tool.all.GraphView(g, vfilt=incli)
+    
+    union = None
+    for c in enumerate(cliques):
+        incli.a = np.isin(g.get_vertices(), c)
+        subgraph = graph_tool.all.GraphView(g, vfilt=incli)
+        union = subgraph if not union else graph_tool.generation.graph_union(union, subgraph)
+    
+    graph_tool.all.graph_draw(union, vertex_fill_color=cli,
+        output_size=(1000, 1000), bg_color=[1,1,1,1], output='z1c2.png')
+
 def run():
     song_index = 0
     sequences, pairings, alignments, msa = get_alignments(SONGS[song_index])
@@ -219,20 +250,20 @@ def run():
     # plot_matrix(segments_to_matrix(alignments[7],
     #     (len(sequences[7]),len(sequences[7]))), 'z1m.png')
 
-    #simplify_graph(alignments[7], len(sequences[7]))
+    simplify_graph(alignments[7], len(sequences[7]))
     
-    structs = get_simple_structures(SONGS[song_index], sequences, alignments)
-    lstructs = get_laplacian_structures(SONGS[song_index], sequences)
-    #print(segment_file(get_paths(SONGS[song_index])[0][0]).shape)
-    flstructs = get_orig_laplacian_structs(SONGS[song_index])
-    #print(type(structs), type(lstructs))
-    evals = evaluate_hierarchies(SONGS[song_index], groundtruth[song_index], structs)
-    levals = evaluate_hierarchies2(SONGS[song_index], groundtruth[song_index], lstructs)
-    print(np.mean(evals, axis=0), np.mean([s.shape[0] for s in structs]))
-    print(np.mean(levals, axis=0), np.mean([s.shape[0] for s in lstructs]))
-    flevals = evaluate_hierarchies3(SONGS[song_index], groundtruth[song_index], flstructs)
-    print(np.mean(flevals, axis=0), np.mean([s.shape[0] for s in flstructs]))
-    #print(structure[:,:30])
+    # structs = get_simple_structures(SONGS[song_index], sequences, alignments)
+    # lstructs = get_laplacian_structures(SONGS[song_index], sequences)
+    # #print(segment_file(get_paths(SONGS[song_index])[0][0]).shape)
+    # flstructs = get_orig_laplacian_structs(SONGS[song_index])
+    # #print(type(structs), type(lstructs))
+    # evals = evaluate_hierarchies(SONGS[song_index], groundtruth[song_index], structs)
+    # levals = evaluate_hierarchies2(SONGS[song_index], groundtruth[song_index], lstructs)
+    # print(np.mean(evals, axis=0), np.mean([s.shape[0] for s in structs]))
+    # print(np.mean(levals, axis=0), np.mean([s.shape[0] for s in lstructs]))
+    # flevals = evaluate_hierarchies3(SONGS[song_index], groundtruth[song_index], flstructs)
+    # print(np.mean(flevals, axis=0), np.mean([s.shape[0] for s in flstructs]))
+    # #print(structure[:,:30])
     
     #print(sequences[I1])
     #print(structure[-1,:])
