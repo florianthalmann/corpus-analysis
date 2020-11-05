@@ -1,3 +1,4 @@
+import math
 import numpy as np
 from sklearn.metrics import pairwise_distances
 from .util import median_filter, symmetric
@@ -42,8 +43,16 @@ def get_equality(a, b):
 def get_affinity_matrix(a, b, equality, max_gaps, max_gap_ratio):
     symmetric = np.array_equal(a, b)
     #create affinity or equality matrix
-    matrix = get_equality(a, b) if equality \
-        else 1-pairwise_distances(a, b, metric="cosine")
+    if equality:
+        matrix = get_equality(a, b)
+    else:
+        matrix = 1-pairwise_distances(a, b, metric="cosine")
+        k = 1+5*int(math.log(len(matrix), 2))
+        conns = np.zeros(matrix.shape)
+        knn = [np.argpartition(m, -k)[-k:] for m in matrix]
+        for i,k in enumerate(knn):
+            conns[i][k] = 1
+        matrix = conns
     unsmoothed = matrix
     #only keep upper triangle in symmetric case
     if symmetric: matrix = np.triu(matrix, k=1)
@@ -129,10 +138,12 @@ def filter_segments(segments, count, min_len, min_dist, symmetric, shape):
         count += 1
     diapad = max(padding, min_len-1)#too close to diagonal means small transl vecs
     remaining = remove_filter_and_sort(segments, selected, diapad, min_len)
-    #iteratively take longest segment and remove area around it
-    while len(selected) < count and len(remaining) > 0:
-        selected.append(remaining.pop(0))
-        remaining = remove_filter_and_sort(remaining, selected, padding, min_len)
+    if count < len(remaining):
+        #iteratively take longest segment and remove area around it
+        while len(selected) < count and len(remaining) > 0:
+            selected.append(remaining.pop(0))
+            remaining = remove_filter_and_sort(remaining, selected, padding, min_len)
+    else: selected = remaining
     #print([(len(s), s[0][1]-s[0][0]) for s in selected])
     return selected[1:] if symmetric else selected #remove diagonal if symmetric
 
