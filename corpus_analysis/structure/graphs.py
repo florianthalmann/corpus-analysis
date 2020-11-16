@@ -1,5 +1,6 @@
 from itertools import product, chain, groupby
-from collections import Counter
+from functools import reduce
+from collections import Counter, OrderedDict
 import numpy as np
 import sortednp as snp
 from graph_tool.all import Graph, graph_draw, GraphView, edge_endpoint_property,\
@@ -15,9 +16,7 @@ def adjacency_matrix(graph, weight=None):
     return adjacency(graph, weight).toarray().T
 
 def prune_isolated_vertices(g):
-    not_isolated = g.new_vertex_property("bool")
-    not_isolated.a = g.get_total_degrees(g.get_vertices()) > 0
-    return GraphView(g, vfilt=not_isolated)
+    return GraphView(g, vfilt=g.get_total_degrees(g.get_vertices()) > 0)
 
 def graph_from_matrix(matrix):
     g = Graph(directed=False)
@@ -137,10 +136,7 @@ def get_incompatible_segs(g, seg_index, out_edges):
     incomp = list(filter(lambda f: not any(set(f) < set(g) for g in incomp), incomp))
     return [np.array(k) for k in incomp if len(k) > 1]
 
-#remove all alignments that are not reinforced by others from a simple a-graph
-def clean_up(g, time, seg_index):
-    #plot_matrix(np.triu(adjacency_matrix(g)), "results/clean0.png")
-    #graph_draw(g, output_size=(1000, 1000), output="results/clean_up0.pdf")
+def get_edge_combos(g):
     out_edges = [g.get_out_edges(v, [g.edge_index]) for v in g.get_vertices()]
     edge_combos = []
     #for each vertex find best combinations of neighbors 
@@ -169,20 +165,219 @@ def clean_up(g, time, seg_index):
             #    reduced.add_edge_list([(a,b) for i,a in enumerate(n) for b in n[i+1:]])
             #graph_draw(gg, vertex_text=g.vertex_index, output_size=(1000, 1000),
             #    output="results/clean_upp"+str(i)+".pdf")
+    return edge_combos
+
+def remove_subarrays(arrays, proper=True):
+    arrays = sorted(arrays, key=lambda a: len(a))
+    to_remove = []
+    for i,a in enumerate(arrays):
+        #bs = [b for b in arrays[i+1:] if len(b) < len(a)] if proper else arrays[i+1:]
+        for b in arrays[i+1:]:
+            if len(snp.intersect(a, b)) == len(a):
+                to_remove.append(i)
+    return [a for i,a in enumerate(arrays) if i not in to_remove]
+
+def is_subarray(array, arrays):
+    for a in arrays:
+        if len(snp.intersect(array, a)) == len(a):
+            return True
+    return False
+
+def sorted_unique(array):
+    return snp.merge(array, np.array([]), duplicates=snp.DROP)
+
+#no incompatible nodes
+def validate_quasi_clique(quasi_clique, validated, incomp):
+    if quasi_clique not in validated:
+        incomps = np.array([incomp[u] for u in quasi_clique])
+        validated[quasi_clique] = len(sorted_unique(incomps)) == len(incomps)
+
+#TODO change to breadth first and see... probably faster!
+def quasi_clique_expansions(quasi_cliques, cliques, incomp):
+    max_expansions = set()
+    temp_expansions = set([tuple(q) for q in quasi_cliques])
+    expanded = set()
+    valid = dict()
+    while len(temp_expansions) > 0:
+        current = temp_expansions.pop()
+        expanded.add(current)
+        new_expansions = set()
+        #partition cliques into compatible and incompatible?
+        #TODO NOT NECESSARY TO DO ALL!! ONLY CLIQUES THAT WERE NOT TRIED YET!
+        #keep index path for each in temp ([qc[i], c[j], c[k], ....])
+        #keep compatibility set for each in temp
+        #----------
+        #make pairwise comp graph for cs. possible combinations are max cliques.
+        #for each qc calculate comp with each c and take subgraph
+        unions = [tuple(snp.merge(np.array(current), c, duplicates=snp.DROP))
+            for c in cliques]
+        [validate_quasi_clique(u, valid, incomp) for u in unions]
+        new_expansions = [u for u in unions if valid[u] and len(u) > len(current)] #== len(current)+1
+        #append and remove all sub-quasi-cliques
+        if len(new_expansions) == 0:
+            max_expansions.add(current)
+        new_expansions = [e for e in new_expansions if e not in expanded]
+        temp_expansions.update(new_expansions)
+        #temp_expansions = remove_subarrays(temp_expansions)#<---------------
+    print(len(max_expansions), len(expanded), len(valid))
+    max_expansions = [np.array(e) for e in max_expansions]
+    #max_expansions = remove_subarrays(max_expansions)#<---------------
+    #print(len(max_expansions))
+    return max_expansions if len(max_expansions) > 1 else []
+
+def valid_combo(c1, c2, incomp):
+    combo = snp.merge(c1, c2, duplicates=snp.DROP)
+    incomps = np.array([incomp[u] for u in combo])
+    return len(sorted_unique(incomps)) == len(incomps)
+
+def quasi_clique_expansions2(quasi_cliques, cliques, incomp):
+    c_comps = np.array([[valid_combo(cliques[i], cliques[j], incomp)
+        if j > i else 0
+        for j in range(len(cliques))] for i in range(len(cliques))])
+    c_comp_graph = graph_from_matrix(c_comps)
+    max_expansions = set()
+    for q in quasi_cliques:
+        qcomps = np.array([valid_combo(q, cliques[i], incomp)
+            for i in range(len(cliques))])
+        if np.any(qcomps):
+            combos = list(max_cliques(GraphView(c_comp_graph, vfilt=qcomps > 0)))
+            combos = [[cliques[i] for i in c] for c in combos]
+            max_expansions.update([tuple(np.unique(np.concatenate([q]+co))) 
+                for co in combos])
+    return [np.array(m) for m in max_expansions] if len(max_expansions) > 1 else []
+
+#iteratively build all possible combinations of cliques while respecting incompatible nodes
+def maximal_quasi_cliques(cliques, incompatible):
+    #incomp = {n:i for i,ic in enumerate(incompatible) for n in ic}
+    incomp = np.zeros(max([n for ic in incompatible for n in ic])+1)
+    for i,ic in enumerate(incompatible):
+        for n in ic:
+            incomp[n] = i
+    max_size = max([len(c) for c in cliques])
+    quasi_cliques = []
+    #go through groups of cliques by size, start with largest cliques
+    for s in range(max_size, 2, -1):
+        #print("size", s)
+        s_cliques = [c for c in cliques if len(c) == s]
+        #print("s", [list(c) for c in s_cliques])
+        if len(quasi_cliques) == 0:
+            quasi_cliques = s_cliques
+        #merge cliques depth-first in all combinations until no longer possible
+        new_qcs = quasi_clique_expansions2(quasi_cliques, s_cliques, incomp)
+        #new_qcs = [q for qs in new_qcs for q in qs] #flatten
+        #append and remove all sub-quasi-cliques
+        quasi_cliques = remove_subarrays(quasi_cliques+new_qcs)
+        #print("num", len(quasi_cliques))
+        #print("q", [list(c) for c in quasi_cliques])
+    #print("q", len(quasi_cliques))
+    return quasi_cliques
+
+def get_edge_combos2(g):
+    out_edges = [g.get_out_edges(v, [g.edge_index]) for v in g.get_vertices()]
+    edge_combos = []
+    #for each vertex find best combinations of neighbors 
+    for v in g.get_vertices():#[49:50]:
+        n = sorted(g.get_out_neighbors(v))
+        #split into connected segments
+        #print(v, len(n))
+        combos = []
+        if len(n) > 0:
+            vs = np.array([v]+list(n))
+            adjacents = group_adjacent(vs)
+            indexes = {v:np.where(vs == v)[0][0] for v in vs}
+            filt = g.new_vertex_property("bool")
+            filt.a[vs] = True
+            gg = GraphView(g, vfilt=filt)
+            degs = gg.get_total_degrees(vs)
+            neighs = [gg.get_all_neighbors(v) for v in vs]
+            #ndegs = [np.mean(gg.get_total_degrees(gg.get_all_neighbors(v))) for v in vs]
+            cliques = [np.sort(c) for c in list(max_cliques(gg))]
+            qcs = maximal_quasi_cliques(cliques, adjacents)
+            if len(qcs) > 0:
+                ratings = []
+                edges_ids = []
+                for q in qcs:
+                    filt = g.new_vertex_property("bool")
+                    filt.a[q] = True
+                    ggg = GraphView(g, vfilt=filt)
+                    ratings.append(ggg.num_edges() / ggg.num_vertices())
+                    edges_ids.append(ggg.get_edges([g.edge_index])[:,2])
+                max_rating = max(ratings)
+                best = [q for i,q in enumerate(qcs) if ratings[i] == max_rating]
+                print(v, len(n), max_rating, len(best))
+                combos = edges_ids
+        edge_combos.append(combos)
+        #print([list(c) for c in best])
+        
+        #print(qcs)
+        #print(ndegs)
+        # graph_draw(gg, vertex_text=g.vertex_index, output_size=(1000, 1000),
+        #     output="estg.pdf")
+            
+            
+            # solutions = [np.array([v])]
+            # previous_best = -1
+            # best = 0
+            # while best > previous_best:
+            #     print("sol", solutions, best)
+            #     previous_best = best
+            #     for i,s in enumerate(solutions):
+            #         #TODO maybe connected to most, not all
+            #         #of nodes connected to all in s take most connected ones
+            #         #ONLY IF NOT IN SAME ADJ AS S
+            #         #candidates = snp.kway_intersect(*[neighs[indexes[n]] for n in s])
+            #         candidates = np.concatenate([a for a in adjacents
+            #             if len(snp.intersect(np.array(a), s)) == 0])
+            #         print("c", candidates)
+            #         cdegs = degs[np.array([indexes[n] for n in candidates])]
+            #         max_deg = np.max(cdegs)
+            #         most_conn = candidates[cdegs == max_deg]
+            #         print("c", most_conn)
+            #         #make solutions for each of them
+            #         filt = g.new_vertex_property("bool")
+            #         filt.a[np.concatenate([s, [most_conn[0]]])] = True
+            #         best = GraphView(g, vfilt=filt).num_edges()
+            #         print(best)
+            #         if best > previous_best:
+            #             solutions[i] = [np.sort(np.concatenate([s, np.array([n])]))
+            #                 for n in most_conn]
+            #     #flatten and keep unique
+            #     solutions = [t for s in solutions for t in s]
+            #     solutions = [np.array(s) for s in set(map(tuple, solutions))]
+            
+        #only keep unique
+            
+            
+            # #collect internal edges of subgraph
+            # vertices = [v]+list(c)
+            # edges = np.concatenate([out_edges[v] for v in vertices])
+            # shared = edges[np.where(np.isin(edges[:,1], vertices))]
+            # edge_combos[-1].append(sorted(shared[:,2]))
+    return edge_combos
+
+#remove all alignments that are not reinforced by others from a simple a-graph
+def clean_up(g, time, seg_index):
+    #plot_matrix(np.triu(adjacency_matrix(g)), "results/clean0.png")
+    #graph_draw(g, output_size=(1000, 1000), output="results/clean_up0.pdf")
+    out_edges = [g.get_out_edges(v, [g.edge_index]) for v in g.get_vertices()]
+    edge_combos = get_edge_combos2(g)
     
     #look for combos with highest number of edges and lowest number of segments
     seg_combos = []
     for ec in edge_combos:
-        max_num_edges = max([len(c) for c in ec])
-        largest_combos = [c for c in ec if len(c) == max_num_edges]
-        #convert to segment combos
-        segs = [np.unique(seg_index.a[lc]) for lc in largest_combos]
-        min_num_segs = min([len(s) for s in segs])
-        if min_num_segs > 0:
-            seg_combos.append([s for s in segs if len(s) == min_num_segs])
-        else:
-            seg_combos.append([])
+        current_sc = []
+        if len(ec) > 0:
+            max_num_edges = max([len(c) for c in ec])
+            largest_combos = [c for c in ec if len(c) == max_num_edges]
+            #convert to segment combos
+            segs = [np.unique(seg_index.a[lc]) for lc in largest_combos]
+            min_num_segs = min([len(s) for s in segs])
+            if min_num_segs > 0:
+                current_sc = [s for s in segs if len(s) == min_num_segs]
+        seg_combos.append(current_sc)
         #print(max_num_edges, min_num_segs)
+    
+    print([len(s) for s in seg_combos])
     
     incompatible = get_incompatible_segs(g, seg_index, out_edges)
     
