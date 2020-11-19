@@ -3,6 +3,8 @@ import numpy as np
 from collections import deque, defaultdict
 from functools import reduce
 
+#rewrite using numpy: https://core.ac.uk/download/pdf/288487378.pdf
+
 def merge_sorted_arrays(a1, a2):
     result = deque()
     a1 = deque(a1)

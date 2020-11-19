@@ -157,7 +157,8 @@ def get_alignment_segments(a, b, count, min_len, min_dist, max_gap_size, max_gap
     if max_gap_size > 0:
         segments = [s for s in segments
             if np.sum(unsmoothed[tuple(s.T)]) >= (1-max_gap_ratio)*len(s)]
-    return filter_segments(segments, count, min_len, min_dist, symmetric, matrix.shape)
+    return filter_segments(segments, count, min_len, min_dist, symmetric, matrix.shape) \
+        if 0 < count < len(segments) else segments
 
 def segments_to_matrix(segments, shape=None, sum=False):
     points = np.concatenate(segments)

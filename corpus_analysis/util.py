@@ -2,11 +2,13 @@ import os, json, cProfile, math, tqdm
 from functools import reduce
 from multiprocessing import Pool, cpu_count
 import numpy as np
+import pandas as pd
 from matplotlib import pyplot as plt
 import seaborn as sns
 from graph_tool.all import graph_draw
 
 def multiprocess(title, func, data):
+    print(title)
     with Pool(processes=cpu_count()-1) as pool:
         return list(tqdm.tqdm(pool.imap(func, data), total=len(data)))
 
@@ -14,6 +16,11 @@ def flatten(array, iterations=math.inf):#iterations -1 is deep flatten
     if iterations >= 0 and isinstance(array, list):
         return [b for a in array for b in flatten(a, iterations-1)]
     return [array]
+
+def group_by(array, labels=None):
+    if labels is None: labels = array
+    uniq = np.unique(labels)
+    return [array[labels == u] for u in uniq]
 
 def group_adjacent(numbers, max_dist=1):#groups adjacent numbers if within max_dist
     return np.array(reduce(
@@ -44,8 +51,25 @@ def plot_hist(data, path=None, binwidth=1):
 def plot_graph(graph, path):
     graph_draw(graph, output_size=(1000, 1000), output=path, bg_color=[1,1,1,1])
 
+def plot_sequences(sequences, path=None):
+    maxlen = max([len(s) for s in sequences])
+    minval = np.min(np.hstack(sequences))
+    #offset to 1 and pad with 0s
+    matrix = np.vstack([np.pad(s-minval+1, (0, maxlen-len(s))) for s in sequences])
+    hls = sns.color_palette("hls", np.max(matrix)+1)
+    hls[0] = (1,1,1)
+    sns.heatmap(matrix, xticklabels=False, yticklabels=False, cmap=hls)
+    plt.savefig(path, dpi=1000) if path else plt.show()
+    plt.clf()
+
 def plot(data, path=None):
     plt.plot(data)
+    plt.savefig(path, dpi=1000) if path else plt.show()
+    plt.clf()
+
+def boxplot(data, path=None):
+    pd.DataFrame(data).boxplot()
+    plt.tight_layout()
     plt.savefig(path, dpi=1000) if path else plt.show()
     plt.clf()
 

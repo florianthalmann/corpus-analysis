@@ -1,4 +1,4 @@
-import os, csv, math, subprocess, json
+import os, csv, math, subprocess, json, librosa
 from itertools import repeat
 from collections import OrderedDict
 import numpy as np
@@ -14,7 +14,7 @@ def extract_essentia(path, outpath):
 def load_beats(path):
     with open(path) as f:
         beats = list(csv.reader(f, delimiter='\t'))
-    return [float(b[0]) for b in beats]
+    return np.array([float(b[0]) for b in beats])
 
 def load_bars(path):
     with open(path) as f:
@@ -64,6 +64,10 @@ def summarize(feature, timepoints):
     modes = [np.argmax(get_overlaps(t, f_intervals)) for t in t_intervals]
     return np.array([feature[m][1] for m in modes], dtype=int)
 
+def get_beat_summary(feature, beatsFile, srate=22050, fsize=512):
+    beats = np.array(np.around(load_beats(beatsFile)*(srate/fsize)), dtype=int)
+    return librosa.util.sync(feature, beats)[:,1:]
+
 def get_summarized_chords2(beat_times, chordsFile):
     chords = load_json(chordsFile)[0]
     return summarize(chords, beat_times)
@@ -72,6 +76,16 @@ def get_summarized_chords(beatsFile, chordsFile, bars=False):
     time = load_bars(beatsFile) if bars else load_beats(beatsFile)
     chords = load_json(chordsFile)[0]
     return summarize(chords, time)
+
+def get_summarized_chroma(audioFile, beatsFile):
+    y, sr = librosa.load(audioFile)
+    chroma = librosa.feature.chroma_cqt(y, sr)
+    return get_beat_summary(chroma, bars, sr).T
+
+def get_summarized_mfcc(audioFile, beatsFile):
+    y, sr = librosa.load(audioFile)
+    mfcc = librosa.feature.mfcc(librosa.load(audioFile))
+    return get_beat_summary(chroma, bars, sr).T
 
 def to_multinomial(sequences):
     unique = np.unique(np.concatenate(sequences), axis=0)
