@@ -46,7 +46,8 @@ class Pattern:
         return np.unique(np.concatenate(self.get_t_limits()))
     
     def contains(self, other):
-        return len(np.setdiff1d(other.to_indices(), self.to_indices())) == 0
+        idc = self.to_indices()
+        return len(snp.intersection(other.to_indices(), idc)) == len(idc)
     
     def overlaps(self, other):
         #print(other.to_indices(), self.to_indices())
@@ -78,8 +79,12 @@ class Pattern:
         return min_dist_from_refs
     
     def first_occ_overlaps(self, other):
-        return len(snp.kway_intersect(np.arange(self.p, self.p+self.l),
+        return len(snp.intersect(np.arange(self.p, self.p+self.l),
             np.arange(other.p, other.p+other.l))) > 0
+    
+    def first_occ_contained(self, other):
+        return len(snp.intersect(np.arange(self.p, self.p+self.l),
+            np.arange(other.p, other.p+other.l))) == other.l
     
     #returns relative positions of occurrences of other in self where at least
     #the given proportion of other is in self

@@ -135,10 +135,10 @@ def filter_segments(segments, count, min_len, min_dist, symmetric, shape):
     #remove area around diagonal if symmetric
     if symmetric: 
         selected.append(np.dstack((np.arange(shape[0]), np.arange(shape[0])))[0])
-        count += 1
+        count = count+1 if count > 0 else count
     diapad = max(padding, min_len-1)#too close to diagonal means small transl vecs
     remaining = remove_filter_and_sort(segments, selected, diapad, min_len)
-    if count < len(remaining):
+    if 0 < count < len(remaining):
         #iteratively take longest segment and remove area around it
         while len(selected) < count and len(remaining) > 0:
             selected.append(remaining.pop(0))
@@ -157,8 +157,7 @@ def get_alignment_segments(a, b, count, min_len, min_dist, max_gap_size, max_gap
     if max_gap_size > 0:
         segments = [s for s in segments
             if np.sum(unsmoothed[tuple(s.T)]) >= (1-max_gap_ratio)*len(s)]
-    return filter_segments(segments, count, min_len, min_dist, symmetric, matrix.shape) \
-        if 0 < count < len(segments) else segments
+    return filter_segments(segments, count, min_len, min_dist, symmetric, matrix.shape)
 
 def segments_to_matrix(segments, shape=None, sum=False):
     points = np.concatenate(segments)
