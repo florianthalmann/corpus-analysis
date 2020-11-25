@@ -12,17 +12,16 @@ def remove_blocks(alignment, min_len):
     plot_matrix(matrix, 'blocks0.png')
     s = matrix.shape
     w = 5#int(min_len/2)
-    blocks = np.array([[
-        np.mean(matrix[max(0,i-w):min(s[0],i+w), max(0,j-w):min(s[1],j+w)])
+    blocks = np.array([[np.logical_or(
+        np.mean(matrix[i, j:min(s[1],j+w)]) == 1,
+        np.mean(matrix[i, max(0,j-w+1):j+1]) == 1)
         for j in range(s[1])] for i in range(s[0])])
     plot_matrix(blocks, 'blocks1.png')
-    blocks = blocks >= 0.5
-    plot_matrix(blocks, 'blocks2.png')
-    print(len(alignment))
-    block_segs = [a for a in alignment if np.mean(blocks[tuple(a.T)]) >= 0.8]
-    alignment = [a for a in alignment if np.mean(blocks[tuple(a.T)]) < 0.8]
-    print(len(alignment))
-    plot_matrix(segments_to_matrix(alignment, s), 'blocks0.8.png')
+    print('initial', len(alignment))
+    block_segs = [a for a in alignment if np.mean(blocks[tuple(a.T)]) >= 0.9]
+    alignment = [a for a in alignment if np.mean(blocks[tuple(a.T)]) < 0.9]
+    print('no blocks', len(alignment))
+    plot_matrix(segments_to_matrix(alignment, s), 'blocks0.9.png')
     return alignment, block_segs
 
 def clean_up_alignment(sequence, self_alignment):
@@ -32,16 +31,17 @@ def clean_up_alignment(sequence, self_alignment):
     return matrix_to_segments(np.triu(adjacency_matrix(g2)))
 
 def simple_structure(sequence, self_alignment, min_len, min_dist):
-    print(sequence)
-    #plot_matrix(segments_to_matrix(self_alignment, (len(sequence),len(sequence))), 'z4.png')
+    #print(sequence)
+    plot_matrix(segments_to_matrix(self_alignment, (len(sequence),len(sequence))), 'est1.png')
     #clean up and make transitive and hierarchical
     self_alignment, blocks = remove_blocks(self_alignment, min_len)
+    plot_matrix(segments_to_matrix(self_alignment, (len(sequence),len(sequence))), 'est2.png')
     #profile(lambda: clean_up_alignment(sequence, self_alignment))
-    
     self_alignment = clean_up_alignment(sequence, self_alignment)
-    #plot_matrix(segments_to_matrix(self_alignment, (len(sequence),len(sequence))), 'm2.png')
+    print('cleaned up', len(self_alignment))
+    plot_matrix(segments_to_matrix(self_alignment, (len(sequence),len(sequence))), 'est3.png')
     
-    hierarchy = make_segments_hierarchical(self_alignment, min_len, min_dist, len(sequence))#, 'yoyy')
+    hierarchy = make_segments_hierarchical(self_alignment, min_len, min_dist, len(sequence), 'est4')#, 'yoyy')
     #connected component labels for each position in sequence
     ag, s, i, a, seg = alignment_graph([len(sequence)], [[0, 0]], [hierarchy])
     comp_labels = component_labels(ag)
