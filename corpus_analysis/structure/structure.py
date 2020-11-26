@@ -5,7 +5,7 @@ from .graphs import alignment_graph, structure_graph, component_labels,\
     adjacency_matrix, graph_from_matrix, clean_up
 from .hierarchies import make_segments_hierarchical,\
     get_hierarchy_sections, get_hierarchy_labels
-from ..util import plot_matrix, mode, profile
+from ..util import plot_matrix, mode, profile, plot_sequences
 
 def remove_blocks(alignment, min_len):
     matrix = segments_to_matrix(alignment)
@@ -40,8 +40,9 @@ def simple_structure(sequence, self_alignment, min_len, min_dist):
     self_alignment = clean_up_alignment(sequence, self_alignment)
     print('cleaned up', len(self_alignment))
     plot_matrix(segments_to_matrix(self_alignment, (len(sequence),len(sequence))), 'est3.png')
-    
     hierarchy = make_segments_hierarchical(self_alignment, min_len, min_dist, len(sequence), 'est4')#, 'yoyy')
+    #put blocks back
+    hierarchy += blocks
     #connected component labels for each position in sequence
     ag, s, i, a, seg = alignment_graph([len(sequence)], [[0, 0]], [hierarchy])
     comp_labels = component_labels(ag)
@@ -49,9 +50,8 @@ def simple_structure(sequence, self_alignment, min_len, min_dist):
     comp_values = np.array([mode(sequence[np.where(comp_labels == l)])
         for l in range(np.max(comp_labels)+1)])
     improved_sequence = comp_values[comp_labels]
-    #print(improved_sequence)
-    #plot_matrix(np.vstack([comp_labels, sequence, improved_sequence]))
     labels = get_hierarchy_labels(comp_labels)
+    plot_sequences(labels, 'hierarchy62.png')
     return np.append(labels, [improved_sequence], axis=0)
     
     #plot_matrix(hierarchy)

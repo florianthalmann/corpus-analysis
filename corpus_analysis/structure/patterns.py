@@ -150,4 +150,5 @@ def seg_index_to_t_index(i, num_t):
 #print(Pattern(3, 4, [0,10,15]).contains(Pattern(3, 2, [0,10,18])))
 #print(Pattern(3, 4, [0,12,15]).distance(Pattern(5, 2, [0,0,25])))
 #print(Pattern(3, 4, [0,12,15]).divide_at_absolute(16))
+#print(Pattern(5, 10, [0,20]).divide_at_absolute(10))
 #print(Pattern(3, 4, [0,12,15]).internal_positions(Pattern(5, 2, [0,0,25])))

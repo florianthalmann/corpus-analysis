@@ -143,7 +143,7 @@ def filter_segments(segments, count, min_len, min_dist, symmetric, shape):
         while len(selected) < count and len(remaining) > 0:
             selected.append(remaining.pop(0))
             remaining = remove_filter_and_sort(remaining, selected, padding, min_len)
-    else: selected = remaining
+    else: selected += remaining
     #print([(len(s), s[0][1]-s[0][0]) for s in selected])
     return selected[1:] if symmetric else selected #remove diagonal if symmetric
 
