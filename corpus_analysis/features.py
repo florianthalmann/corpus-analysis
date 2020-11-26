@@ -11,6 +11,23 @@ def extract_essentia(path, outpath):
         subprocess.call(['essentia_streaming_extractor_freesound', path, outpath],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
+def extract_chords(path, outpath=None):
+    audioFile = '/'.join(path.split('/')[-1:])
+    audioPath = '/'.join(path.split('/')[:-1])
+    if not outpath: outpath = audioPath
+    featureOutFile = outpath + '.'.join(audioFile.split('.')[:-1])+'_chords.json'
+    pipe = subprocess.Popen(('echo', '-n', '/srv/'+audioFile), stdout=subprocess.PIPE)
+    subprocess.call(['docker run --rm -i -v "'+audioPath+':/srv"'
+        +' audiocommons/faas-confident-chord-estimator python3 index.py > "'
+        +featureOutFile+'"'], shell=True, stdin=pipe.stdout)
+
+def extract_bars(path, outpath=None):
+    if not outpath: outpath = '/'.join(path.split('/')[:-1])
+    audioFile = '/'.join(path.split('/')[-1:])
+    featureOutFile = outpath + '.'.join(audioFile.split('.')[:-1])+'_bars.txt'
+    subprocess.call('DBNDownbeatTracker single -o "'+featureOutFile+'" "'+path+'"',
+        shell=True)
+
 def load_beats(path):
     with open(path) as f:
         beats = list(csv.reader(f, delimiter='\t'))
@@ -80,12 +97,12 @@ def get_summarized_chords(beatsFile, chordsFile, bars=False):
 def get_summarized_chroma(audioFile, beatsFile):
     y, sr = librosa.load(audioFile)
     chroma = librosa.feature.chroma_cqt(y, sr)
-    return get_beat_summary(chroma, bars, sr).T
+    return get_beat_summary(chroma, beatsFile, sr).T
 
 def get_summarized_mfcc(audioFile, beatsFile):
     y, sr = librosa.load(audioFile)
     mfcc = librosa.feature.mfcc(librosa.load(audioFile))
-    return get_beat_summary(chroma, bars, sr).T
+    return get_beat_summary(chroma, beatsFile, sr).T
 
 def to_multinomial(sequences):
     unique = np.unique(np.concatenate(sequences), axis=0)

@@ -40,14 +40,14 @@ def get_equality(a, b):
         return np.all(a[:, None] == b[None, :], axis=2).astype(int)
     return a[:, None] == b[None, :]
 
-def get_affinity_matrix(a, b, equality, max_gaps, max_gap_ratio):
+def get_affinity_matrix(a, b, equality, max_gaps, max_gap_ratio, K_FACTOR=10):
     symmetric = np.array_equal(a, b)
     #create affinity or equality matrix
     if equality:
         matrix = get_equality(a, b)
     else:
         matrix = 1-pairwise_distances(a, b, metric="cosine")
-        k = 1+5*int(math.log(len(matrix), 2))
+        k = 1+K_FACTOR*int(math.log(len(matrix), 2))
         conns = np.zeros(matrix.shape)
         knn = [np.argpartition(m, -k)[-k:] for m in matrix]
         for i,k in enumerate(knn):
@@ -149,7 +149,8 @@ def filter_segments(segments, count, min_len, min_dist, symmetric, shape):
 
 def get_alignment_segments(a, b, count, min_len, min_dist, max_gap_size, max_gap_ratio):
     symmetric = np.array_equal(a, b)
-    matrix, unsmoothed = get_affinity_matrix(a, b, True, max_gap_size, max_gap_ratio)
+    equality = type(a[0][0]) == int
+    matrix, unsmoothed = get_affinity_matrix(a, b, equality, max_gap_size, max_gap_ratio)
     if symmetric: matrix = np.triu(matrix)
     segments = matrix_to_segments(matrix)
     #keep only segments longer than min_len and with a gap ratio below max_gap_ratio
