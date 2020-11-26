@@ -149,7 +149,7 @@ def filter_segments(segments, count, min_len, min_dist, symmetric, shape):
 
 def get_alignment_segments(a, b, count, min_len, min_dist, max_gap_size, max_gap_ratio):
     symmetric = np.array_equal(a, b)
-    equality = type(a[0][0]) == int
+    equality = issubclass(a.dtype.type, np.integer)
     matrix, unsmoothed = get_affinity_matrix(a, b, equality, max_gap_size, max_gap_ratio)
     if symmetric: matrix = np.triu(matrix)
     segments = matrix_to_segments(matrix)

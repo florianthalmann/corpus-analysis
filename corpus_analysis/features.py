@@ -15,18 +15,20 @@ def extract_chords(path, outpath=None):
     audioFile = '/'.join(path.split('/')[-1:])
     audioPath = '/'.join(path.split('/')[:-1])
     if not outpath: outpath = audioPath
-    featureOutFile = outpath + '.'.join(audioFile.split('.')[:-1])+'_chords.json'
-    pipe = subprocess.Popen(('echo', '-n', '/srv/'+audioFile), stdout=subprocess.PIPE)
-    subprocess.call(['docker run --rm -i -v "'+audioPath+':/srv"'
-        +' audiocommons/faas-confident-chord-estimator python3 index.py > "'
-        +featureOutFile+'"'], shell=True, stdin=pipe.stdout)
+    outFile = outpath + '.'.join(audioFile.split('.')[:-1])+'_chords.json'
+    if not os.path.isfile(outFile):
+        pipe = subprocess.Popen(('echo', '-n', '/srv/'+audioFile), stdout=subprocess.PIPE)
+        subprocess.call(['docker run --rm -i -v "'+audioPath+':/srv"'
+            +' audiocommons/faas-confident-chord-estimator python3 index.py > "'
+            +outFile+'"'], shell=True, stdin=pipe.stdout)
 
 def extract_bars(path, outpath=None):
     if not outpath: outpath = '/'.join(path.split('/')[:-1])
     audioFile = '/'.join(path.split('/')[-1:])
-    featureOutFile = outpath + '.'.join(audioFile.split('.')[:-1])+'_bars.txt'
-    subprocess.call('DBNDownbeatTracker single -o "'+featureOutFile+'" "'+path+'"',
-        shell=True)
+    outFile = outpath + '.'.join(audioFile.split('.')[:-1])+'_bars.txt'
+    if not os.path.isfile(outFile):
+        subprocess.call('DBNDownbeatTracker single -o "'+outFile+'" "'+path+'"',
+            shell=True)
 
 def load_beats(path):
     with open(path) as f:
@@ -85,13 +87,20 @@ def get_beat_summary(feature, beatsFile, srate=22050, fsize=512):
     beats = np.array(np.around(load_beats(beatsFile)*(srate/fsize)), dtype=int)
     return librosa.util.sync(feature, beats)[:,1:]
 
+def load_chords(chordsFile):
+    chords = load_json(chordsFile)
+    if "chordSequence" in chords:
+        return [[c["start"], label_to_go_index(c["label"])]
+            for c in chords["chordSequence"]]
+    else: return chords[0]
+
 def get_summarized_chords2(beat_times, chordsFile):
-    chords = load_json(chordsFile)[0]
+    chords = load_chords(chordsFile)
     return summarize(chords, beat_times)
 
 def get_summarized_chords(beatsFile, chordsFile, bars=False):
     time = load_bars(beatsFile) if bars else load_beats(beatsFile)
-    chords = load_json(chordsFile)[0]
+    chords = load_chords(chordsFile)
     return summarize(chords, time)
 
 def get_summarized_chroma(audioFile, beatsFile):
