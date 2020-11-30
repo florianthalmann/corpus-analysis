@@ -103,6 +103,9 @@ def get_summarized_chords(beatsFile, chordsFile, bars=False):
     chords = load_chords(chordsFile)
     return summarize(chords, time)
 
+def get_duration(chordsFile):
+    return load_json(chordsFile)["duration"]
+
 def get_summarized_chroma(audioFile, beatsFile):
     y, sr = librosa.load(audioFile)
     chroma = librosa.feature.chroma_cqt(y, sr)

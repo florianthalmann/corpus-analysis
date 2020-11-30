@@ -26,16 +26,21 @@ def filter_and_sort_patterns(patterns, min_len=0, min_dist=0, refs=[], occs_leng
 
 # removes any pattern overlaps, starting with longest pattern,
 # adjusting shorter ones to fit within limits
-def remove_overlaps(patterns, min_len, min_dist):
+def remove_overlaps(patterns, min_len, min_dist, size):
     result = []
     patterns = filter_and_sort_patterns(patterns, min_len, min_dist, result, True)
+    i = 0
     while len(patterns) > 0:
         next = patterns.pop(0)
+        #print(next)
         result.append(next)
+        #plot_matrix(segments_to_matrix(patterns_to_segments(result), (size,size)), 'olap'+str(i)+'.png')
         new_boundaries = next.to_boundaries()
+        #print(new_boundaries)
         for b in new_boundaries:
             patterns = [q for p in patterns for q in p.divide_at_absolute(b)]
         patterns = filter_and_sort_patterns(patterns, min_len, min_dist, result, True)
+        i += 1
     return result
 
 def add_transitivity(patterns, proportion=1):
@@ -49,6 +54,7 @@ def add_transitivity(patterns, proportion=1):
             p.add_new_translations(new_t)
     return list(OrderedDict.fromkeys(patterns)) #unique patterns
 
+#adds transitivity for full or partial overlaps
 def add_transitivity2(patterns):
     patterns = filter_and_sort_patterns(patterns)
     new_patterns = []
@@ -91,6 +97,19 @@ def remove_dense_areas(patterns, min_dist=1):
                     q.t = snp.intersect(q.t, sparse)
     return filter_and_sort_patterns([p for p in patterns if len(p.t) > 1])#filter out rudiments
 
+def integrate_patterns(patterns):
+    to_del = []
+    for i,p in enumerate(patterns):
+        for q in patterns[:i]:
+            if q.first_occ_contained(p):
+                if q.l == p.l: #p can be removed
+                    q.t = np.unique(np.concatenate([q.t, p.t]))
+                    to_del.append(i)
+                else: #p is updated with ts of q
+                    p.t = np.unique(np.concatenate([q.t, p.t]))
+    patterns = [p for i,p in enumerate(patterns) if i not in to_del]
+    return filter_and_sort_patterns(patterns)
+
 def merge_patterns(patterns):
     for i,p in enumerate(patterns):
         for q in patterns[:i]:
@@ -102,25 +121,27 @@ def merge_patterns(patterns):
     return filter_and_sort_patterns([p for p in patterns if p.p >= 0]) #filter out marked
 
 def make_segments_hierarchical(segments, min_len, min_dist, size=None, path=None):
-    patterns = segments_to_patterns(segments)
-    # if path: plot_matrix(segments_to_matrix(patterns_to_segments(patterns), (size,size)), path+'t1.png')
-    # print(patterns)
+    patterns = filter_and_sort_patterns(segments_to_patterns(segments))
+    if path: plot_matrix(segments_to_matrix(patterns_to_segments(patterns), (size,size)), path+'t1.png')
+    #print(patterns)
     #patterns = add_transitivity2(patterns)
-    patterns = add_transitivity(patterns, 0.9)
-    # if path: plot_matrix(segments_to_matrix(patterns_to_segments(patterns), (size,size)), path+'t2.png')
-    # print(patterns)
+    #patterns = add_transitivity(patterns, 1)#0.9)
+    patterns = integrate_patterns(patterns)
+    if path: plot_matrix(segments_to_matrix(patterns_to_segments(patterns), (size,size)), path+'t2.png')
+    #print(patterns)
     patterns = merge_patterns(patterns)
-    # if path: plot_matrix(segments_to_matrix(patterns_to_segments(patterns), (size,size)), path+'t3.png')
-    # print(patterns)
-    patterns = remove_overlaps(patterns, min_len, min_dist)
-    # if path: plot_matrix(segments_to_matrix(patterns_to_segments(patterns), (size,size)), path+'t4.png')
-    # print(patterns)
+    if path: plot_matrix(segments_to_matrix(patterns_to_segments(patterns), (size,size)), path+'t3.png')
+    #print(patterns)
+    patterns = remove_overlaps(patterns, min_len, min_dist, size)
+    if path: plot_matrix(segments_to_matrix(patterns_to_segments(patterns), (size,size)), path+'t4.png')
+    #print(patterns)
     #patterns = add_transitivity2(patterns)
-    patterns = add_transitivity(patterns, 0.9)
-    # if path: plot_matrix(segments_to_matrix(patterns_to_segments(patterns), (size,size)), path+'t5.png')
-    # print(patterns)
+    patterns = add_transitivity(patterns, 1)#0.9)
+    if path: plot_matrix(segments_to_matrix(patterns_to_segments(patterns), (size,size)), path+'t5.png')
+    #print(patterns)
     #plot_matrix(segments_to_matrix(patterns_to_segments(patterns), (size,size)))
-    return patterns_to_segments(patterns)
+    #only return segments that fit into size (transitivity proportion < 1 can introduce artifacts)
+    return [s for s in patterns_to_segments(patterns) if np.max(s) < size]
 
 def get_most_frequent_pair(sequence, overlapping=False):
     pairs = np.dstack([sequence[:-1], sequence[1:]])[0]
@@ -161,9 +182,22 @@ def flatten(hierarchy):
         return [a for h in hierarchy for a in flatten(h)]
     return [hierarchy]
 
-#groupings on top
-def to_labels(sequence, sections):
+def reindex(array):
+    uniques = np.unique(array)
+    new_ids = np.zeros(np.max(uniques)+1, dtype=array.dtype)
+    for i,u in enumerate(uniques):
+        new_ids[u] = i
+    return new_ids[array]
+
+def pad(array, value, target_length, left=True):
+    width = target_length-len(array)
+    width = (width if left else 0, width if not left else 0)
+    return np.pad(array, width, constant_values=(value, value))
+
+#only packToBottom=False really makes sense. otherwise use to_labels2
+def to_labels(sequence, sections, packToBottom=False):
     layers = []
+    #iteratively replace sections and stack into layers
     section_lengths = {k:len(flatten((to_hierarchy(np.array([k]), sections))))
         for k in sections.keys()}
     while len(np.intersect1d(sequence, list(sections.keys()))) > 0:
@@ -172,16 +206,44 @@ def to_labels(sequence, sections):
         sequence = np.concatenate([sections[s]
             if s in sections else [s] for s in sequence])
     layers.append(sequence)
-    return np.dstack(layers)[0]
+    #add overarching main section
+    layers.insert(0, [max(list(sections.keys()))+1] * len(sequence))
+    #pack to bottom or top and remove leaf sequence values
+    labels = np.array(layers).T
+    uniques = [ordered_unique(l)[:-1] for l in labels]
+    num_levels = labels.shape[1]-1
+    labels = np.array([pad(uniques[i],
+        uniques[i][0] if packToBottom else uniques[i][-1],
+        num_levels, packToBottom) for i,l in enumerate(labels)])
+    #back to layers and reindex
+    return reindex(labels.T)
 
-#leaves at bottom
+def replace_lowest_level(hierarchy, sections):
+    return [h if isinstance(h, int) else
+        sections[tuple(h)] if all([isinstance(e, int) for e in h])
+        else replace_lowest_level(h, sections) for h in hierarchy]
+
 def to_labels2(sequence, sections):
-    labels = to_labels(sequence, sections)
-    numlevels = labels.shape[1]
+    hierarchy = to_hierarchy(sequence, sections)
+    section_lengths = {k:len(flatten((to_hierarchy(np.array([k]), sections))))
+        for k in sections.keys()}
+    sections_ids = {tuple(v):k for k,v in sections.items()}
+    layers = []
+    layers.append(np.array(flatten(hierarchy)))
+    while not all([isinstance(h, int) for h in hierarchy]):
+        hierarchy = replace_lowest_level(hierarchy, sections_ids)
+        layers.insert(0, np.concatenate([np.repeat(h, section_lengths[h])
+            if h in sections else [h] for h in flatten(hierarchy)]))
+    #add overarching main section
+    layers.insert(0, np.repeat(max(list(sections.keys()))+1, len(layers[0])))
+    print(np.array(layers).shape)
+    #replace sequence-level labels
+    labels = np.array(layers).T
     uniques = [ordered_unique(l) for l in labels]
-    main = np.max(sequence)+1#overarching main section
-    return np.array([np.hstack([[main], np.repeat(u[0], numlevels-len(u)), u])
-        for u in uniques]).T
+    labels = np.array([[uniques[i][-2] if u == uniques[i][-1] else u for u in l]
+        for i,l in enumerate(labels)])
+    #back to layers and reindex
+    return reindex(labels.T[:-1])
 
 def to_sections(sections):
     sections = []
@@ -195,6 +257,7 @@ def to_sections(sections):
     return sections
 
 def build_hierarchy_bottom_up(sequence):
+    sequence = np.copy(sequence)
     pair = get_most_frequent_pair(sequence)
     next_index = int(np.max(sequence)+1)
     sections = dict()
@@ -229,7 +292,8 @@ def build_hierarchy_bottom_up(sequence):
             sequence = np.delete(sequence, g[1:])
             next_index += 1
     #make hierarchy
-    #print(to_hierarchy(sequence, sections))
+    print(sections)
+    print(to_hierarchy(sequence, sections))
     return sequence, sections
 
 def get_hierarchy(sequence):
@@ -251,3 +315,4 @@ def get_hierarchy_sections(sequence):
 # remove_overlaps([Pattern(2, 4, [0,10,30]), Pattern(1, 3, [0,10,18])], 0, 1)
 # remove_overlaps([Pattern(31, 71, [0, 92, 260, 350]), Pattern(196, 95, [0, 256]),
 #     Pattern(16, 15, [0, 260, 516]), Pattern(86, 16, [0, 92, 348])], 0, 3)
+# print(reindex(np.array([3,1,5])))

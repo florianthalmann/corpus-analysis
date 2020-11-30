@@ -57,7 +57,7 @@ def plot_sequences(sequences, path=None):
     #offset to 1 and pad with 0s
     matrix = np.vstack([np.pad(s-minval+1, (0, maxlen-len(s))) for s in sequences])
     hls = sns.color_palette("hls", np.max(matrix)+1)
-    hls[0] = (1,1,1)
+    if np.min(matrix) == 0: hls[0] = (1,1,1)
     sns.heatmap(matrix, xticklabels=False, yticklabels=False, cmap=hls)
     plt.savefig(path, dpi=1000) if path else plt.show()
     plt.clf()
