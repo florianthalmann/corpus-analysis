@@ -14,10 +14,12 @@ def frequency_histogram(sequence, num_bins, relative):
 
 def to_uniq_ids(sequences):
     sequences = [s[:,None] if s.ndim == 1 else s for s in sequences]
-    uniq = np.unique(np.concatenate([s for s in sequences if len(s) > 0]), axis=0)
-    to_index = {tuple(u):i for i,u in enumerate(uniq)}
-    index_seqs = [np.array([to_index[tuple(p)] for p in ps]) for ps in sequences]
-    return index_seqs, len(uniq)
+    if any(len(s) > 0 for s in sequences):
+        uniq = np.unique([e for s in sequences for e in s], axis=0)
+        to_index = {tuple(u):i for i,u in enumerate(uniq)}
+        index_seqs = [np.array([to_index[tuple(p)] for p in ps]) for ps in sequences]
+        return index_seqs, len(uniq)
+    return sequences, 0
 
 def frequency_histograms(sequences, relative):
     idseqs, num_ids = to_uniq_ids(sequences)
@@ -50,5 +52,7 @@ def trans_hist_clusters(sequences, relative=True):
 def freq_trans_hist_clusters(sequences, relative=True):
     return clusters(freq_trans_hists(sequences, relative))
 
+# print(freq_trans_hists([np.array([2,2,2,2]),np.array([1,1,1,1]),
+#      np.array([3,3])], True))
 # freq_trans_hists([np.array([1,2,1,2,2,1,1,2,1]),np.array([1,2,3,1,2]),
 #     np.array([2,2,2])], True)
