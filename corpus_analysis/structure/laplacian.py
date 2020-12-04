@@ -193,16 +193,20 @@ def reindex(hierarchy):
 
     return new_hier
 
+#convert into levels where each segment has granularity 1 (so it can be aligned with other hierarchies)
 def to_levels(segmentations, length):
     levels = []
     for s in segmentations:
         if len(s[0]) > 0:
             levels.append(np.concatenate(
                 [np.repeat(int(seg[1]), seg[0][1]-seg[0][0]) for seg in zip(*s)]))
-    levels.insert(0, np.repeat(0, len(levels[0])))
+    #not needed... levels.insert(0, np.repeat(0, len(levels[0])))
     #add padding due to method yielding incomplete levels
-    levels = [np.concatenate([l, np.repeat(0, length-len(l))]) for l in levels]
+    #levels = [np.concatenate([l, np.repeat(-1, length-len(l))]) for l in levels]
     return np.array(levels)
+
+def add_beat_times(idseg, times):
+    return [(np.array([[times[i], times[j]] for (i,j) in l[0]]), l[1]) for l in idseg]
 
 def segment_file(filename):
     #print('Loading {}'.format(filename))
@@ -223,7 +227,8 @@ def segment_file(filename):
         segmentations.append(cluster(embedding, Cnorm, k))
 
     #print('done.')
-    return to_levels(reindex(segmentations), len(beat_times)), beat_times
+    #return to_levels(reindex(segmentations), len(beat_times)), beat_times
+    return tuple(zip(*add_beat_times(reindex(segmentations), beat_times)))
 
 def laplacian_segmentation(matrix):#pass in an affinity matrix
     matrix = np.matrix(matrix, dtype=int)
@@ -236,5 +241,20 @@ def laplacian_segmentation(matrix):#pass in an affinity matrix
     for k in range(1, MAX_TYPES):
         segmentations.append(cluster(embedding, Cnorm, k))
 
-    return to_levels(reindex(segmentations, matrix.shape[0]))
+    return reindex(segmentations)
 
+#-------------
+
+from ..alignment.affinity import get_affinity_matrix
+
+def get_laplacian_struct_from_affinity(affinity):
+    struct = laplacian_segmentation(affinity)
+    return to_levels(struct, affinity.shape[0])#np.append(struct, [sequence], axis=0)
+
+def get_laplacian_struct_from_affinity2(affinity, beat_times):
+    struct = laplacian_segmentation(affinity)
+    return tuple(zip(*add_beat_times(struct, beat_times)))#np.append(struct, [sequence], axis=0)
+
+def get_laplacian_struct_from_audio(audio):
+    return segment_file(audio)
+    #return struct, beat_times#np.append(struct, [sequence], axis=0)
