@@ -37,10 +37,8 @@ def freq_trans_hists(sequences, relative):
         transition_histograms(sequences, relative, True), axis=1)
 
 def clusters(hists):
-    clustering = OPTICS().fit(hists)
-    clusters = group_by(np.arange(len(hists)), clustering.labels_)
-    #[print(i, [hists[j] for j in c[:5]]) for i,c in enumerate(clusters)]
-    return clusters
+    cluster_labels = OPTICS().fit(hists).labels_
+    return group_by(range(len(hists)), lambda i: cluster_labels[i])
 
 #classification of sequences of different lengths using frequency histograms
 def freq_hist_clusters(sequences, relative=True):

@@ -19,9 +19,12 @@ def prune_isolated_vertices(g):
 def graph_from_matrix(matrix):
     g = Graph(directed=False)
     g.add_vertex(len(matrix))
-    g.add_edge_list(list(zip(*np.nonzero(matrix))))
+    weights = g.new_ep("int")
+    edges = np.nonzero(matrix)
+    edges = np.append(edges, [matrix[edges]], axis=0)
+    g.add_edge_list(list(zip(*edges)), eprops=[weights])
     #graph_draw(g, output_size=(1000, 1000), output="results/structure.pdf")
-    return g
+    return g, weights
 
 def alignment_graph(lengths=[], pairings=[], alignments=[]):
     #print('making graph')
@@ -363,9 +366,9 @@ def get_segment_combos(g, seg_index):
             for c in cliques]
         cliq_segs = [sorted(seg_index.a[e]) for e in cliq_edges]
         [add_to_counting_dict(tuple(s), segment_cliques) for s in cliq_segs]
-    print('cliques', len(segment_cliques))
+    #print('cliques', len(segment_cliques))
     segment_cliques = integrate_subsets(segment_cliques)
-    print('integrated', len(segment_cliques))
+    #print('integrated', len(segment_cliques))
     return maximal_quasi_cliques(segment_cliques, incomp_segs)
 
 #remove all alignments that are not reinforced by others from a simple a-graph

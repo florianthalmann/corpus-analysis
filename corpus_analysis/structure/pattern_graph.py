@@ -1,19 +1,20 @@
-from itertools import groupby
+from itertools import groupby, product
 import numpy as np
 import sortednp as snp
 import pandas as pd
+from scipy.sparse.csgraph import connected_components
 import graph_tool.all as gt
 from graph_tool.all import Graph, GraphView, graph_draw
 from .graphs import graph_from_matrix
-from ..util import group_by, plot_sequences, mode
-from ..clusters.histograms import freq_hist_clusters
+from ..util import plot_sequences, mode, flatten, group_by
+from ..clusters.histograms import freq_hist_clusters, trans_hist_clusters,\
+    freq_trans_hist_clusters
 from ..alignment.smith_waterman import smith_waterman
 
-MIN_VERSIONS = .5 #how many of the versions need to contain the patterns
+MIN_VERSIONS = .03 #how many of the versions need to contain the patterns
 PARSIM = True
 MIN_SIM = 0.9 #min similarity for non-parsimonious similarity
 MAX_LEN_DIFF = None #max diff for size-based prefilter. None deactivates it
-PRE_CLUSTER = True
 COMPS_NOT_BLOCKS = True #use connected components instead of community blocks
 
 def similarity(match, p1, p2, parsim):
@@ -39,32 +40,62 @@ def cooc_similarity(p1, p2, occmat1, occmat2, parsim=PARSIM):
     overlaps = np.split(diffs, np.where(diffs != [0,1])[0]+1)
     return similarity(max([len(o) for o in overlaps]), p1, p2, parsim)
 
+#group by a transitive distance
+def group_by_sim2(patterns, simfunc, minsim):
+    sims = np.array([[simfunc(p1, p2) >= minsim if j > i else 0
+        for j, p2 in enumerate(patterns)] for i, p1 in enumerate(patterns)])
+    return group_by(patterns, connected_components(sims))
+
+def group_by_sim(groups, simfunc, minsim):
+    return [subg for g in groups for subg in group_by_sim2(g, simfunc, minsim)]
+
+def group_by_lengths(patterns, max_len_diff):
+    sizes = np.array([len(p) for p in patterns])
+    dists = np.absolute(sizes[:,None] - sizes) <= max_len_diff
+    return group_by(patterns, connected_components(compatible))
+
+def cluster(patterns, relative):
+    #prepared = np.array([np.array(p)+1 for p in patterns])#to positive integers
+    prepared = np.array([np.array([c for c in p if c >= 0]) for p in patterns])#remove -1
+    return [[patterns[i] for i in c]
+        for c in freq_trans_hist_clusters(prepared, relative)]
+
 class PatternGraph:
     
     def __init__(self, sequences, pairings, alignments, sim_threshold=0.8):
         plot_sequences(sequences, 'seqpats1.png')
         self.patterns = self.create_pattern_dict(sequences, pairings, alignments)
+        self.equivalences = {}
+        self.print('all')
         #prune pattern dict: keep only ones occurring in a min num of versions
-        longest = sorted(list(self.patterns.items()), key=lambda i: len(i[1]), reverse=True)
-        print('patterns', [len(l[1]) for l in longest[:3]], len(self.patterns))
         self.patterns = {k:v for k,v in self.patterns.items()
             if len(np.unique([o[1] for o in v])) >= len(sequences)*MIN_VERSIONS}
-        print('frequent', len(self.patterns))
-        patterns = list(self.patterns.keys())
+        self.print('frequent')
+        #merge cooccurring patterns
+        self.merge_patterns(lambda p, q: len(p) == len(q) and
+            len(self.patterns[p].intersection(self.patterns[q])) > 0)
+        self.print('merged cooc')
+        self.merge_patterns(lambda p, q: len(p) == len(q) and
+            all(p[i] == -1 or q[i] == -1 or p[i] == q[i] for i in range(len(p))))
+        self.print('merged equiv')
         
-        #mark pairs that should be compared
-        compatible = np.ones((len(patterns), len(patterns)))
+        groups = [list(self.patterns.keys())]
+        
         if MAX_LEN_DIFF != None:
-            sizes = np.array([len(p) for p in patterns])
-            compatible *= np.absolute(sizes[:,None] - sizes) <= 1
-            print('sim sizes', len(np.nonzero(compatible)[0]), len(np.hstack(compatible)))
-        if PRE_CLUSTER:
-            print(len(patterns))
-            clusters = self.get_pattern_clusters(patterns)
-            print('clusters', [len(c) for c in clusters])
-            #compatible *= 
+            groups = [h for g in groups for h in group_by_lengths(g, MAX_LEN_DIFF)]
         
-        #cooccurrence similarity
+        #cluster relative
+        groups = [c for g in groups for c in cluster(g, True)]
+        print('clusters', [len(g) for g in groups])
+        
+        #cluster absolute
+        groups = [c for g in groups for c in cluster(g, False)]
+        print('reclusters', [len(c) for c in groups])
+        
+        groups = self.keep_largest_pattern_groups(groups, 2)
+        print('kept largest', [len(c) for c in groups])
+        
+        # #cooccurrence similarity
         # num_seqs = len(sequences)
         # max_len = max([len(s) for s in sequences])
         # occ_matrices = [get_occ_matrix(p, self.patterns, num_seqs, max_len)
@@ -74,22 +105,30 @@ class PatternGraph:
         #     for j, p2 in enumerate(patterns)] for i, p1 in enumerate(patterns)])
         # print('cooc', len(np.nonzero(compatible)[0]))
         
-        #content similarity
-        sorted_patterns = list([np.sort(p) for p in patterns])
-        compatible = self.narrow_down(isect_similarity, sorted_patterns, compatible)
+        # #content similarity
+        # sorted_patterns = list([np.sort(p) for p in patterns])
+        # compatible = group_by_sim(isect_similarity, sorted_patterns, compatible)
         
-        #sequence similarity
-        compatible = self.narrow_down(sw_similarity, patterns, compatible)
+        # #sequence similarity
+        # compatible = group_by_sim(sw_similarity, patterns, compatible)
         
+        #make weighted adjacency matrix
+        adjacency = self.get_adjacency_matrix(groups)
+        patterns = list(self.patterns.keys())
+        pattern_counts = np.array([len(self.patterns[p]) for p in patterns])
+        adjacency *= np.minimum.outer(pattern_counts, pattern_counts)
         #make graph and find communities
-        g = graph_from_matrix(compatible)
+        g, weights = graph_from_matrix(adjacency)
         g = GraphView(g, vfilt=g.get_total_degrees(g.get_vertices()) > 0)
         print(g)
-        graph_draw(g, output_size=(1000, 1000), output="patterns.png")
-        state = gt.minimize_blockmodel_dl(g)#, B_max=8)
-        state.draw(output_size=(1000, 1000), output="patterns2.png")
-        blocks = state.get_blocks().a+1
-        if COMPS_NOT_BLOCKS: blocks = gt.label_components(g)[0].a+1
+        graph_draw(g, output_size=(1000, 1000), edge_pen_width=weights, output="patterns.png")
+        if COMPS_NOT_BLOCKS:
+            blocks = gt.label_components(g)[0].a+1
+        else:
+            state = gt.minimize_blockmodel_dl(g, overlap=True,
+                state_args=dict(recs=[weights], rec_types=["discrete-binomial"]))#, B_max=8)
+            state.draw(output_size=(1000, 1000), edge_pen_width=weights, output="patterns2.png")
+            blocks = state.get_blocks().a+1
         
         #make annotated sequences
         # typeseqs = [np.zeros_like(s)-1 for s in sequences]
@@ -101,7 +140,7 @@ class PatternGraph:
             for j,k in self.patterns[p]:
                 for l in range(k, k+len(p)):
                     typeseqs[j][l] += [b]
-        typeseqs = [[mode(e) if len(e) > 0 else -1 for e  in s] for s in typeseqs]
+        typeseqs = [[mode(e) if len(e) > 0 else 0 for e in s] for s in typeseqs]
         plot_sequences(typeseqs, 'seqpats2.png')
     
     #keys: pattern tuples with -1 for blanks, values: list of occurrences (sequence, position)
@@ -119,14 +158,37 @@ class PatternGraph:
                 patterns[pattern].update(locations)
         return patterns
     
-    def get_pattern_clusters(self, patterns):
-        pos_patterns = np.array([np.array(p)+1 for p in patterns])#to positive integers
-        labels = freq_hist_clusters(pos_patterns)
-        return group_by(np.arange(len(patterns)), labels)
+    def print(self, title):
+        longest3 = [len(l[1]) for l in sorted(list(self.patterns.items()),
+            key=lambda p: len(p[1]), reverse=True)[:3]]
+        print(title, len(self.patterns), len(self.equivalences), longest3)
     
-    def narrow_down(self, func, patterns, compatible):
-        sims = np.array([[func(p1, p2) if j > i and compatible[i,j] else 0
-            for j, p2 in enumerate(patterns)] for i, p1 in enumerate(patterns)])
-        sims = sims >= MIN_SIM
-        print(func.__name__, len(np.nonzero(sims)[0]), '/', len(np.hstack(sims)))
-        return sims
+    def merge_patterns(self, equiv_func):#lambda p,q: bool
+        merged = {}
+        for p in list(self.patterns.keys()):
+            q = next((q for q in merged.keys() if equiv_func(p, q)), None)
+            if q:
+                merged[q].update(self.patterns[p])
+                if q not in self.equivalences:
+                    self.equivalences[q] = set()
+                self.equivalences[q].add(p)
+            else:
+                merged[p] = self.patterns[p]
+        self.patterns = merged
+    
+    def keep_largest_pattern_groups(self, groups, count):
+        largest = sorted(groups, key=lambda c: len(c), reverse=True)[:count]
+        self.patterns = {k:v for k,v in self.patterns.items()
+            if k in flatten(largest, 1)}
+        return largest
+    
+    def get_adjacency_matrix(self, groups):
+        patterns = list(self.patterns.keys())
+        indices = {p:i for i,p in enumerate(patterns)}
+        adjacency = np.zeros((len(patterns), len(patterns)))
+        for g in groups:
+            for p, q in product(g, g):
+                i, j = indices[p], indices[q]
+                if j > i:
+                    adjacency[i][j] = 1
+        return adjacency

@@ -1,5 +1,6 @@
 import os, json, cProfile, math, tqdm
 from functools import reduce
+from collections import defaultdict
 from multiprocessing import Pool, cpu_count
 import numpy as np
 import pandas as pd
@@ -17,10 +18,11 @@ def flatten(array, iterations=math.inf):#iterations -1 is deep flatten
         return [b for a in array for b in flatten(a, iterations-1)]
     return [array]
 
-def group_by(array, labels=None):
-    if labels is None: labels = array
-    uniq = np.unique(labels)
-    return [array[labels == u] for u in uniq]
+def group_by(l, key=lambda x: x):
+    d = defaultdict(list)
+    for item in l:
+        d[key(item)].append(item)
+    return list(d.values())
 
 def group_adjacent(numbers, max_dist=1):#groups adjacent numbers if within max_dist
     return np.array(reduce(
