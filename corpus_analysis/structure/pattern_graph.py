@@ -16,7 +16,7 @@ from ..clusters.histograms import freq_hist_clusters, trans_hist_clusters,\
     freq_trans_hist_clusters
 from ..alignment.smith_waterman import smith_waterman
 
-MIN_VERSIONS = 0.03 #how many of the versions need to contain the patterns
+MIN_VERSIONS = 0.3 #how many of the versions need to contain the patterns
 PARSIM = True
 MIN_SIM = 0.9 #min similarity for non-parsimonious similarity
 COMPS_NOT_BLOCKS = True #use connected components instead of community blocks
@@ -245,18 +245,16 @@ class SuperAlignmentGraph():
                 np.absolute(o[:,0,1] - o[:,1,1]) >= MIN_DIST)]
             r = np.vstack((np.repeat(0, len(pat)), np.arange(0, len(pat)))).T
             r = np.transpose(np.dstack((r,r)), (0,2,1))
-            conns.append(np.reshape(o[:,None] + r, (len(o)*len(pat),2,2)))
+            conns.append(np.reshape(o[:,None] + r, (len(o)*len(pat),4)))
         print('tuples')
         #back to tuples
         c = np.concatenate(conns)
-        c = c.view(dtype=np.dtype([('x', c.dtype), ('y', c.dtype)]))
-        c = c.reshape(c.shape[:-1])
-        c = c.view(dtype=np.dtype([('x', c.dtype), ('y', c.dtype)]))
-        c = c.reshape(c.shape[:-1])
-        print('count')
+        c = c.view(dtype=np.dtype([('x', c.dtype), ('y', c.dtype), ('z', c.dtype), ('u', c.dtype)]))[:,0]
+        print('count', len(c), datetime.datetime.now())
         edges = Counter(c.tolist())
+        print('sort', len(edges), datetime.datetime.now())
         bestconns = sorted(edges.items(), key=lambda c: c[1], reverse=True)
-        print(bestconns[:10])
+        print(bestconns[:10], datetime.datetime.now())
         
         def valid(comp):
             diffs = np.diff([c for c in comp], axis=0)
@@ -270,6 +268,7 @@ class SuperAlignmentGraph():
         locs = {}
         invalid = set()
         for pair, count in bestconns:
+            pair = pair[:2], pair[2:]
             loc1 = locs[pair[0]] if pair[0] in locs else None
             loc2 = locs[pair[1]] if pair[1] in locs else None
             if loc1 != None and loc2 != None:
@@ -301,12 +300,13 @@ class SuperAlignmentGraph():
         #remove empty comps
         comps = [c for c in comps if len(c) > 0]
         print(len(comps))
+        comps = sorted(comps, key=lambda c: np.median([s[1] for s in c]))
         
         typeseqs = [[-1 for e in s] for s in sequences]
         for i,c in enumerate(comps):
             for s in c:
                 typeseqs[s[0]][s[1]] = i
-        plot_sequences(typeseqs, 'seqpat2.png')
+        plot_sequences(typeseqs, 'seqpat.png')
     
     def print(self, title):
         longest3 = [len(l[1]) for l in sorted(list(self.patterns.items()),
