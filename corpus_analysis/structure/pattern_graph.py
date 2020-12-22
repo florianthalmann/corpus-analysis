@@ -16,7 +16,7 @@ from ..clusters.histograms import freq_hist_clusters, trans_hist_clusters,\
     freq_trans_hist_clusters
 from ..alignment.smith_waterman import smith_waterman
 
-MIN_VERSIONS = 0.0 #how many of the versions need to contain the patterns
+MIN_VERSIONS = 0.03 #how many of the versions need to contain the patterns
 PARSIM = True
 MIN_SIM = 0.9 #min similarity for non-parsimonious similarity
 COMPS_NOT_BLOCKS = True #use connected components instead of community blocks
@@ -300,10 +300,21 @@ def super_alignment_graph(sequences, pairings, alignments):
             locs[pair[0]] = locs[pair[1]] = len(comps)
             comps.append(list(pair))#pair is ordered
         #print(loc1, loc2, comps, locs)
-    #remove empty comps
+    #remove empty comps and sort
     comps = [c for c in comps if len(c) > 0]
-    print(len(comps))
     comps = sorted(comps, key=lambda c: np.median([s[1] for s in c]))
+    print(len(comps))
+    #merge compatible adjacent
+    merged = comps[:1]
+    for i,c in enumerate(comps[1:], 1):
+        m = list(merge(comps[i-1], c))
+        if valid(m):
+            merged[-1] = m
+        else:
+            merged.append(c)
+    
+    print(len(merged))
+    comps = merged
     
     typeseqs = [[-1 for e in s] for s in sequences]
     for i,c in enumerate(comps):
