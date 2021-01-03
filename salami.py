@@ -20,11 +20,11 @@ features = corpus+'features/'
 output = 'salami/'
 RESULTS = output+'results.csv'
 
-MIN_LEN = 20
+MIN_LEN = 16
 MIN_DIST = 1 # >= 1
 MAX_GAPS = 4
 MAX_GAP_RATIO = 1
-MIN_LEN2 = 20
+MIN_LEN2 = 10
 MIN_DIST2 = 1
 
 def get_available_songs():
@@ -107,13 +107,14 @@ def test_hierarchy(index):
         exists = all([result_exists(data, [index, MIN_LEN, MIN_DIST, MAX_GAPS,
             MAX_GAP_RATIO, MIN_LEN2, MIN_DIST2, i, m])
             for i in range(len(groundtruth)) for m in ['transitive', 'laplacian']])
-    if not exists:
+    #if not exists:
         #print(groundtruth[0])
         maxtime = np.max(np.concatenate(groundtruth[0][0]))
         exists = False
         chroma = get_beatwise_chroma(index)
         #chords = load_beatwise_chords(index)
         #MAX_GAPS, MAX_GAP_RATIO
+        affinity = get_affinity_matrix(chroma, chroma, False, MAX_GAPS, MAX_GAP_RATIO)[0]
         #plot_matrix(get_affinity_matrix(chroma, chroma, False, MAX_GAPS, MAX_GAP_RATIO)[0], 'sall1.png')
         #SEG_COUNT, MIN_LEN, MIN_DIST, MAX_GAPS, MAX_GAP_RATIO
         alignment = get_alignment_segments(chroma, chroma, 0,
@@ -128,10 +129,11 @@ def test_hierarchy(index):
         hierarchy = simple_structure(chroma, alignment, MIN_LEN2, MIN_DIST2)
         hi, hl = [beat_ints for h in range(len(hierarchy))], hierarchy.tolist()
         lpi, lpl = get_laplacian_struct_from_audio(get_audio(index))
+        #lpi, lpl = get_laplacian_struct_from_affinity2(affinity, beats)
         
-        print(homogenize_labels(groundtruth[0]))
-        plot_sequences(beatwise((hi, hl), beats), 'salami/20 20/'+str(index)+'t.png')
-        plot_sequences(beatwise((lpi, lpl), beats), 'salami/20 20/'+str(index)+'l.png')
+        #print(homogenize_labels(groundtruth[0]))
+        plot_sequences(beatwise((hi, hl), beats), 'salami/16 10 .2/'+str(index)+'t.png')
+        plot_sequences(beatwise((lpi, lpl), beats), 'salami/16 10 .2/'+str(index)+'l.png')
         plot_sequences(beatwise(homogenize_labels(groundtruth[0]), beats),
             str(index)+'a1.png')
         if len(groundtruth) > 1:
@@ -212,9 +214,9 @@ def test_eval_detail(index):
 #     load_salami_hierarchies(s)
 #test_hierarchy(get_available_songs()[0])
 #run()
-sweep()
+#sweep()
 #INDEX = 955
-#test_hierarchy(955)
+test_hierarchy(955)
 #test_hierarchy(INDEX)
 #plot()
 #print(beatwise(homogenize_labels(load_salami_hierarchies(957)[0]), get_beats(957)))

@@ -258,7 +258,7 @@ def get_laplacian_struct_from_affinity(affinity):
 def get_laplacian_struct_from_affinity2(affinity, beat_times):
     struct = laplacian_segmentation(affinity)
     struct = tuple(zip(*add_beat_times(struct, beat_times)))
-    return struct[0], [np.array(s, dtype=int) for s in struct[1]]#np.append(struct, [sequence], axis=0)
+    return struct[0], [np.array(s, dtype=int).tolist() for s in struct[1]]#np.append(struct, [sequence], axis=0)
 
 def get_laplacian_struct_from_audio(audio):
     return segment_file(audio)

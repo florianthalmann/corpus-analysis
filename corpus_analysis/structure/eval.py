@@ -14,6 +14,8 @@ def adjust_start_end(hierarchy, target_time):
         if ivls[k][-1][1] < target_time:
             ivls[k] = np.append(ivls[k], [[ivls[k][-1][1], target_time]], axis=0)
             labels[k] = labels[k]+[-1]
+        elif ivls[k][-1][1] > target_time:
+            ivls[k][-1][-1] = target_time
     return ivls, labels
 
 def simplify(hierarchy):
@@ -30,7 +32,8 @@ def simplify(hierarchy):
 def evaluate_hierarchy(refint, reflab, estint, estlab):
     refmax = np.max(np.concatenate(refint))
     #evaluation algo fails if times/framecount not same
-    estint, estlab = adjust_start_end((estint, estlab), refmax)#simplify(adjust_start_end((estint, estlab), refmax))
+    #estint, estlab = adjust_start_end((estint, estlab), refmax)
+    estint, estlab = simplify(adjust_start_end((estint, estlab), refmax))
     return lmeasure(refint, reflab, estint, estlab)
 
 def evaluate_hierarchy_varlen(reference_n_estimate):
