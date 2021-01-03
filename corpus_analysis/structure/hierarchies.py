@@ -313,7 +313,7 @@ def find_sections_bottom_up(sequences, ignore=[]):
     #print(to_hierarchy(sequence, sections))
     return sequences, sections, num_occs
 
-def get_hierarchy(sequences):
+def get_hierarchies(sequences):
     sequence, sections, occs = find_sections_bottom_up(sequences)
     return [to_hierarchy(s, sections) for s in sequences]
 

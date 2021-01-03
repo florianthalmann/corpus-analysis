@@ -242,7 +242,7 @@ def quasi_clique_expansions2(quasi_cliques, cliques, incomp):
         if j > i else 0
         for j in range(len(array_cliques))] for i in range(len(array_cliques))])
     #print('ccomps', c_comps.shape)
-    c_comp_graph = graph_from_matrix(c_comps)
+    c_comp_graph = graph_from_matrix(c_comps)[0]
     #print('cgraph', c_comp_graph)
     max_expansions = dict()
     for q,r in quasi_cliques.items():
@@ -409,7 +409,7 @@ def structure_graph(msa, alignment_graph, mask_threshold=.5):
     max_conn = np.max(conn_matrix)
     conn_matrix[np.where(conn_matrix < mask_threshold*max_conn)] = 0
     #create graph
-    g = graph_from_matrix(conn_matrix)
+    g = graph_from_matrix(conn_matrix)[0]
     #print('created structure graph', g)
     return g, conn_matrix, matches
 

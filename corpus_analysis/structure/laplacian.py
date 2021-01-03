@@ -195,14 +195,18 @@ def reindex(hierarchy):
 
 #convert into levels where each segment has granularity 1 (so it can be aligned with other hierarchies)
 def to_levels(segmentations, length):
+    print([(len(s[0]), len(s[1])) for s in segmentations])
     levels = []
     for s in segmentations:
         if len(s[0]) > 0:
+            # if (s == segmentations[-1]):
+            #     print(list(zip(*s)))
             levels.append(np.concatenate(
                 [np.repeat(int(seg[1]), seg[0][1]-seg[0][0]) for seg in zip(*s)]))
     #not needed... levels.insert(0, np.repeat(0, len(levels[0])))
     #add padding due to method yielding incomplete levels
     #levels = [np.concatenate([l, np.repeat(-1, length-len(l))]) for l in levels]
+    print([(len(s[0]), len(s[1])) for s in levels])
     return np.array(levels)
 
 def add_beat_times(idseg, times):
@@ -253,7 +257,8 @@ def get_laplacian_struct_from_affinity(affinity):
 
 def get_laplacian_struct_from_affinity2(affinity, beat_times):
     struct = laplacian_segmentation(affinity)
-    return tuple(zip(*add_beat_times(struct, beat_times)))#np.append(struct, [sequence], axis=0)
+    struct = tuple(zip(*add_beat_times(struct, beat_times)))
+    return struct[0], [np.array(s, dtype=int) for s in struct[1]]#np.append(struct, [sequence], axis=0)
 
 def get_laplacian_struct_from_audio(audio):
     return segment_file(audio)

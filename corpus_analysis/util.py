@@ -29,6 +29,12 @@ def group_adjacent(numbers, max_dist=1):#groups adjacent numbers if within max_d
         lambda s,t: s+[[t]] if (len(s) == 0 or t-s[-1][-1] > max_dist)
             else s[:-1]+[s[-1]+[t]], numbers, []))
 
+def indices_of_subarray(a, b):
+    a = np.lib.stride_tricks.as_strided(a, shape=(len(a) - len(b) + 1, len(b)),
+                    strides=(a.dtype.itemsize,) * 2)
+    return np.where(np.all(a == b, axis=1))[0]
+    #return [i for i in range(len(a)-len(b)+1) if np.array_equal(a[i:i+len(b)], b)]
+
 def mode(a, axis=0):
     values, counts = np.unique(a, axis=axis, return_counts=True)
     return values[counts.argmax()]
