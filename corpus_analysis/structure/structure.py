@@ -32,31 +32,33 @@ def clean_up_alignment(sequence, self_alignment):
     return matrix_to_segments(np.triu(adjacency_matrix(g2)))
 
 def simple_structure(sequence, self_alignment, min_len, min_dist):
-    #print(sequence)
-    #plot_matrix(segments_to_matrix(self_alignment, (len(sequence),len(sequence))), 'est1.png')
-    #clean up and make transitive and hierarchical
-    self_alignment, blocks = remove_blocks(self_alignment, min_len)
-    #plot_matrix(segments_to_matrix(self_alignment, (len(sequence),len(sequence))), 'est2.png')
-    #profile(lambda: clean_up_alignment(sequence, self_alignment))
-    self_alignment = clean_up_alignment(sequence, self_alignment)
-    #print('cleaned up', len(self_alignment))
-    #plot_matrix(segments_to_matrix(self_alignment, (len(sequence),len(sequence))), 'est3.png')
-    hierarchy = make_segments_hierarchical(self_alignment, min_len, min_dist, len(sequence))#, 'est4')#, 'yoyy')
-    #put blocks back
-    hierarchy += blocks
-    #connected component labels for each position in sequence
-    ag, s, i, a, seg = alignment_graph([len(sequence)], [[0, 0]], [hierarchy])
-    comp_labels = component_labels(ag)
-    #replace sequence with most frequent value in sequence for each component
-    comp_values = np.array([mode(sequence[np.where(comp_labels == l)])
-        for l in range(np.max(comp_labels)+1)])
-    improved_sequence = comp_values[comp_labels]
-    labels = get_hierarchy_labels([comp_labels])[0]
-    #plot_sequences(labels, 'hierarchy62.png')
-    return labels#np.append(labels, [improved_sequence], axis=0)
-    
-    #plot_matrix(hierarchy)
-    #return sections
+    if len(self_alignment) > 0:
+        #print(sequence)
+        #plot_matrix(segments_to_matrix(self_alignment, (len(sequence),len(sequence))), 'est1.png')
+        #clean up and make transitive and hierarchical
+        self_alignment, blocks = remove_blocks(self_alignment, min_len)
+        #plot_matrix(segments_to_matrix(self_alignment, (len(sequence),len(sequence))), 'est2.png')
+        #profile(lambda: clean_up_alignment(sequence, self_alignment))
+        self_alignment = clean_up_alignment(sequence, self_alignment)
+        #print('cleaned up', len(self_alignment))
+        #plot_matrix(segments_to_matrix(self_alignment, (len(sequence),len(sequence))), 'est3.png')
+        hierarchy = make_segments_hierarchical(self_alignment, min_len, min_dist, len(sequence))#, 'est4')#, 'yoyy')
+        #put blocks back
+        hierarchy += blocks
+        #connected component labels for each position in sequence
+        ag, s, i, a, seg = alignment_graph([len(sequence)], [[0, 0]], [hierarchy])
+        comp_labels = component_labels(ag)
+        #replace sequence with most frequent value in sequence for each component
+        comp_values = np.array([mode(sequence[np.where(comp_labels == l)])
+            for l in range(np.max(comp_labels)+1)])
+        improved_sequence = comp_values[comp_labels]
+        labels = get_hierarchy_labels([comp_labels])[0]
+        #plot_sequences(labels, 'hierarchy62.png')
+        return labels#np.append(labels, [improved_sequence], axis=0)
+        
+        #plot_matrix(hierarchy)
+        #return sections
+    return np.array([np.repeat(0, len(sequence))])
 
 def shared_structure(sequences, pairings, alignments, msa, min_len, min_dist):
     ag, s, i = alignment_graph([len(s) for s in sequences], pairings, alignments)

@@ -147,10 +147,10 @@ def filter_segments(segments, count, min_len, min_dist, symmetric, shape):
     #print([(len(s), s[0][1]-s[0][0]) for s in selected])
     return selected[1:] if symmetric else selected #remove diagonal if symmetric
 
-def get_alignment_segments(a, b, count, min_len, min_dist, max_gap_size, max_gap_ratio):
+def get_alignment_segments(a, b, count, min_len, min_dist, max_gap_size, max_gap_ratio, k_factor=None):
     symmetric = np.array_equal(a, b)
     equality = issubclass(a.dtype.type, np.integer)
-    matrix, unsmoothed = get_affinity_matrix(a, b, equality, max_gap_size, max_gap_ratio)
+    matrix, unsmoothed = get_affinity_matrix(a, b, equality, max_gap_size, max_gap_ratio, k_factor)
     if symmetric: matrix = np.triu(matrix)
     segments = matrix_to_segments(matrix)
     #keep only segments longer than min_len and with a gap ratio below max_gap_ratio
