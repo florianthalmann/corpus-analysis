@@ -12,12 +12,12 @@ import graph_tool.all as gt
 from graph_tool.all import Graph, GraphView, graph_draw
 from .graphs import graph_from_matrix
 from .hierarchies import get_hierarchy_labels, get_most_salient_labels
-from ..util import plot_sequences, mode, flatten, group_by
+from ..util import plot_sequences, mode, flatten, group_by, plot_matrix
 from ..clusters.histograms import freq_hist_clusters, trans_hist_clusters,\
     freq_trans_hist_clusters
 from ..alignment.smith_waterman import smith_waterman
 
-MIN_VERSIONS = 0.1 #how many of the versions need to contain the patterns
+MIN_VERSIONS = 0.3 #how many of the versions need to contain the patterns
 PARSIM = True
 PARSIM_DIFF = 0 #the largest allowed difference in parimonious mode (full containment == 0)
 MIN_SIM = 0.9 #min similarity for non-parsimonious similarity
@@ -184,7 +184,7 @@ class PatternGraph:
             for j,k in self.patterns[p]:
                 for l in range(k, k+len(p)):
                     typeseqs[j][l] += [b]
-        typeseqs = [[mode(e) if len(e) > 0 else -1 for e in s] for s in typeseqs]
+        typeseqs = [[mode(e) if len(e) > 0 else 0 for e in s] for s in typeseqs]
         plot_sequences(typeseqs, 'seqpats2.png')
     
     def print(self, title):
@@ -281,7 +281,7 @@ def super_alignment_graph(sequences, pairings, alignments):
     edges = Counter(c.tolist())
     print('sort', len(edges), datetime.datetime.now())
     bestconns = sorted(edges.items(), key=lambda c: c[1], reverse=True)
-    print(bestconns[:10], datetime.datetime.now())
+    #print(bestconns[:10], datetime.datetime.now())
     
     def valid(comp):
         diffs = np.diff([c for c in comp], axis=0)
@@ -325,10 +325,12 @@ def super_alignment_graph(sequences, pairings, alignments):
             comps.append(list(pair))#pair is ordered
         #print(loc1, loc2, comps, locs)
     #remove empty comps and sort
-    comps = [c for c in comps if len(c) > 0]
-    comps = sorted(comps, key=lambda c: np.median([s[1] for s in c]))
-    print(len(comps))
-    #merge compatible adjacent
+    comps = [c for c in comps if len(c) > 10]
+    comps = sorted(comps, key=lambda c: np.mean([s[1] for s in c]))
+    print(len(comps), [len(c) for c in comps])
+    #print([[s for s in c if s[0] in [1,2,3]] for c in comps])
+    
+    # #merge compatible adjacent
     # merged = comps[:1]
     # for i,c in enumerate(comps[1:], 1):
     #     m = list(merge(comps[i-1], c))
@@ -337,8 +339,10 @@ def super_alignment_graph(sequences, pairings, alignments):
     #     else:
     #         merged.append(c)
     # 
-    # print(len(merged))
     # comps = merged
+    # print(len(comps), [len(c) for c in comps])
+    
+    
     
     typeseqs = [np.repeat(-1, len(s)) for s in sequences]
     for i,c in enumerate(comps):
@@ -348,7 +352,49 @@ def super_alignment_graph(sequences, pairings, alignments):
     
     #typeseqs = [l[-2] for l in get_hierarchy_labels(typeseqs)]
     typeseqs = get_most_salient_labels(typeseqs, 30, [-1])
-    plot_sequences(typeseqs, 'seqpat...png')
+    plot_sequences(typeseqs, 'seqpat....png')
+    
+    #infer types directly from components
+    comp_groups = [[comps[0]]]
+    #proj = lambda ts,i: [t[i] for t in ts]
+    #compdiff = lambda c,d: [for i in set(proj(c,1)).intersect(set(proj(d,1)))]
+    adjmax = lambda c,d: len(set(c).intersection(set([(s[0],s[1]-1) for s in d])))/max(len(c),len(d))
+    adjmin = lambda c,d: len(set(c).intersection(set([(s[0],s[1]-1) for s in d])))/min(len(c),len(d))
+    #print([propadj(comps[i-1], c) for i,c in enumerate(comps[1:], 1)])
+    props = np.zeros((len(comps),len(comps)))
+    for i,c in enumerate(comps):
+        for j,d in enumerate(comps):
+            props[i][j] = 1 if adjmax(c, d) > 0.5 else 0
+    plot_matrix(props, 'max.png')
+    props2 = np.zeros((len(comps),len(comps)))
+    for i,c in enumerate(comps):
+        for j,d in enumerate(comps):
+            props2[i][j] = 1 if adjmin(c, d) > 0.8 else 0
+    plot_matrix(props2, 'min.png')
+    
+    #props = np.array([[v if v == max(p) else 0 for v in p] for p in props])
+    # for i,c in enumerate(comps[1:], 1):
+    #     if propadj(comps[i-1], c) > 0.85:
+    #         comp_groups[-1].append(c)
+    #     else:
+    #         comp_groups.append([c])
+    #print(props)
+    comp_groups = group_by_comps(comps, props)
+    print([len(g) for g in comp_groups])
+    comp_groups = [g for g in comp_groups if len(g) > 1]\
+        + [[c for g in comp_groups if len(g) == 1 for c in g]]
+    #comp_groups = [g for g in comp_groups if len(g) > 1]
+    #print([[[s for s in c if s[0] in [4]] for c in g] for g in comp_groups])
+    typeseqs = [np.repeat(-1, len(s)) for s in sequences]
+    for i,g in enumerate(comp_groups):
+        for c in g:
+            for s in c:
+                typeseqs[s[0]][s[1]] = i
+    plot_sequences(typeseqs.copy(), 'seqpat...png')
+    
+    typeseqs = get_most_salient_labels(typeseqs, 30, [-1])
+    #typeseqs = [l[1] for l in get_hierarchy_labels(typeseqs)]
+    plot_sequences(typeseqs, 'seqpat.....png')
     
     return [np.array(t) for t in typeseqs]
 

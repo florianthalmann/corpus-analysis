@@ -53,23 +53,23 @@ def to_json(points, pats, vecs, occs):
     return {'points': points.tolist(), 'patterns': patterns}
 
 def siatec(points, savepath):
-    print 'table'
+    print('table')
     points = np.unique(points, axis=0)
     vector_table = [[(q - p, p) for q in points] for p in points]
     half_table = [r[i+1:] for i, r in enumerate(vector_table) if i < len(r)-1]
-    print 'merge'
+    print('merge')
     table_list = reduce(merge_sorted_arrays, half_table)
-    print 'group'
+    print('group')
     patterns = group_by_first(table_list).values()
     pdict = {str(p): i for i, p in enumerate(points)}
     simple_table = [[r[0] for r in c] for c in vector_table]
     tsls = [[simple_table[pdict[str(o)]] for o in p] for p in patterns]
-    print 'intersect'
+    print('intersect')
     vectors = [reduce(intersect_sorted_arrays, ts) for ts in tsls]
-    print 'json'
+    print('json')
     occurrences = [[p + v for p in patterns[i]] for i, v in enumerate(vectors)]
     result = to_json(points, patterns, vectors, occurrences)
-    print 'save'
+    print('save')
     with open(savepath, 'w') as outfile: json.dump(result, outfile)
 
-siatec(np.array(json.loads(sys.argv[1])), sys.argv[2])
+#siatec(np.array(json.loads(sys.argv[1])), sys.argv[2])

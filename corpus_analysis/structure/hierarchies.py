@@ -324,7 +324,7 @@ def get_hierarchy_labels(sequences):
     return [to_labels2(s, sections, section_lengths) for s in sequences]
 
 def get_most_salient_labels(sequences, count, ignore):
-    print(sequences[0])
+    #print(sequences[0])
     seqs, sections, num_occs = find_sections_bottom_up(sequences, ignore)
     flatsecs = {k:flatten(to_hierarchy(np.array([k]), sections))
         for k in sections.keys()}
@@ -346,14 +346,14 @@ def get_most_salient_labels(sequences, count, ignore):
     #sort by coverage and common occurrences
     most_salient = sorted(num_occs.items(),
         key=lambda o: seclens[o[0]]*sqrt(o[1])*len(occs[o[0]]), reverse=True)
-    print([(flatsecs[m[0]], m[1]) for m in most_salient[:30]])
+    #print([(flatsecs[m[0]], m[1]) for m in most_salient[:30]])
     #print([indices_of_subarray(s, flatsecs[most_common[0][0]]) for s in sequences])
     outseqs = [np.repeat(-1, len(s)) for s in sequences]
     for i,m in enumerate(reversed(most_salient[:count]), 0):
         for j,s in enumerate(sequences):
             for k in indices_of_subarray(s, flatsecs[m[0]]):
                 outseqs[j][k:k+seclens[m[0]]] = i
-    print(outseqs[0])
+    #print(outseqs[0])
     return outseqs
 
 def get_hierarchy_sections(sequences):
