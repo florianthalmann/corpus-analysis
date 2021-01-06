@@ -51,8 +51,11 @@ def plot_matrix(matrix, path=None):
     plt.savefig(path, dpi=1000) if path else plt.show()
     plt.clf()
 
-def plot_hist(data, path=None, binwidth=1):
-    plt.hist(data, bins=np.arange(min(data), max(data) + binwidth, binwidth))
+def plot_hist(data, path=None, bincount=None, binwidth=1):
+    if bincount:
+        plt.hist(data, bins=bincount)
+    else:
+        plt.hist(data, bins=np.arange(min(data), max(data) + binwidth, binwidth))
     plt.savefig(path, dpi=1000) if path else plt.show()
     plt.clf()
 

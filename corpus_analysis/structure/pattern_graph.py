@@ -358,32 +358,27 @@ def super_alignment_graph(sequences, pairings, alignments):
     comp_groups = [[comps[0]]]
     #proj = lambda ts,i: [t[i] for t in ts]
     #compdiff = lambda c,d: [for i in set(proj(c,1)).intersect(set(proj(d,1)))]
-    adjmax = lambda c,d: len(set(c).intersection(set([(s[0],s[1]-1) for s in d])))/max(len(c),len(d))
-    adjmin = lambda c,d: len(set(c).intersection(set([(s[0],s[1]-1) for s in d])))/min(len(c),len(d))
+    adjpropmax = lambda c,d: len(set(c).intersection(set([(s[0],s[1]-1) for s in d])))/max(len(c),len(d))
+    adjpropmin = lambda c,d: len(set(c).intersection(set([(s[0],s[1]-1) for s in d])))/min(len(c),len(d))
     #print([propadj(comps[i-1], c) for i,c in enumerate(comps[1:], 1)])
-    props = np.zeros((len(comps),len(comps)))
+    adjmax = np.zeros((len(comps),len(comps)))
     for i,c in enumerate(comps):
         for j,d in enumerate(comps):
-            props[i][j] = 1 if adjmax(c, d) > 0.5 else 0
-    plot_matrix(props, 'max.png')
-    props2 = np.zeros((len(comps),len(comps)))
+            adjmax[i][j] = 1 if adjpropmax(c, d) > 0.5 else 0
+    plot_matrix(adjmax, 'max.png')
+    adjmin = np.zeros((len(comps),len(comps)))
     for i,c in enumerate(comps):
         for j,d in enumerate(comps):
-            props2[i][j] = 1 if adjmin(c, d) > 0.8 else 0
-    plot_matrix(props2, 'min.png')
+            adjmin[i][j] = 1 if adjpropmin(c, d) > 0.8 else 0
+    plot_matrix(adjmin, 'min.png')
     
-    #props = np.array([[v if v == max(p) else 0 for v in p] for p in props])
-    # for i,c in enumerate(comps[1:], 1):
-    #     if propadj(comps[i-1], c) > 0.85:
-    #         comp_groups[-1].append(c)
-    #     else:
-    #         comp_groups.append([c])
-    #print(props)
-    comp_groups = group_by_comps(comps, props)
+    comp_groups = group_by_comps(comps, adjmax)
     print([len(g) for g in comp_groups])
-    comp_groups = [g for g in comp_groups if len(g) > 1]\
-        + [[c for g in comp_groups if len(g) == 1 for c in g]]
-    #comp_groups = [g for g in comp_groups if len(g) > 1]
+    # comp_groups = [g for g in comp_groups if len(g) > 1]\
+    #     + [[c for g in comp_groups if len(g) == 1 for c in g]]
+    merge_tiny_comp_groups(comp_groups, adjmax, adjmin, comps)
+    print([len(g) for g in comp_groups])
+    
     #print([[[s for s in c if s[0] in [4]] for c in g] for g in comp_groups])
     typeseqs = [np.repeat(-1, len(s)) for s in sequences]
     for i,g in enumerate(comp_groups):
@@ -392,11 +387,36 @@ def super_alignment_graph(sequences, pairings, alignments):
                 typeseqs[s[0]][s[1]] = i
     plot_sequences(typeseqs.copy(), 'seqpat...png')
     
-    typeseqs = get_most_salient_labels(typeseqs, 30, [-1])
+    #typeseqs = get_most_salient_labels(typeseqs, 30, [-1])
+    typeseqs = get_most_salient_labels(typeseqs, 1, [-1])
     #typeseqs = [l[1] for l in get_hierarchy_labels(typeseqs)]
     plot_sequences(typeseqs, 'seqpat.....png')
     
     return [np.array(t) for t in typeseqs]
+
+def merge_tiny_comp_groups(comp_groups, adjmax, adjmin, comps):
+    for g in [g for g in comp_groups if len(g) == 1]:
+        print()
+        candidate = None
+        succ = np.nonzero(adjmin[comps.index(g[0])])[0]
+        print(succ)
+        for s in succ:
+            succpred = next((i for i,p in enumerate(adjmax) if p[s] > 0), -1)
+            print(succpred)
+            if succpred >= 0:
+                candidate = comps[succpred]
+        pred = next((i for i,p in enumerate(adjmin) if p[comps.index(g[0])] > 0), -1)
+        #predgroup = next(i for i,g in enumerate(comp_groups) if comps[pred] in g)
+        #print(predgroup)
+        print(pred)
+        predsucc = np.nonzero(adjmax[pred])[0]
+        print(predsucc)
+        if len(predsucc) > 0:
+            candidate = comps[predsucc[0]]
+        print(candidate)
+        if candidate:
+            candidate.extend(g[0])
+            comp_groups.remove(g)
 
 def print_status(title, patterns, equivalences):
     longest3 = [len(l[1]) for l in sorted(list(patterns.items()),

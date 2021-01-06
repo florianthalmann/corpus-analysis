@@ -2,6 +2,7 @@ import math
 import numpy as np
 from sklearn.metrics import pairwise_distances
 from .util import median_filter, symmetric
+from ..util import plot_matrix, plot_hist
 
 def fill_gaps(a, gap_size, gap_ratio):
     diffs = np.diff(a)
@@ -40,19 +41,25 @@ def get_equality(a, b):
         return np.all(a[:, None] == b[None, :], axis=2).astype(int)
     return a[:, None] == b[None, :]
 
-def get_affinity_matrix(a, b, equality, max_gaps, max_gap_ratio, K_FACTOR=10):
+def get_affinity_matrix(a, b, equality, max_gaps, max_gap_ratio, sim_thresh = .9, k_factor=10):
     symmetric = np.array_equal(a, b)
     #create affinity or equality matrix
     if equality:
         matrix = get_equality(a, b)
+    elif sim_thresh:
+        matrix = 1-pairwise_distances(a, b, metric="cosine")
+        #plot_hist(np.hstack(matrix), 'est..png', 100)
+        matrix = np.where(matrix > sim_thresh, 1, 0)
+        plot_matrix(matrix, 'est-.png')
     else:
         matrix = 1-pairwise_distances(a, b, metric="cosine")
-        k = 1+K_FACTOR*int(math.log(len(matrix), 2))
+        k = 1+k_factor*int(math.log(len(matrix), 2))
         conns = np.zeros(matrix.shape)
         knn = [np.argpartition(m, -k)[-k:] for m in matrix]
         for i,k in enumerate(knn):
             conns[i][k] = 1
         matrix = conns
+        plot_matrix(matrix, 'est-.png')
     unsmoothed = matrix
     #only keep upper triangle in symmetric case
     if symmetric: matrix = np.triu(matrix, k=1)
@@ -147,18 +154,21 @@ def filter_segments(segments, count, min_len, min_dist, symmetric, shape):
     #print([(len(s), s[0][1]-s[0][0]) for s in selected])
     return selected[1:] if symmetric else selected #remove diagonal if symmetric
 
-def get_alignment_segments(a, b, count, min_len, min_dist, max_gap_size, max_gap_ratio, k_factor=None):
-    symmetric = np.array_equal(a, b)
-    equality = issubclass(a.dtype.type, np.integer)
-    matrix, unsmoothed = get_affinity_matrix(a, b, equality, max_gap_size, max_gap_ratio, k_factor)
+def get_segments_from_matrix(matrix, symmetric, count, min_len, min_dist, max_gap_size, max_gap_ratio, unsmoothed=None):
     if symmetric: matrix = np.triu(matrix)
     segments = matrix_to_segments(matrix)
     #keep only segments longer than min_len and with a gap ratio below max_gap_ratio
     segments = [s for s in segments if len(s) >= min_len]
-    if max_gap_size > 0:
+    if max_gap_size > 0 and unsmoothed is not None:
         segments = [s for s in segments
             if np.sum(unsmoothed[tuple(s.T)]) >= (1-max_gap_ratio)*len(s)]
     return filter_segments(segments, count, min_len, min_dist, symmetric, matrix.shape)
+
+def get_alignment_segments(a, b, count, min_len, min_dist, max_gap_size, max_gap_ratio, k_factor=None):
+    symmetric = np.array_equal(a, b)
+    equality = issubclass(a.dtype.type, np.integer)
+    matrix, unsmoothed = get_affinity_matrix(a, b, equality, max_gap_size, max_gap_ratio, k_factor=k_factor)
+    return get_segments_from_matrix(matrix, symmetric, count, min_len, min_dist, max_gap_size, max_gap_ratio, unsmoothed)
 
 def segments_to_matrix(segments, shape=None, sum=False):
     points = np.concatenate(segments)
