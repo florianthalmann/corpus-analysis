@@ -128,17 +128,17 @@ def make_segments_hierarchical(segments, min_len, min_dist, size=None, path=None
     #patterns = add_transitivity2(patterns)
     #patterns = add_transitivity(patterns, 1)#0.9)
     patterns = integrate_patterns(patterns)
-    #if path != None: plot_matrix(segments_to_matrix(patterns_to_segments(patterns), (size,size)), path+'t2.png')
+    if path != None: plot_matrix(segments_to_matrix(patterns_to_segments(patterns), (size,size)), path+'t2.png')
     #print(patterns)
     patterns = merge_patterns(patterns)
-    #if path != None: plot_matrix(segments_to_matrix(patterns_to_segments(patterns), (size,size)), path+'t3.png')
+    if path != None: plot_matrix(segments_to_matrix(patterns_to_segments(patterns), (size,size)), path+'t3.png')
     #print(patterns)
     patterns = remove_overlaps(patterns, min_len, min_dist, size)
-    #if path != None: plot_matrix(segments_to_matrix(patterns_to_segments(patterns), (size,size)), path+'t4.png')
+    if path != None: plot_matrix(segments_to_matrix(patterns_to_segments(patterns), (size,size)), path+'t4.png')
     #print(patterns)
     #patterns = add_transitivity2(patterns)
     patterns = add_transitivity(patterns, 1)#0.9)
-    #if path != None: plot_matrix(segments_to_matrix(patterns_to_segments(patterns), (size,size)), path+'t5.png')
+    if path != None: plot_matrix(segments_to_matrix(patterns_to_segments(patterns), (size,size)), path+'t5.png')
     #print(patterns)
     #plot_matrix(segments_to_matrix(patterns_to_segments(patterns), (size,size)))
     #only return segments that fit into size (transitivity proportion < 1 can introduce artifacts)
@@ -268,16 +268,19 @@ def to_sections(sections):
 
 def find_sections_bottom_up(sequences, ignore=[]):
     sequences = [np.copy(s) for s in sequences]
+    seq_indices = np.array([np.arange(len(s)) for s in sequences])
     pair, locs = get_most_frequent_pair(sequences, ignore)
     next_index = int(np.max(np.hstack(sequences))+1)
     sections = dict()
-    num_occs = dict()
+    occurrences = dict()
     #group recurring adjacent pairs into sections
     while pair is not None:
-        sequences = [replace_pairs(s, np.array([l[1] for l in locs if l[0] == i]),
-            next_index) for i,s in enumerate(sequences)]
         sections[next_index] = np.array(list(pair))
-        num_occs[next_index] = len(locs)
+        occurrences[next_index] = [(l[0], seq_indices[l[0]][l[1]]) for l in locs]
+        for i,s in enumerate(sequences):
+            slocs = np.array([l[1] for l in locs if l[0] == i])
+            seq_indices[i] = np.delete(seq_indices[i], slocs+1)
+            sequences[i] = replace_pairs(s, slocs, next_index)
         pair, locs = get_most_frequent_pair(sequences, ignore)
         next_index += 1
     #merge sections that always cooccur (nested)
@@ -295,7 +298,7 @@ def find_sections_bottom_up(sequences, ignore=[]):
     #delete merged sections
     for t in to_delete:
         del sections[t]
-        del num_occs[t]
+        del occurrences[t]
     #add sections for remaining adjacent surface objects
     for i,s in enumerate(sequences):
         ungrouped = np.where(np.isin(s, list(sections.keys())+ignore) == False)[0]
@@ -303,7 +306,7 @@ def find_sections_bottom_up(sequences, ignore=[]):
         groups = [g for g in groups if len(g) > 1]
         for g in reversed(groups):
             sections[next_index] = s[g]
-            num_occs[next_index] = 1
+            occurrences[next_index] = [(i, seq_indices[i][g[0]])]
             s[g[0]] = next_index
             s = np.delete(s, g[1:])
             next_index += 1
@@ -311,7 +314,7 @@ def find_sections_bottom_up(sequences, ignore=[]):
     #make hierarchy
     #print(sections)
     #print(to_hierarchy(sequence, sections))
-    return sequences, sections, num_occs
+    return sequences, sections, occurrences
 
 def get_hierarchies(sequences):
     sequence, sections, occs = find_sections_bottom_up(sequences)
@@ -325,34 +328,46 @@ def get_hierarchy_labels(sequences):
 
 def get_most_salient_labels(sequences, count, ignore):
     #print(sequences[0])
-    seqs, sections, num_occs = find_sections_bottom_up(sequences, ignore)
+    seqs, sections, occs = find_sections_bottom_up(sequences, ignore)
     flatsecs = {k:flatten(to_hierarchy(np.array([k]), sections))
         for k in sections.keys()}
     #only keep patterns longer than 2
     seclens = {k:len(flatsecs[k]) for k in sections.keys()}
-    num_occs = {s:o for s,o in num_occs.items() if seclens[s] > 2}
+    occs = {s:o for s,o in occs.items() if seclens[s] > 2}
     sections = {s:o for s,o in sections.items() if seclens[s] > 2}
-    # #sort by coverage
-    # most_common = sorted(num_occs.items(),
-    #     key=lambda o: seclens[o[0]]*sqrt(o[1]), reverse=True)
-    # print([(flatsecs[m[0]], m[1]) for m in most_common[:30]])
-    #find occurrences
-    occs = defaultdict(list)
-    for m in sections.keys():
+    #find occurrences (somehow this sometimes finds more than num_occs)
+    # occs = defaultdict(list)
+    # for m in sections.keys():
+    #     for j,s in enumerate(sequences):
+    #         for k in indices_of_subarray(s, flatsecs[m]):
+    #             occs[m].append((j,k))
+    #             #occs.append((j,k+seclens[m[0]]-1))
+    #sort by coverage and occurrences
+    most_salient = []
+    outseqs = [np.repeat(-1, len(s)) for s in sequences]
+    remaining = list(occs.items())
+    while count == 0 or len(most_salient) < count:
+        coverages = [seclens[o[0]]*len(o[1]) for o in remaining]
+        current_best = remaining.pop(np.argmax(coverages))
+        #update sequences
         for j,s in enumerate(sequences):
-            for k in indices_of_subarray(s, flatsecs[m]):
-                occs[m].append((j,k))
-                #occs.append((j,k+seclens[m[0]]-1))
-    #sort by coverage and common occurrences
-    most_salient = sorted(num_occs.items(),
-        key=lambda o: seclens[o[0]]*sqrt(o[1])*len(occs[o[0]]), reverse=True)
+            for o in current_best[1]:
+                outseqs[o[0]][o[1]:o[1]+seclens[current_best[0]]] = len(most_salient)
+        most_salient.append(current_best)
+        #remove overlaps
+        remaining = [(r[0], [o for o in r[1]
+            if np.all(outseqs[o[0]][o[1]:o[1]+seclens[r[0]]] == -1)])
+            for r in remaining]
+        remaining = [r for r in remaining if len(r[1]) > 0]
+    print([(flatsecs[o[0]], len(o[1])) for o in most_salient[:20]])
+    
     #print([(flatsecs[m[0]], m[1]) for m in most_salient[:30]])
     #print([indices_of_subarray(s, flatsecs[most_common[0][0]]) for s in sequences])
-    outseqs = [np.repeat(-1, len(s)) for s in sequences]
-    for i,m in enumerate(reversed(most_salient[:count]), 0):
-        for j,s in enumerate(sequences):
-            for k in indices_of_subarray(s, flatsecs[m[0]]):
-                outseqs[j][k:k+seclens[m[0]]] = i
+    # outseqs = [np.repeat(-1, len(s)) for s in sequences]
+    # for i,m in enumerate(reversed(most_salient[:count]), 0):
+    #     for j,s in enumerate(sequences):
+    #         for k in indices_of_subarray(s, flatsecs[m[0]]):
+    #             outseqs[j][k:k+seclens[m[0]]] = i
     #print(outseqs[0])
     return outseqs
 
