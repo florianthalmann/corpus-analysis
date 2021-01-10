@@ -2,21 +2,33 @@ import numpy as np
 from ..util import plot_matrix
 
 def get_meet_matrix(hlabels):
-    matrix = np.zeros((len(hlabels), len(hlabels)), dtype=int)
-    for level, labels in enumerate(hlabels.T):
+    matrix = np.zeros((hlabels.shape[1], hlabels.shape[1]), dtype=int)
+    for level, labels in enumerate(hlabels):#.T):
         same_label = np.triu(np.equal.outer(labels, labels), k=1)
         matrix[np.where(same_label)] = level
     return matrix
 
+def to_triples(a):
+    return a.view(dtype=np.dtype([('x',a.dtype), ('y',a.dtype), ('z',a.dtype)]))[:,0]
+
 def get_meet_triples(hlabels):
     meets = get_meet_matrix(hlabels)
-    #print(len(np.nonzero(meets)[0]))
-    plot_matrix(meets)
-    comp_sets = [meets[i,i+1:][:,None] > meets[i,i+1:] for i in range(meets.shape[0])]
-    triples = np.concatenate([np.insert(np.add(np.nonzero(np.triu(c, k=1)), i+1), 0, i, axis=0).T
+    #plot_matrix(meets)
+    comp_sets = [meets[i,:][:,None] > meets[i,:] for i in range(meets.shape[0])]
+    triples = np.concatenate([np.insert(np.nonzero(c), 0, i, axis=0).T
         for i,c in enumerate(comp_sets)])
-    #print(len(triples))
-    return triples
+    return [t for t in to_triples(triples).tolist() if t[0] != t[2]]
+
+def lmeasure(reference, estimate):
+    reftriples = get_meet_triples(reference)
+    esttriples = get_meet_triples(estimate)
+    intersection = set(reftriples).intersection(set(esttriples))
+    if len(intersection) > 0:
+        precision = len(intersection) / len(esttriples)
+        recall = len(intersection) / len(reftriples)
+        hmean = 2 / (1/precision + 1/recall)
+        return precision, recall, hmean
+    return 0, 0, 0
 
 def get_relative_meet_triples(hlabels):
     #print(hlabels[:5])
@@ -41,3 +53,10 @@ def get_relative_meet_triples(hlabels):
 # [271,201,201,8],[271,201,201,9],[271,201,182,1],[271,201,182,2],[271,201,182,3],
 # [271,201,201,4],[271,201,201,5],[271,201,201,6],[271,201,201,7],[271,201,201,8],
 # [271,201,201,9],[271,201,182,1]]))
+print(lmeasure(np.array([[0,0,0,0,0,0], [1,2,3,1,2,4]]),
+    np.array([[0,0,0,0,0,0], [1,1,1,1,1,2]])))
+
+print(lmeasure(np.array([[0,0,0,0,0,0], [1,2,3,1,2,4]]),
+    np.array([[0,0,0,0,0,0], [1,2,3,1,2,4]])))
+print(lmeasure(np.array([[0,0,0,0,0,0], [1,2,3,1,2,4]]),
+    np.array([[0,0,0,0,0,0]])))
