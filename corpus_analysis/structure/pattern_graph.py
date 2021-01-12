@@ -19,7 +19,7 @@ from ..alignment.smith_waterman import smith_waterman
 
 MIN_VERSIONS = 0.3 #how many of the versions need to contain the patterns
 PARSIM = True
-PARSIM_DIFF = 0 #the largest allowed difference in parimonious mode (full containment == 0)
+PARSIM_DIFF = 0 #the largest allowed difference in parsimonious mode (full containment == 0)
 MIN_SIM = 0.9 #min similarity for non-parsimonious similarity
 COMPS_NOT_BLOCKS = True #use connected components instead of community blocks
 
@@ -240,6 +240,10 @@ def super_alignment_graph(sequences, pairings, alignments):
     patterns = create_pattern_dict(sequences, pairings, alignments)
     equivalences = {}
     print_status('all', patterns, equivalences)
+    #remove uniform (one value or blank)
+    uniq = {k:len(np.unique(list(k))) for k in patterns.keys()}
+    patterns = {k:v for k,v in patterns.items() if uniq[k] > 2 or (uniq[k] == 2 and -1 not in k)}
+    print_status('removed uniform', patterns, equivalences)
     #prune pattern dict: keep only ones occurring in a min num of versions
     patterns = {k:v for k,v in patterns.items()
         if len(np.unique([o[1] for o in v])) >= len(sequences)*MIN_VERSIONS}
@@ -248,31 +252,43 @@ def super_alignment_graph(sequences, pairings, alignments):
     # merge_patterns(lambda p, q: len(p) == len(q) and
     #     len(patterns[p].intersection(patterns[q])) > 0, patterns, equivalences)
     # print('merged cooc')
-    merge_patterns(lambda p, q: len(p) == len(q) and
-        all(p[i] == -1 or q[i] == -1 or p[i] == q[i] for i in range(len(p))),
-        patterns, equivalences)
-    print_status('merged equiv', patterns, equivalences)
-    #remove uniform (one value or blank)
-    uniq = {k:len(np.unique(list(k))) for k in patterns.keys()}
-    patterns = {k:v for k,v in patterns.items() if uniq[k] > 2 or (uniq[k] == 2 and -1 not in k)}
-    print_status('removed uniform', patterns, equivalences)
     
-    print([p[0] for p in sorted(patterns.items(), key=lambda p: len(p[1]), reverse=True)[:5]])
-    print(sum(len(p) for p in patterns.values()))
+    # merge_patterns(lambda p, q: len(p) == len(q) and
+    #     all(p[i] == -1 or q[i] == -1 or p[i] == q[i] for i in range(len(p))),
+    #     patterns, equivalences)
+    # print_status('merged equiv', patterns, equivalences)
+    
+    groups = group_by(patterns.keys(), lambda p: len(p))
+    # print(len(groups), [len(g) for g in groups])
+    # print('total patterns', sum([len(g) for g in groups]))
+    
+    eqfunc = lambda p, q: all(p[i] == -1 or q[i] == -1 or p[i] == q[i]
+        for i in range(len(p)))
+    groups = flatten([group_patterns(eqfunc, g, True) for g in groups], 1)
+    # #also try cooc:
+    # eqfunc = lambda p, q: len(patterns[p].intersection(patterns[q])) > 0
+    #     for i in range(len(p)))
+    # groups = flatten([group_patterns(eqfunc, g, False) for g in groups], 1)
+    # print(len(groups), [len(g) for g in groups])
+    print('total group members', sum([len(g) for g in groups]))
+    
+    # print([p[0] for p in sorted(patterns.items(), key=lambda p: len(p[1]), reverse=True)[:5]])
+    # print(sum(len(p) for p in patterns.values()))
     
     MIN_DIST = 4
     
     #catalogue all connection counts between equivalent patterns
     conns = []
     print('conns')
-    for pat, occs in list(patterns.items()):
-        o = sorted(occs)
+    for g in groups:
+        l = len(g[0])
+        o = sorted(list(set([o for p in g for o in patterns[p]])))
         o = np.array([[o1,o2] for i,o1 in enumerate(o) for o2 in o[i+1:]])
         o = o[np.logical_or(o[:,0,0] != o[:,1,0],
             np.absolute(o[:,0,1] - o[:,1,1]) >= MIN_DIST)]
-        r = np.vstack((np.repeat(0, len(pat)), np.arange(0, len(pat)))).T
+        r = np.vstack((np.repeat(0, l), np.arange(0, l))).T
         r = np.transpose(np.dstack((r,r)), (0,2,1))
-        conns.append(np.reshape(o[:,None] + r, (len(o)*len(pat),4)))
+        conns.append(np.reshape(o[:,None] + r, (len(o)*l,4)))
     print('tuples')
     #back to tuples
     c = np.concatenate(conns)
@@ -351,7 +367,7 @@ def super_alignment_graph(sequences, pairings, alignments):
     plot_sequences(typeseqs.copy(), 'seqpat..png')
     
     #typeseqs = [l[-2] for l in get_hierarchy_labels(typeseqs)]
-    typeseqs = get_most_salient_labels(typeseqs, 30, [-1])
+    typeseqs = get_most_salient_labels(typeseqs, 20, [-1])
     plot_sequences(typeseqs, 'seqpat....png')
     
     #infer types directly from components
@@ -376,7 +392,7 @@ def super_alignment_graph(sequences, pairings, alignments):
     print([len(g) for g in comp_groups])
     # comp_groups = [g for g in comp_groups if len(g) > 1]\
     #     + [[c for g in comp_groups if len(g) == 1 for c in g]]
-    merge_tiny_comp_groups(comp_groups, adjmax, adjmin, comps)
+    #merge_tiny_comp_groups(comp_groups, adjmax, adjmin, comps)
     print([len(g) for g in comp_groups])
     
     #print([[[s for s in c if s[0] in [4]] for c in g] for g in comp_groups])
@@ -388,7 +404,7 @@ def super_alignment_graph(sequences, pairings, alignments):
     plot_sequences(typeseqs.copy(), 'seqpat...png')
     
     #typeseqs = get_most_salient_labels(typeseqs, 30, [-1])
-    typeseqs = get_most_salient_labels(typeseqs, 1, [-1])
+    typeseqs = get_most_salient_labels(typeseqs, 20, [-1])
     #typeseqs = [l[1] for l in get_hierarchy_labels(typeseqs)]
     plot_sequences(typeseqs, 'seqpat.....png')
     
@@ -422,6 +438,18 @@ def print_status(title, patterns, equivalences):
     longest3 = [len(l[1]) for l in sorted(list(patterns.items()),
         key=lambda p: len(p[1]), reverse=True)[:3]]
     print(title, len(patterns), len(equivalences), longest3)
+
+def group_patterns(equiv_func, patterns, cliques_not_comps=True):
+    if len(patterns) > 1:
+        matrix = np.array([[1 if equiv_func(p,q) else 0
+            for q in patterns] for p in patterns])
+        g = graph_from_matrix(matrix)[0]
+        equivs = list(gt.max_cliques(g)) if cliques_not_comps\
+            else list(gt.label_components(g))
+        union = list(np.hstack(equivs)) if len(equivs) > 0 else []
+        return [[patterns[i] for i in e] for e in equivs]\
+            +[[patterns[i]] for i in range(len(patterns)) if i not in union]
+    return [patterns]
 
 def merge_patterns(equiv_func, patterns, equivalences={}):#lambda p,q: bool
     merged = {}
