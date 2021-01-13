@@ -1,7 +1,6 @@
-import datetime
+import datetime, math
 from itertools import groupby, product
 from collections import Counter, defaultdict
-from math import sqrt
 from heapq import merge
 import numpy as np
 import sortednp as snp
@@ -17,7 +16,7 @@ from ..clusters.histograms import freq_hist_clusters, trans_hist_clusters,\
     freq_trans_hist_clusters
 from ..alignment.smith_waterman import smith_waterman
 
-MIN_VERSIONS = 0.3 #how many of the versions need to contain the patterns
+MIN_VERSIONS = 0.0 #how many of the versions need to contain the patterns
 PARSIM = True
 PARSIM_DIFF = 0 #the largest allowed difference in parsimonious mode (full containment == 0)
 MIN_SIM = 0.9 #min similarity for non-parsimonious similarity
@@ -105,7 +104,7 @@ class PatternGraph:
         self.merge_patterns(lambda p, q: len(p) == len(q) and
             all(p[i] == -1 or q[i] == -1 or p[i] == q[i] for i in range(len(p))))
         self.print('merged equiv')
-        #print(sorted(list(self.patterns.items()), key=lambda p: len(p[0])*sqrt(len(p[1])), reverse=True)[0:10])
+        #print(sorted(list(self.patterns.items()), key=lambda p: len(p[0])*,math.sqrt(len(p[1])), reverse=True)[0:10])
         
         patterns = list(self.patterns.keys())
         groups = [patterns]
@@ -236,14 +235,14 @@ class PatternGraph:
 ########################################
 
 def super_alignment_graph(sequences, pairings, alignments):
-    plot_sequences(sequences, 'seqpat.png')
+    #plot_sequences(sequences, 'seqpat.png')
     patterns = create_pattern_dict(sequences, pairings, alignments)
     equivalences = {}
     print_status('all', patterns, equivalences)
     #remove uniform (one value or blank)
-    uniq = {k:len(np.unique(list(k))) for k in patterns.keys()}
-    patterns = {k:v for k,v in patterns.items() if uniq[k] > 2 or (uniq[k] == 2 and -1 not in k)}
-    print_status('removed uniform', patterns, equivalences)
+    # uniq = {k:len(np.unique(list(k))) for k in patterns.keys()}
+    # patterns = {k:v for k,v in patterns.items() if uniq[k] > 2 or (uniq[k] == 2 and -1 not in k)}
+    # print_status('removed uniform', patterns, equivalences)
     #prune pattern dict: keep only ones occurring in a min num of versions
     patterns = {k:v for k,v in patterns.items()
         if len(np.unique([o[1] for o in v])) >= len(sequences)*MIN_VERSIONS}
@@ -262,13 +261,13 @@ def super_alignment_graph(sequences, pairings, alignments):
     # print(len(groups), [len(g) for g in groups])
     # print('total patterns', sum([len(g) for g in groups]))
     
-    eqfunc = lambda p, q: all(p[i] == -1 or q[i] == -1 or p[i] == q[i]
-        for i in range(len(p)))
-    groups = flatten([group_patterns(eqfunc, g, True) for g in groups], 1)
-    # #also try cooc:
-    # eqfunc = lambda p, q: len(patterns[p].intersection(patterns[q])) > 0
+    # eqfunc = lambda p, q: all(p[i] == -1 or q[i] == -1 or p[i] == q[i]
     #     for i in range(len(p)))
-    # groups = flatten([group_patterns(eqfunc, g, False) for g in groups], 1)
+    # groups = flatten([group_patterns(eqfunc, g, True) for g in groups], 1)
+    #also try cooc:
+    eqfunc = lambda p, q: len(patterns[p].intersection(patterns[q])) > 0
+    groups = flatten([group_patterns(eqfunc, g, False) for g in groups], 1)
+    
     # print(len(groups), [len(g) for g in groups])
     print('total group members', sum([len(g) for g in groups]))
     
@@ -279,39 +278,71 @@ def super_alignment_graph(sequences, pairings, alignments):
     
     #catalogue all connection counts between equivalent patterns
     conns = []
+    maxlen = max([len(s) for s in sequences])
+    total = maxlen*len(sequences)
     print('conns')
     for g in groups:
-        l = len(g[0])
-        o = sorted(list(set([o for p in g for o in patterns[p]])))
-        o = np.array([[o1,o2] for i,o1 in enumerate(o) for o2 in o[i+1:]])
-        o = o[np.logical_or(o[:,0,0] != o[:,1,0],
-            np.absolute(o[:,0,1] - o[:,1,1]) >= MIN_DIST)]
-        r = np.vstack((np.repeat(0, l), np.arange(0, l))).T
-        r = np.transpose(np.dstack((r,r)), (0,2,1))
-        conns.append(np.reshape(o[:,None] + r, (len(o)*l,4)))
-    print('tuples')
-    #back to tuples
+        #sort occurrences in group
+        o = np.array(sorted(list(set([o for p in g for o in patterns[p]]))))
+        #convert to indices of global concatenated sequence
+        a = np.array([oo[0]*maxlen+oo[1] for oo in o])
+        #get all pairwise connections not within min dist
+        i = np.array([[i1,i2] for i1 in range(len(o)) for i2 in range(i1+1, len(o))])
+        oo = o[i] #pairs of occurrences
+        aa = a[i] #pairs of global indices
+        ooo = aa[np.logical_or(oo[:,0,0] != oo[:,1,0],
+            np.absolute(oo[:,0,1] - oo[:,1,1]) >= MIN_DIST)]
+        #add segment durations
+        oooo = np.hstack(ooo[:,:,None] + np.arange(0, len(g[0]))).T
+        #to edge indices and append
+        ooooo = oooo[:,0]*total + oooo[:,1]
+        conns.append(ooooo)
+    #concat and count
     c = np.concatenate(conns)
-    c = c.view(dtype=np.dtype([('x', c.dtype), ('y', c.dtype), ('z', c.dtype), ('u', c.dtype)]))[:,0]
-    print('count', len(c), datetime.datetime.now())
+    print('count', datetime.datetime.now())
+    #counts = np.bincount(c)
     edges = Counter(c.tolist())
-    print('sort', len(edges), datetime.datetime.now())
+    print(len(edges))
+    edges = {e:c for e,c in edges.items() if c > 1}
+    print(len(edges))
+    # print('extr', datetime.datetime.now())
+    # nonz = np.where(counts > 0)#np.nonzero(counts)[0]
+    # print(len(nonz), datetime.datetime.now())
+    # nonz = np.nonzero(counts)
+    #print(counts.most_common(10))
+    #print(len(nonz), datetime.datetime.now())
+    #counts = np.vstack((nonz, counts[nonz]))
+    #print(counts)
+    # print('sort', datetime.datetime.now())
+    # print(len(counts), len(np.nonzero(counts)[0]))
+    # sorted(counts)
+    #print('argsort', datetime.datetime.now())
+    #bestconns = np.flip(np.argsort(counts))
+    print('sort', datetime.datetime.now())
     bestconns = sorted(edges.items(), key=lambda c: c[1], reverse=True)
-    #print(bestconns[:10], datetime.datetime.now())
+    bestconns = np.array(bestconns)[:,0]
+    print('post', datetime.datetime.now())
+    pairs = np.vstack((np.floor(bestconns/total), bestconns % total)).T
+    #print(pairs[:3])
+    print('post2', datetime.datetime.now())
+    pairs = np.dstack((np.floor(pairs/maxlen), pairs % maxlen)).astype(int)
+    #(int(len(pairs)/2), 4)).astype(int)
+    #print(pairs[:3])
     
     def valid(comp):
         diffs = np.diff([c for c in comp], axis=0)
         diffs = np.array([d[1] for d in diffs if d[0] == 0])#same version
         if len(diffs) > 0:
             return np.min(diffs[diffs >= 0]) >= MIN_DIST
-        return True
+        return True 
     
+    print('graph', datetime.datetime.now())
     #build non-ambiguous graph with strongest connections
     comps = []
     locs = {}
     invalid = set()
-    for pair, count in bestconns:
-        pair = pair[:2], pair[2:]
+    for pair in pairs:
+        pair = (pair[0][0], pair[0][1]), (pair[1][0], pair[1][1])
         loc1 = locs[pair[0]] if pair[0] in locs else None
         loc2 = locs[pair[1]] if pair[1] in locs else None
         if loc1 != None and loc2 != None:
@@ -343,7 +374,7 @@ def super_alignment_graph(sequences, pairings, alignments):
     #remove empty comps and sort
     comps = [c for c in comps if len(c) > 10]
     comps = sorted(comps, key=lambda c: np.mean([s[1] for s in c]))
-    print(len(comps), [len(c) for c in comps])
+    print(len(comps), datetime.datetime.now(), [len(c) for c in comps])
     #print([[s for s in c if s[0] in [1,2,3]] for c in comps])
     
     # #merge compatible adjacent
@@ -358,13 +389,13 @@ def super_alignment_graph(sequences, pairings, alignments):
     # comps = merged
     # print(len(comps), [len(c) for c in comps])
     
-    
-    
     typeseqs = [np.repeat(-1, len(s)) for s in sequences]
     for i,c in enumerate(comps):
         for s in c:
             typeseqs[s[0]][s[1]] = i
     plot_sequences(typeseqs.copy(), 'seqpat..png')
+    
+    return
     
     #typeseqs = [l[-2] for l in get_hierarchy_labels(typeseqs)]
     typeseqs = get_most_salient_labels(typeseqs, 20, [-1])
@@ -444,8 +475,11 @@ def group_patterns(equiv_func, patterns, cliques_not_comps=True):
         matrix = np.array([[1 if equiv_func(p,q) else 0
             for q in patterns] for p in patterns])
         g = graph_from_matrix(matrix)[0]
-        equivs = list(gt.max_cliques(g)) if cliques_not_comps\
-            else list(gt.label_components(g))
+        if cliques_not_comps:
+            equivs = list(gt.max_cliques(g))
+        else:
+            comps = list(gt.label_components(g)[0].a)
+            equivs = group_by(range(len(comps)), lambda v: comps[v])
         union = list(np.hstack(equivs)) if len(equivs) > 0 else []
         return [[patterns[i] for i in e] for e in equivs]\
             +[[patterns[i]] for i in range(len(patterns)) if i not in union]
