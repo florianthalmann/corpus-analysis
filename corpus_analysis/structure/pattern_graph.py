@@ -237,20 +237,31 @@ class PatternGraph:
 def super_alignment_graph(sequences, pairings, alignments):
     plot_sequences(sequences, 'seqpat.png')
     all_patterns = create_pattern_dict(sequences, pairings, alignments)
+    all_points = set([(i,j) for i,s in enumerate(sequences) for j in range(len(s))])
+    #all_patterns = filter_patterns(all_patterns, 0, remove_uniform=True)
     print_status('all', all_patterns)
+    print(len(all_points))
     
     MIN_DIST = 4
+    MAX_OCCS = 10000
+    by_numversions = sorted(all_patterns.items(),
+        key=lambda p: len(np.unique([v for v,t in p[1]])), reverse=True)
+    #print(by_versions[0])
     comps = []
     locs = {}
     incomp = set()
-    for prop in [0.5,0.25,0.125,0.05,0.025,0.01,0]:
-        min_versions = prop*len(sequences)
+    while len(all_patterns) > 0:
         #filter patterns
-        patterns = filter_patterns(all_patterns, min_versions, remove_uniform=True)
+        cutoff = np.argmax(np.cumsum([len(o) for p,o in by_numversions]) > MAX_OCCS)
+        if cutoff == 0:#always at least 5, or all remaining if no cutoff
+            cutoff = 5 if len(by_numversions[0][1]) > MAX_OCCS else len(by_numversions)
+        print(cutoff, len(by_numversions))
+        patterns = {p:o for p,o in by_numversions[:cutoff]}
+        print('selected', len(patterns))
         
         if len(patterns) > 0:
             
-            groups = group_patterns(patterns, length=True, cooccurrence=False, similarity=True)
+            groups = group_patterns(patterns, length=True, cooccurrence=True, similarity=False)
             
             conns = get_most_common_connections(groups, patterns, sequences, MIN_DIST, min_count=2)
             
@@ -260,7 +271,19 @@ def super_alignment_graph(sequences, pairings, alignments):
             #print(len(comps), datetime.datetime.now(), [len(c) for c in comps])
             #print([[s for s in c if s[0] in [1,2,3]] for c in comps])
             
-            all_patterns = {p:o for p,o in all_patterns.items() if p not in patterns}
+            #remove small components NOT NECESSARY? MERGING HAPPENS...
+            # too_small = [c for c in comps if len(c) < 3]
+            # comps = [c if c not in too_small else [] for c in comps]#keep empty sets so indices the same
+            # for o in flatten(too_small):
+            #     del locs[o]
+            
+            remaining_points = all_points - locs.keys()
+            print('rempoints', len(remaining_points))
+            
+            all_patterns = {p:o for p,o in all_patterns.items()
+                if p not in patterns and
+                len(o.intersection(remaining_points)) > 0}#{p:o for p,o in all_patterns.items() if p not in patterns}
+            by_numversions = [p for p in by_numversions if p[0] in all_patterns]
             print('remaining', len(all_patterns))
     
     #remove empty comps and sort
@@ -268,17 +291,19 @@ def super_alignment_graph(sequences, pairings, alignments):
     comps = sorted(comps, key=lambda c: np.mean([s[1] for s in c]))
     print(len(comps), datetime.datetime.now(), [len(c) for c in comps])
     
-    # #merge compatible adjacent
-    # merged = comps[:1]
-    # for i,c in enumerate(comps[1:], 1):
-    #     m = list(merge(comps[i-1], c))
-    #     if valid(m, MIN_DIST):
-    #         merged[-1] = m
-    #     else:
-    #         merged.append(c)
-    # 
-    # comps = merged
-    # print(len(comps), [len(c) for c in comps])
+    #merge compatible adjacent
+    while True:
+        merged = comps[:1]
+        for c in comps[1:]:
+            m = list(merge(merged[-1], c))
+            if valid(m, MIN_DIST):
+                merged[-1] = m
+            else:
+                merged.append(c)
+        if len(merged) < len(comps):
+            comps = merged
+        else: break
+    print(len(comps), [len(c) for c in comps])
     
     #remove small comps
     # comps = [c for c in comps if len(c) > 10]
@@ -288,8 +313,9 @@ def super_alignment_graph(sequences, pairings, alignments):
         for s in c:
             typeseqs[s[0]][s[1]] = i
     plot_sequences(typeseqs.copy(), 'seqpat..png')
+    print(typeseqs[0].tolist())
     
-    return
+    #return
     
     #typeseqs = [l[-2] for l in get_hierarchy_labels(typeseqs)]
     typeseqs = get_most_salient_labels(typeseqs, 20, [-1])
@@ -365,7 +391,7 @@ def print_status(title, patterns):
     print(title, len(patterns), longest3)
 
 #returns the subset of patterns occurring in a given min number of versions
-def filter_patterns(patterns, min_versions, remove_uniform=False):
+def filter_patterns(patterns, min_versions=0, remove_uniform=False):
     #remove uniform (all same value or blank)
     if remove_uniform:
         uniq = {k:len(np.unique(list(k))) for k in patterns.keys()}
@@ -374,7 +400,7 @@ def filter_patterns(patterns, min_versions, remove_uniform=False):
         print_status('removed uniform', patterns)
     #prune pattern dict: keep only ones occurring in a min num of versions
     patterns = {k:v for k,v in patterns.items()
-        if len(np.unique([o[1] for o in v])) >= min_versions}
+        if len(np.unique([o[0] for o in v])) >= min_versions}
     print_status('frequent', patterns)
     return patterns
 
