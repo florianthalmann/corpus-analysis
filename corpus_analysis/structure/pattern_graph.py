@@ -16,7 +16,7 @@ from ..clusters.histograms import freq_hist_clusters, trans_hist_clusters,\
     freq_trans_hist_clusters
 from ..alignment.smith_waterman import smith_waterman
 
-MIN_VERSIONS = 0.0 #how many of the versions need to contain the patterns
+MIN_VERSIONS = 0.2 #how many of the versions need to contain the patterns
 PARSIM = True
 PARSIM_DIFF = 0 #the largest allowed difference in parsimonious mode (full containment == 0)
 MIN_SIM = 0.9 #min similarity for non-parsimonious similarity
@@ -235,159 +235,53 @@ class PatternGraph:
 ########################################
 
 def super_alignment_graph(sequences, pairings, alignments):
-    #plot_sequences(sequences, 'seqpat.png')
-    patterns = create_pattern_dict(sequences, pairings, alignments)
-    equivalences = {}
-    print_status('all', patterns, equivalences)
-    #remove uniform (one value or blank)
-    # uniq = {k:len(np.unique(list(k))) for k in patterns.keys()}
-    # patterns = {k:v for k,v in patterns.items() if uniq[k] > 2 or (uniq[k] == 2 and -1 not in k)}
-    # print_status('removed uniform', patterns, equivalences)
-    #prune pattern dict: keep only ones occurring in a min num of versions
-    patterns = {k:v for k,v in patterns.items()
-        if len(np.unique([o[1] for o in v])) >= len(sequences)*MIN_VERSIONS}
-    print_status('frequent', patterns, equivalences)
-    # #merge cooccurring patterns
-    # merge_patterns(lambda p, q: len(p) == len(q) and
-    #     len(patterns[p].intersection(patterns[q])) > 0, patterns, equivalences)
-    # print('merged cooc')
-    
-    # merge_patterns(lambda p, q: len(p) == len(q) and
-    #     all(p[i] == -1 or q[i] == -1 or p[i] == q[i] for i in range(len(p))),
-    #     patterns, equivalences)
-    # print_status('merged equiv', patterns, equivalences)
-    
-    groups = group_by(patterns.keys(), lambda p: len(p))
-    # print(len(groups), [len(g) for g in groups])
-    # print('total patterns', sum([len(g) for g in groups]))
-    
-    # eqfunc = lambda p, q: all(p[i] == -1 or q[i] == -1 or p[i] == q[i]
-    #     for i in range(len(p)))
-    # groups = flatten([group_patterns(eqfunc, g, True) for g in groups], 1)
-    #also try cooc:
-    eqfunc = lambda p, q: len(patterns[p].intersection(patterns[q])) > 0
-    groups = flatten([group_patterns(eqfunc, g, False) for g in groups], 1)
-    
-    # print(len(groups), [len(g) for g in groups])
-    print('total group members', sum([len(g) for g in groups]))
-    
-    # print([p[0] for p in sorted(patterns.items(), key=lambda p: len(p[1]), reverse=True)[:5]])
-    # print(sum(len(p) for p in patterns.values()))
+    plot_sequences(sequences, 'seqpat.png')
+    all_patterns = create_pattern_dict(sequences, pairings, alignments)
+    print_status('all', all_patterns)
     
     MIN_DIST = 4
-    
-    #catalogue all connection counts between equivalent patterns
-    conns = []
-    maxlen = max([len(s) for s in sequences])
-    total = maxlen*len(sequences)
-    print('conns')
-    for g in groups:
-        #sort occurrences in group
-        o = np.array(sorted(list(set([o for p in g for o in patterns[p]]))))
-        #convert to indices of global concatenated sequence
-        a = np.array([oo[0]*maxlen+oo[1] for oo in o])
-        #get all pairwise connections not within min dist
-        i = np.array([[i1,i2] for i1 in range(len(o)) for i2 in range(i1+1, len(o))])
-        oo = o[i] #pairs of occurrences
-        aa = a[i] #pairs of global indices
-        ooo = aa[np.logical_or(oo[:,0,0] != oo[:,1,0],
-            np.absolute(oo[:,0,1] - oo[:,1,1]) >= MIN_DIST)]
-        #add segment durations
-        oooo = np.hstack(ooo[:,:,None] + np.arange(0, len(g[0]))).T
-        #to edge indices and append
-        ooooo = oooo[:,0]*total + oooo[:,1]
-        conns.append(ooooo)
-    #concat and count
-    c = np.concatenate(conns)
-    print('count', datetime.datetime.now())
-    #counts = np.bincount(c)
-    edges = Counter(c.tolist())
-    print(len(edges))
-    edges = {e:c for e,c in edges.items() if c > 1}
-    print(len(edges))
-    # print('extr', datetime.datetime.now())
-    # nonz = np.where(counts > 0)#np.nonzero(counts)[0]
-    # print(len(nonz), datetime.datetime.now())
-    # nonz = np.nonzero(counts)
-    #print(counts.most_common(10))
-    #print(len(nonz), datetime.datetime.now())
-    #counts = np.vstack((nonz, counts[nonz]))
-    #print(counts)
-    # print('sort', datetime.datetime.now())
-    # print(len(counts), len(np.nonzero(counts)[0]))
-    # sorted(counts)
-    #print('argsort', datetime.datetime.now())
-    #bestconns = np.flip(np.argsort(counts))
-    print('sort', datetime.datetime.now())
-    bestconns = sorted(edges.items(), key=lambda c: c[1], reverse=True)
-    bestconns = np.array(bestconns)[:,0]
-    print('post', datetime.datetime.now())
-    pairs = np.vstack((np.floor(bestconns/total), bestconns % total)).T
-    #print(pairs[:3])
-    print('post2', datetime.datetime.now())
-    pairs = np.dstack((np.floor(pairs/maxlen), pairs % maxlen)).astype(int)
-    #(int(len(pairs)/2), 4)).astype(int)
-    #print(pairs[:3])
-    
-    def valid(comp):
-        diffs = np.diff([c for c in comp], axis=0)
-        diffs = np.array([d[1] for d in diffs if d[0] == 0])#same version
-        if len(diffs) > 0:
-            return np.min(diffs[diffs >= 0]) >= MIN_DIST
-        return True 
-    
-    print('graph', datetime.datetime.now())
-    #build non-ambiguous graph with strongest connections
     comps = []
     locs = {}
-    invalid = set()
-    for pair in pairs:
-        pair = (pair[0][0], pair[0][1]), (pair[1][0], pair[1][1])
-        loc1 = locs[pair[0]] if pair[0] in locs else None
-        loc2 = locs[pair[1]] if pair[1] in locs else None
-        if loc1 != None and loc2 != None:
-            if loc1 != loc2 and (loc1, loc2) not in invalid:
-                #print(loc1, loc2, comps[loc1], comps[loc2])
-                merged = list(merge(comps[loc1], comps[loc2]))
-                #merged = sorted(set(comps[loc1] + comps[loc2]))
-                if valid(merged):
-                    comps[loc1] = merged
-                    for o in comps[loc2]:
-                        locs[o] = loc1
-                    comps[loc2] = [] #keep to not have to update indices
-                else:
-                    invalid.add((loc1, loc2))
-                    #print(invalid)
-            #else ignore pair
-        elif loc1 != None:
-            pos = next((i for i,c in enumerate(comps[loc1]) if c > pair[1]), len(comps[loc1]))
-            comps[loc1].insert(pos, pair[1])
-            locs[pair[1]] = loc1
-        elif loc2 != None:
-            pos = next((i for i,c in enumerate(comps[loc2]) if c > pair[0]), len(comps[loc2]))
-            comps[loc2].insert(pos, pair[0])
-            locs[pair[0]] = loc2
-        else:
-            locs[pair[0]] = locs[pair[1]] = len(comps)
-            comps.append(list(pair))#pair is ordered
-        #print(loc1, loc2, comps, locs)
+    incomp = set()
+    for prop in [0.5,0.25,0.125,0.05,0.025,0.01,0]:
+        min_versions = prop*len(sequences)
+        #filter patterns
+        patterns = filter_patterns(all_patterns, min_versions, remove_uniform=True)
+        
+        if len(patterns) > 0:
+            
+            groups = group_patterns(patterns, length=True, cooccurrence=False, similarity=True)
+            
+            conns = get_most_common_connections(groups, patterns, sequences, MIN_DIST, min_count=2)
+            
+            print('graph', datetime.datetime.now())
+            #build non-ambiguous graph containing strongest connections
+            add_to_components(conns, comps, locs, incomp, MIN_DIST)
+            #print(len(comps), datetime.datetime.now(), [len(c) for c in comps])
+            #print([[s for s in c if s[0] in [1,2,3]] for c in comps])
+            
+            all_patterns = {p:o for p,o in all_patterns.items() if p not in patterns}
+            print('remaining', len(all_patterns))
+    
     #remove empty comps and sort
-    comps = [c for c in comps if len(c) > 10]
+    comps = [c for c in comps if len(c) > 0]
     comps = sorted(comps, key=lambda c: np.mean([s[1] for s in c]))
     print(len(comps), datetime.datetime.now(), [len(c) for c in comps])
-    #print([[s for s in c if s[0] in [1,2,3]] for c in comps])
     
     # #merge compatible adjacent
     # merged = comps[:1]
     # for i,c in enumerate(comps[1:], 1):
     #     m = list(merge(comps[i-1], c))
-    #     if valid(m):
+    #     if valid(m, MIN_DIST):
     #         merged[-1] = m
     #     else:
     #         merged.append(c)
     # 
     # comps = merged
     # print(len(comps), [len(c) for c in comps])
+    
+    #remove small comps
+    # comps = [c for c in comps if len(c) > 10]
     
     typeseqs = [np.repeat(-1, len(s)) for s in sequences]
     for i,c in enumerate(comps):
@@ -465,12 +359,44 @@ def merge_tiny_comp_groups(comp_groups, adjmax, adjmin, comps):
             candidate.extend(g[0])
             comp_groups.remove(g)
 
-def print_status(title, patterns, equivalences):
+def print_status(title, patterns):
     longest3 = [len(l[1]) for l in sorted(list(patterns.items()),
         key=lambda p: len(p[1]), reverse=True)[:3]]
-    print(title, len(patterns), len(equivalences), longest3)
+    print(title, len(patterns), longest3)
 
-def group_patterns(equiv_func, patterns, cliques_not_comps=True):
+#returns the subset of patterns occurring in a given min number of versions
+def filter_patterns(patterns, min_versions, remove_uniform=False):
+    #remove uniform (all same value or blank)
+    if remove_uniform:
+        uniq = {k:len(np.unique(list(k))) for k in patterns.keys()}
+        patterns = {k:v for k,v in patterns.items()
+            if uniq[k] > 2 or (uniq[k] == 2 and -1 not in k)}
+        print_status('removed uniform', patterns)
+    #prune pattern dict: keep only ones occurring in a min num of versions
+    patterns = {k:v for k,v in patterns.items()
+        if len(np.unique([o[1] for o in v])) >= min_versions}
+    print_status('frequent', patterns)
+    return patterns
+
+def group_patterns(patterns, length=True, cooccurrence=False, similarity=True):
+    #group by length
+    groups = group_by(patterns.keys(), lambda p: len(p))
+    
+    #group by cooccurrence (groups not overlapping)
+    if cooccurrence:
+        eqfunc = lambda p, q: len(patterns[p].intersection(patterns[q])) > 0
+        groups = flatten([group_patterns2(eqfunc, g, False) for g in groups], 1)
+    
+    #group by similarity (groups are overlapping)
+    if similarity:
+        eqfunc = lambda p, q: all(p[i] == -1 or q[i] == -1 or p[i] == q[i]
+            for i in range(len(p)))
+        groups = flatten([group_patterns2(eqfunc, g, True) for g in groups], 1)
+    
+    print('grouped', len(groups), sum([len(g) for g in groups]))
+    return groups
+
+def group_patterns2(equiv_func, patterns, cliques_not_comps):
     if len(patterns) > 1:
         matrix = np.array([[1 if equiv_func(p,q) else 0
             for q in patterns] for p in patterns])
@@ -485,15 +411,81 @@ def group_patterns(equiv_func, patterns, cliques_not_comps=True):
             +[[patterns[i]] for i in range(len(patterns)) if i not in union]
     return [patterns]
 
-def merge_patterns(equiv_func, patterns, equivalences={}):#lambda p,q: bool
-    merged = {}
-    for p in list(patterns.keys()):
-        q = next((q for q in merged.keys() if equiv_func(p, q)), None)
-        if q:
-            merged[q].update(patterns[p])
-            if q not in equivalences:
-                equivalences[q] = set()
-            equivalences[q].add(p)
+#catalogue all connection counts between equivalent patterns
+def get_most_common_connections(groups, patterns, sequences, min_dist, min_count):
+    conns = []
+    maxlen = max([len(s) for s in sequences])
+    total = maxlen*len(sequences)
+    #print('conns')
+    for g in groups:
+        #sort occurrences in group
+        o = np.array(sorted(list(set([o for p in g for o in patterns[p]]))))
+        #convert to indices of global concatenated sequence
+        a = np.array([oo[0]*maxlen+oo[1] for oo in o])
+        #get all pairwise connections not within min dist
+        i = np.array([[i1,i2] for i1 in range(len(o)) for i2 in range(i1+1, len(o))])
+        oo = o[i] #pairs of occurrences
+        aa = a[i] #pairs of global indices
+        ooo = aa[np.logical_or(oo[:,0,0] != oo[:,1,0],
+            np.absolute(oo[:,0,1] - oo[:,1,1]) >= min_dist)]
+        #add segment durations
+        oooo = np.hstack(ooo[:,:,None] + np.arange(0, len(g[0]))).T
+        #to edge indices and append
+        ooooo = oooo[:,0]*total + oooo[:,1]
+        conns.append(ooooo)
+    #concat and count
+    c = np.concatenate(conns)
+    #print('count', datetime.datetime.now())
+    #counts = np.bincount(c)
+    edges = Counter(c.tolist())
+    print(len(edges))
+    edges = {e:c for e,c in edges.items() if c >= min_count}
+    print(len(edges))
+    #print('sort', datetime.datetime.now())
+    bestconns = sorted(edges.items(), key=lambda c: c[1], reverse=True)
+    bestconns = np.array(bestconns)[:,0]
+    #print('post', datetime.datetime.now())
+    pairs = np.vstack((np.floor(bestconns/total), bestconns % total)).T
+    #print('post2', datetime.datetime.now())
+    return np.dstack((np.floor(pairs/maxlen), pairs % maxlen)).astype(int)
+
+def valid(comp, min_dist):
+    diffs = np.diff([c for c in comp], axis=0)
+    diffs = np.array([d[1] for d in diffs if d[0] == 0])#same version
+    if len(diffs) > 0:
+        return np.min(diffs[diffs >= 0]) >= min_dist
+    return True 
+
+#locs keeps track of which components each segment is in
+#incomp keeps track of incompatible component combinations
+def add_to_components(edges, comps, locs, incomp, min_dist):
+    for pair in edges:
+        pair = (pair[0][0], pair[0][1]), (pair[1][0], pair[1][1])
+        loc1 = locs[pair[0]] if pair[0] in locs else None
+        loc2 = locs[pair[1]] if pair[1] in locs else None
+        if loc1 != None and loc2 != None:
+            if loc1 != loc2 and (loc1, loc2) not in incomp:
+                #print(loc1, loc2, comps[loc1], comps[loc2])
+                merged = list(merge(comps[loc1], comps[loc2]))
+                #merged = sorted(set(comps[loc1] + comps[loc2]))
+                if valid(merged, min_dist):
+                    comps[loc1] = merged
+                    for o in comps[loc2]:
+                        locs[o] = loc1
+                    comps[loc2] = [] #keep to not have to update indices
+                else:
+                    incomp.add((loc1, loc2))
+                    #print(incomp)
+            #else ignore pair
+        elif loc1 != None:
+            pos = next((i for i,c in enumerate(comps[loc1]) if c > pair[1]), len(comps[loc1]))
+            comps[loc1].insert(pos, pair[1])
+            locs[pair[1]] = loc1
+        elif loc2 != None:
+            pos = next((i for i,c in enumerate(comps[loc2]) if c > pair[0]), len(comps[loc2]))
+            comps[loc2].insert(pos, pair[0])
+            locs[pair[0]] = loc2
         else:
-            merged[p] = patterns[p]
-    return merged, equivalences
+            locs[pair[0]] = locs[pair[1]] = len(comps)
+            comps.append(list(pair))#pair is ordered
+        #print(loc1, loc2, comps, locs)
