@@ -38,10 +38,12 @@ def freq_trans_hists(sequences, relative):
 
 #returns indices of clustered and unclustered hists
 def clusters(hists):
-    cluster_labels = OPTICS().fit(hists).labels_
-    clustered = [i for i in range(len(hists)) if cluster_labels[i] != -1]
-    unclustered = [i for i in range(len(hists)) if cluster_labels[i] == -1]
-    return group_by(clustered, lambda i: cluster_labels[i]), unclustered
+    if (len(hists) > 1):
+        cluster_labels = OPTICS(min_samples=min(len(hists),5)).fit(hists).labels_
+        clustered = [i for i in range(len(hists)) if cluster_labels[i] != -1]
+        unclustered = [i for i in range(len(hists)) if cluster_labels[i] == -1]
+        return group_by(clustered, lambda i: cluster_labels[i]), unclustered
+    return [[0]], []
 
 #classification of sequences of different lengths using frequency histograms
 def freq_hist_clusters(sequences, relative=True):

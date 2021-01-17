@@ -1,4 +1,4 @@
-import math
+from math import ceil, sqrt, log
 import numpy as np
 from sklearn.metrics import pairwise_distances
 from .util import median_filter, symmetric
@@ -41,24 +41,29 @@ def get_equality(a, b):
         return np.all(a[:, None] == b[None, :], axis=2).astype(int)
     return a[:, None] == b[None, :]
 
-def get_affinity_matrix(a, b, equality, max_gaps, max_gap_ratio, sim_thresh = .9, k_factor=10):
+def get_affinity_matrix(a, b, equality, max_gaps, max_gap_ratio, k_factor=10, knn=True):
     symmetric = np.array_equal(a, b)
+    width = 1
+    k = 2 * ceil(sqrt(((len(a)+len(b))/2) - 2 * width + 1))
+    #k = 1+k_factor*int(log(len(matrix), 2))
+    
     #create affinity or equality matrix
     if equality:
         matrix = get_equality(a, b)
-    elif sim_thresh:
+    elif knn:
         matrix = 1-pairwise_distances(a, b, metric="cosine")
-        #plot_hist(np.hstack(matrix), 'est..png', 100)
-        matrix = np.where(matrix > sim_thresh, 1, 0)
-        plot_matrix(matrix, 'est-.png')
-    else:
-        matrix = 1-pairwise_distances(a, b, metric="cosine")
-        k = 1+k_factor*int(math.log(len(matrix), 2))
         conns = np.zeros(matrix.shape)
         knn = [np.argpartition(m, -k)[-k:] for m in matrix]
         for i,k in enumerate(knn):
             conns[i][k] = 1
         matrix = conns
+        plot_matrix(matrix, 'est-.png')
+    else:
+        matrix = 1-pairwise_distances(a, b, metric="cosine")
+        #plot_hist(np.hstack(matrix), 'est..png', 100)
+        k *= len(matrix)
+        thresh = np.partition(matrix.flatten(), -k)[-k]
+        matrix = np.where(matrix >= thresh, 1, 0)
         plot_matrix(matrix, 'est-.png')
     unsmoothed = matrix
     #only keep upper triangle in symmetric case
@@ -164,10 +169,10 @@ def get_segments_from_matrix(matrix, symmetric, count, min_len, min_dist, max_ga
             if np.sum(unsmoothed[tuple(s.T)]) >= (1-max_gap_ratio)*len(s)]
     return filter_segments(segments, count, min_len, min_dist, symmetric, matrix.shape)
 
-def get_alignment_segments(a, b, count, min_len, min_dist, max_gap_size, max_gap_ratio, k_factor=None):
+def get_alignment_segments(a, b, count, min_len, min_dist, max_gap_size, max_gap_ratio, k_factor=10):
     symmetric = np.array_equal(a, b)
     equality = issubclass(a.dtype.type, np.integer)
-    matrix, unsmoothed = get_affinity_matrix(a, b, equality, max_gap_size, max_gap_ratio, k_factor=k_factor)
+    matrix, unsmoothed = get_affinity_matrix(a, b, equality, max_gap_size, max_gap_ratio, k_factor)
     return get_segments_from_matrix(matrix, symmetric, count, min_len, min_dist, max_gap_size, max_gap_ratio, unsmoothed)
 
 def segments_to_matrix(segments, shape=None, sum=False):
