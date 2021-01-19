@@ -1,6 +1,6 @@
 from math import sqrt
 from functools import reduce
-from collections import OrderedDict, defaultdict
+from collections import OrderedDict, defaultdict, Counter
 import numpy as np
 import sortednp as snp
 from .patterns import Pattern, segments_to_patterns, patterns_to_segments
@@ -21,7 +21,7 @@ def filter_and_sort_patterns(patterns, min_len=0, min_dist=0, refs=[], occs_leng
     secondary = sorted(patterns, key=lambda p: (p.p, min(p.t)))
     #reverse sort by min(dist from refs, length/occs_length)
     return sorted(secondary, key=lambda p:
-        p.l*sqrt(len(p.t)) if occs_length else p.l,
+        p.l*len(p.t) if occs_length else p.l,#p.l*sqrt(len(p.t)) if occs_length else p.l,
         #min(min_dists[patterns.index(p)], p.l*len(p.t) if occs_length else p.l),
         reverse=True)
 
@@ -144,24 +144,32 @@ def make_segments_hierarchical(segments, min_len, min_dist, size=None, path=None
     #only return segments that fit into size (transitivity proportion < 1 can introduce artifacts)
     return [s for s in patterns_to_segments(patterns) if np.max(s) < size]
 
+def thin_out2(pairs):
+    #get locations of repetitions 
+    diff = np.diff(pairs, axis=0)
+    same = np.all(diff == 0, axis=1)
+    notsame = np.where(~same)
+    #get the heights of the plateaus at their initial positions
+    plateaus = np.diff(np.concatenate(([0], np.cumsum(same)[notsame])))
+    #subtract plateau values from series to be summed
+    addition = same.astype(int)
+    addition[notsame] = -plateaus
+    return pairs[np.where(np.cumsum(addition)%2==0)]
+
 def get_most_frequent_pair(sequences, ignore=[], overlapping=False):
+    #find all valid pairs (no element in ignore)
     pairs = [np.dstack([s[:-1], s[1:]])[0] for s in sequences]
-    valid = [np.where(np.all(np.logical_not(np.isin(ps, ignore)), axis=1))[0] for ps in pairs]
-    locs = defaultdict(list)
-    # for i,ps in enumerate(pairs):
-    #     for j,p in enumerate(ps):
-    #         if not np.any(np.isin(p, ignore)):
-    #             locs[tuple(p)].append((i,j))
-    for i,v in enumerate(valid):
-        for j in v:
-            locs[tuple(pairs[i][j])].append((i,j))
-    for p in locs.keys():
-        locs[p] = reduce(lambda ll,l: ll+[l]
-            if len(ll) == 0 or ll[-1][0] != l[0] or ll[-1][1] < l[1]-1 else ll,
-            locs[p], [])
-    locs = { p:l for p,l in locs.items() if len(l) > 1 }
-    if len(locs) > 0:
-        return sorted(locs.items(), key=lambda l: len(l[1]), reverse=True)[0]
+    uneq = [thin_out2(ps) for ps in pairs]
+    #print(uneq[0][:20])
+    valid = [np.where(np.all(np.logical_not(np.isin(ps, ignore)), axis=1))[0] for ps in uneq]
+    valid = np.concatenate([ps[valid[i]] for i,ps in enumerate(uneq)])
+    #print(valid[:5])
+    counts = Counter(valid.view(dtype=np.dtype([('x',int),('y',int)]))[:,0].tolist())
+    #print(counts)
+    counts = sorted(counts.items(), key=lambda c: c[1], reverse=True)
+    if counts[0][1] > 1:
+        locs = [get_locs_of_pair(s, counts[0][0]) for s in sequences]
+        return counts[0][0], [(i,j) for i,l in enumerate(locs) for j in l]
     return None, None
 
 def thin_out(a, min_dist=2):
@@ -268,12 +276,13 @@ def to_sections(sections):
 
 def find_sections_bottom_up(sequences, ignore=[]):
     sequences = [np.copy(s) for s in sequences]
-    seq_indices = np.array([np.arange(len(s)) for s in sequences])
+    seq_indices = [np.arange(len(s)) for s in sequences]
     pair, locs = get_most_frequent_pair(sequences, ignore)
     next_index = int(np.max(np.hstack(sequences))+1)
     sections = dict()
     occurrences = dict()
     #group recurring adjacent pairs into sections
+    print("group")
     while pair is not None:
         sections[next_index] = np.array(list(pair))
         occurrences[next_index] = [(l[0], seq_indices[l[0]][l[1]]) for l in locs]
@@ -284,6 +293,7 @@ def find_sections_bottom_up(sequences, ignore=[]):
         pair, locs = get_most_frequent_pair(sequences, ignore)
         next_index += 1
     #merge sections that always cooccur (nested)
+    print("merge")
     to_delete = []
     for t in sections.keys():
         parents = [k for (k,v) in sections.items() if t in v]
@@ -300,6 +310,7 @@ def find_sections_bottom_up(sequences, ignore=[]):
         del sections[t]
         del occurrences[t]
     #add sections for remaining adjacent surface objects
+    print("add")
     for i,s in enumerate(sequences):
         ungrouped = np.where(np.isin(s, list(sections.keys())+ignore) == False)[0]
         groups = np.split(ungrouped, np.where(np.diff(ungrouped) != 1)[0]+1)
@@ -328,9 +339,12 @@ def get_hierarchy_labels(sequences):
 
 def get_most_salient_labels(sequences, count, ignore):
     #print(sequences[0])
+    print("find")
     seqs, sections, occs = find_sections_bottom_up(sequences, ignore)
+    print("hier")
     flatsecs = {k:flatten(to_hierarchy(np.array([k]), sections))
         for k in sections.keys()}
+    print("filt")
     #only keep patterns longer than 2
     seclens = {k:len(flatsecs[k]) for k in sections.keys()}
     occs = {s:o for s,o in occs.items() if seclens[s] > 2}
