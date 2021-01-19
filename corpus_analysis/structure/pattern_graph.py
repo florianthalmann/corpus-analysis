@@ -237,33 +237,46 @@ class PatternGraph:
 def super_alignment_graph(sequences, pairings, alignments):
     plot_sequences(sequences, 'seqpat.png')
     all_patterns = create_pattern_dict(sequences, pairings, alignments)
+    print(len(all_patterns))
     all_points = set([(i,j) for i,s in enumerate(sequences) for j in range(len(s))])
-    #all_patterns = filter_patterns(all_patterns, 0, remove_uniform=True)
+    all_patterns = filter_patterns(all_patterns, 0, remove_uniform=True)
     print_status('all', all_patterns)
     print(len(all_points))
     
     MIN_DIST = 4
     MAX_OCCS = 10000
-    by_numversions = sorted(all_patterns.items(),
+    all_ordered = sorted(all_patterns.items(),
         key=lambda p: len(np.unique([v for v,t in p[1]])), reverse=True)
+    ordered = all_ordered
+    # groups = group_patterns(all_patterns, length=True, cooccurrence=True, similarity=False)
+    # groups = sorted(groups, key=lambda g: len(g), reverse=True)
+    # ordered = [(p,all_patterns[p]) for p in flatten(groups, 1)]
+    
     #print(by_versions[0])
     comps = []
     locs = {}
     incomp = set()
-    while len(all_patterns) > 0:
+    remaining = all_patterns.copy()
+    remaining_points = all_points
+    min_count = 3#7
+    min_size = 0
+    last_adjusted = "min_count"
+    while len(remaining) > 0:
         #filter patterns
-        cutoff = np.argmax(np.cumsum([len(o) for p,o in by_numversions]) > MAX_OCCS)
-        if cutoff == 0:#always at least 5, or all remaining if no cutoff
-            cutoff = 5 if len(by_numversions[0][1]) > MAX_OCCS else len(by_numversions)
-        print(cutoff, len(by_numversions))
-        patterns = {p:o for p,o in by_numversions[:cutoff]}
-        print('selected', len(patterns))
+        if last_adjusted == "min_count":
+            cutoff = np.argmax(np.cumsum([len(o) for p,o in ordered]) > MAX_OCCS)
+            if cutoff == 0:#always at least 5, or all remaining if no cutoff
+                cutoff = 5 if len(ordered[0][1]) > MAX_OCCS else len(ordered)
+        else:
+            cutoff = None
+        patterns = {p:o for p,o in ordered[:cutoff]}
+        print('selected', len(patterns), 'of', len(ordered))
         
         if len(patterns) > 0:
             
             groups = group_patterns(patterns, length=True, cooccurrence=True, similarity=False)
             
-            conns = get_most_common_connections(groups, patterns, sequences, MIN_DIST, min_count=2)
+            conns = get_most_common_connections(groups, patterns, sequences, MIN_DIST, min_count=min_count)
             
             print('graph', datetime.datetime.now())
             #build non-ambiguous graph containing strongest connections
@@ -271,39 +284,68 @@ def super_alignment_graph(sequences, pairings, alignments):
             #print(len(comps), datetime.datetime.now(), [len(c) for c in comps])
             #print([[s for s in c if s[0] in [1,2,3]] for c in comps])
             
-            #remove small components NOT NECESSARY? MERGING HAPPENS...
-            # too_small = [c for c in comps if len(c) < 3]
-            # comps = [c if c not in too_small else [] for c in comps]#keep empty sets so indices the same
-            # for o in flatten(too_small):
-            #     del locs[o]
-            
-            remaining_points = all_points - locs.keys()
+            previous = len(remaining_points)
+            inbigcomps = set([p for c in comps if len(c) >= min_size for p in c])
+            remaining_points = all_points - inbigcomps#locs.keys()
             print('rempoints', len(remaining_points))
             
-            all_patterns = {p:o for p,o in all_patterns.items()
-                if p not in patterns and
-                len(o.intersection(remaining_points)) > 0}#{p:o for p,o in all_patterns.items() if p not in patterns}
-            by_numversions = [p for p in by_numversions if p[0] in all_patterns]
-            print('remaining', len(all_patterns))
+            if len(remaining_points) == previous:
+                if last_adjusted == "min_count" or 0 < min_size < 20:
+                    min_size += 10
+                    last_adjusted = "min_size"
+                    remaining = all_patterns #need to widen selection
+                    print('increased min size to', min_size)
+                    inbigcomps = set([p for c in comps if len(c) >= min_size for p in c])
+                    remaining_points = all_points - inbigcomps#locs.keys()
+                    print('rempoints', len(remaining_points))
+                    remaining = filter_patterns(all_patterns, include=remaining_points)
+                    ordered = [p for p in all_ordered if p[0] in remaining]
+                    print('remaining', len(remaining))
+                elif min_count > 1:
+                    min_count -= 1
+                    min_size = 0
+                    last_adjusted = "min_count"
+                    print('reduced min count to', min_count)
+                else: break
+            else:
+                remaining = filter_patterns(remaining, include=remaining_points)
+                ordered = [p for p in ordered if p[0] in remaining]
+                print('remaining', len(remaining))
+    
     
     #remove empty comps and sort
     comps = [c for c in comps if len(c) > 0]
     comps = sorted(comps, key=lambda c: np.mean([s[1] for s in c]))
     print(len(comps), datetime.datetime.now(), [len(c) for c in comps])
     
-    #merge compatible adjacent
-    while True:
-        merged = comps[:1]
-        for c in comps[1:]:
-            m = list(merge(merged[-1], c))
-            if valid(m, MIN_DIST):
-                merged[-1] = m
-            else:
-                merged.append(c)
-        if len(merged) < len(comps):
-            comps = merged
-        else: break
-    print(len(comps), [len(c) for c in comps])
+    
+    # adjmax = get_comp_adjacency(comps, True, 0.5)
+    # plot_matrix(adjmax, 'max.png')
+    # scomps = [[] for i in range(len(comps))]
+    # for i,r in enumerate(adjmax):
+    #     j = np.argmax(r)-1
+    #     if j >= 0: scomps[j].extend(comps[i])
+    # comps = [s for s in scomps if len(s) > 0]
+    # print(len(comps), datetime.datetime.now(), [len(c) for c in comps])
+    # adjmax = get_comp_adjacency(comps, True, 0.5)
+    # plot_matrix(adjmax, 'max2.png')
+    
+    # adjmin = get_comp_adjacency(comps, False, 0.8)
+    # plot_matrix(adjmin, 'min.png')
+    
+    # #merge compatible adjacent
+    # while True:
+    #     merged = comps[:1]
+    #     for c in comps[1:]:
+    #         m = list(merge(merged[-1], c))
+    #         if valid(m, MIN_DIST):
+    #             merged[-1] = m
+    #         else:
+    #             merged.append(c)
+    #     if len(merged) < len(comps):
+    #         comps = merged
+    #     else: break
+    # print(len(comps), [len(c) for c in comps])
     
     #remove small comps
     # comps = [c for c in comps if len(c) > 10]
@@ -325,19 +367,8 @@ def super_alignment_graph(sequences, pairings, alignments):
     comp_groups = [[comps[0]]]
     #proj = lambda ts,i: [t[i] for t in ts]
     #compdiff = lambda c,d: [for i in set(proj(c,1)).intersect(set(proj(d,1)))]
-    adjpropmax = lambda c,d: len(set(c).intersection(set([(s[0],s[1]-1) for s in d])))/max(len(c),len(d))
-    adjpropmin = lambda c,d: len(set(c).intersection(set([(s[0],s[1]-1) for s in d])))/min(len(c),len(d))
-    #print([propadj(comps[i-1], c) for i,c in enumerate(comps[1:], 1)])
-    adjmax = np.zeros((len(comps),len(comps)))
-    for i,c in enumerate(comps):
-        for j,d in enumerate(comps):
-            adjmax[i][j] = 1 if adjpropmax(c, d) > 0.5 else 0
-    plot_matrix(adjmax, 'max.png')
-    adjmin = np.zeros((len(comps),len(comps)))
-    for i,c in enumerate(comps):
-        for j,d in enumerate(comps):
-            adjmin[i][j] = 1 if adjpropmin(c, d) > 0.8 else 0
-    plot_matrix(adjmin, 'min.png')
+    adjmax = get_comp_adjacency(comps, True, 0.5)
+    adjmin = get_comp_adjacency(comps, False, 0.8)
     
     comp_groups = group_by_comps(comps, adjmax)
     print([len(g) for g in comp_groups])
@@ -391,7 +422,7 @@ def print_status(title, patterns):
     print(title, len(patterns), longest3)
 
 #returns the subset of patterns occurring in a given min number of versions
-def filter_patterns(patterns, min_versions=0, remove_uniform=False):
+def filter_patterns(patterns, min_versions=0, remove_uniform=False, include=None):
     #remove uniform (all same value or blank)
     if remove_uniform:
         uniq = {k:len(np.unique(list(k))) for k in patterns.keys()}
@@ -399,10 +430,25 @@ def filter_patterns(patterns, min_versions=0, remove_uniform=False):
             if uniq[k] > 2 or (uniq[k] == 2 and -1 not in k)}
         print_status('removed uniform', patterns)
     #prune pattern dict: keep only ones occurring in a min num of versions
-    patterns = {k:v for k,v in patterns.items()
-        if len(np.unique([o[0] for o in v])) >= min_versions}
-    print_status('frequent', patterns)
+    if min_versions > 0:
+        patterns = {k:v for k,v in patterns.items()
+            if len(np.unique([o[0] for o in v])) >= min_versions}
+        print_status('frequent', patterns)
+    if include != None:
+        include = np.array(list(include))
+        pv = set(include[:,0])
+        patterns = {p:o for p,o in patterns.items() if contains((p,o), include, pv)}
     return patterns
+
+def contains(pattern, points, points_versions):
+    versions = list(set([p[0] for p in pattern[1]]).intersection(points_versions))
+    vpoints = points[np.isin(points[:,0], versions)]
+    voccs = np.array(list(pattern[1]))
+    voccs = voccs[np.isin(voccs[:,0], versions)]
+    voccs = np.column_stack((voccs, voccs[:,1]+len(pattern)))
+    containspoint = lambda o: np.any(np.logical_and(o[0] == vpoints[:,0],
+        np.logical_and(o[1] <= vpoints[:,1], vpoints[:,1] < o[2])))
+    return any(containspoint(o) for o in voccs)
 
 def group_patterns(patterns, length=True, cooccurrence=False, similarity=True):
     #group by length
@@ -515,3 +561,14 @@ def add_to_components(edges, comps, locs, incomp, min_dist):
             locs[pair[0]] = locs[pair[1]] = len(comps)
             comps.append(list(pair))#pair is ordered
         #print(loc1, loc2, comps, locs)
+
+def adj_proportion(c, d, maximum=True):
+    numadj = len(set(c).intersection(set([(s[0],s[1]-1) for s in d])))
+    return numadj/max(len(c),len(d)) if maximum else numadj/min(len(c),len(d))
+
+def get_comp_adjacency(comps, max=True, threshold=0.5):
+    adjacency = np.zeros((len(comps),len(comps)))
+    for i,c in enumerate(comps):
+        for j,d in enumerate(comps):
+            adjacency[i][j] = 1 if adj_proportion(c, d, max) >= threshold else 0
+    return adjacency
