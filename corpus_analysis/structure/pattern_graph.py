@@ -1,4 +1,4 @@
-import datetime, math
+import datetime, math, statistics
 from itertools import groupby, product
 from collections import Counter, defaultdict
 from heapq import merge
@@ -244,31 +244,35 @@ def super_alignment_graph(sequences, pairings, alignments):
     print(len(all_points))
     
     MIN_DIST = 4
-    MAX_OCCS = 10000
-    all_ordered = sorted(all_patterns.items(),
-        key=lambda p: len(np.unique([v for v,t in p[1]])), reverse=True)
-    ordered = all_ordered
-    # groups = group_patterns(all_patterns, length=True, cooccurrence=True, similarity=False)
-    # groups = sorted(groups, key=lambda g: len(g), reverse=True)
-    # ordered = [(p,all_patterns[p]) for p in flatten(groups, 1)]
+    MAX_OCCS = 30000
+    # all_ordered = sorted(all_patterns.items(),
+    #     key=lambda p: len(np.unique([v for v,t in p[1]])), reverse=True)
+    
+    # groups = group_patterns(all_patterns, length=True)
+    # groups = [c for g in groups for c in cluster(g, True)[0]]
+    # groups = sorted(groups, key=lambda g: sum([len(all_patterns[p]) for p in g]), reverse=True)
+    # all_ordered = [(p,all_patterns[p]) for p in flatten(groups, 1)]
+    # print("clustered", len(groups), statistics.median([len(g) for g in groups]))
+    
+    all_ordered = list(all_patterns.items())
+    
     
     #print(by_versions[0])
     comps = []
     locs = {}
     incomp = set()
     remaining = all_patterns.copy()
+    ordered = all_ordered.copy()
     remaining_points = all_points
     min_count = 3#7
+    max_min_size = 20
     min_size = 0
     last_adjusted = "min_count"
-    while len(remaining) > 0:
+    while len(remaining) > 0 and len(ordered) > 0:
         #filter patterns
-        if last_adjusted == "min_count":
-            cutoff = np.argmax(np.cumsum([len(o) for p,o in ordered]) > MAX_OCCS)
-            if cutoff == 0:#always at least 5, or all remaining if no cutoff
-                cutoff = 5 if len(ordered[0][1]) > MAX_OCCS else len(ordered)
-        else:
-            cutoff = None
+        cutoff = np.argmax(np.cumsum([len(o) for p,o in ordered]) > MAX_OCCS)
+        if cutoff == 0:#always at least 5, or all remaining if no cutoff
+            cutoff = 5 if len(ordered[0][1]) > MAX_OCCS else len(ordered)
         patterns = {p:o for p,o in ordered[:cutoff]}
         print('selected', len(patterns), 'of', len(ordered))
         
@@ -290,7 +294,7 @@ def super_alignment_graph(sequences, pairings, alignments):
             print('rempoints', len(remaining_points))
             
             if len(remaining_points) == previous:
-                if last_adjusted == "min_count" or 0 < min_size < 20:
+                if last_adjusted == "min_count" or 0 < min_size < max_min_size:
                     min_size += 10
                     last_adjusted = "min_size"
                     remaining = all_patterns #need to widen selection
@@ -309,7 +313,7 @@ def super_alignment_graph(sequences, pairings, alignments):
                 else: break
             else:
                 remaining = filter_patterns(remaining, include=remaining_points)
-                ordered = [p for p in ordered if p[0] in remaining]
+                ordered = [p for p in all_ordered if p[0] in remaining]
                 print('remaining', len(remaining))
     
     
@@ -357,7 +361,7 @@ def super_alignment_graph(sequences, pairings, alignments):
     plot_sequences(typeseqs.copy(), 'seqpat..png')
     print(typeseqs[0].tolist())
     
-    #return
+    return typeseqs
     
     #typeseqs = [l[-2] for l in get_hierarchy_labels(typeseqs)]
     typeseqs = get_most_salient_labels(typeseqs, 20, [-1])
@@ -450,7 +454,7 @@ def contains(pattern, points, points_versions):
         np.logical_and(o[1] <= vpoints[:,1], vpoints[:,1] < o[2])))
     return any(containspoint(o) for o in voccs)
 
-def group_patterns(patterns, length=True, cooccurrence=False, similarity=True):
+def group_patterns(patterns, length=True, cooccurrence=False, similarity=False):
     #group by length
     groups = group_by(patterns.keys(), lambda p: len(p))
     
