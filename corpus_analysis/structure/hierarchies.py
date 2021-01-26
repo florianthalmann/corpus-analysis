@@ -27,9 +27,9 @@ def filter_and_sort_patterns(patterns, min_len=0, min_dist=0, refs=[], occs_leng
 
 # removes any pattern overlaps, starting with longest pattern,
 # adjusting shorter ones to fit within limits
-def remove_overlaps(patterns, min_len, min_dist, size):
+def remove_overlaps(patterns, min_len, min_dist, size, occs_length):
     result = []
-    patterns = filter_and_sort_patterns(patterns, min_len, min_dist, result, True)
+    patterns = filter_and_sort_patterns(patterns, min_len, min_dist, result, occs_length)
     i = 0
     while len(patterns) > 0:
         next = patterns.pop(0)
@@ -40,7 +40,7 @@ def remove_overlaps(patterns, min_len, min_dist, size):
         #print(new_boundaries)
         for b in new_boundaries:
             patterns = [q for p in patterns for q in p.divide_at_absolute(b)]
-        patterns = filter_and_sort_patterns(patterns, min_len, min_dist, result, True)
+        patterns = filter_and_sort_patterns(patterns, min_len, min_dist, result, occs_length)
         i += 1
     return result
 
@@ -123,7 +123,7 @@ def merge_patterns(patterns):
 
 def make_segments_hierarchical(segments, min_len, min_dist, size=None, path=None):
     patterns = filter_and_sort_patterns(segments_to_patterns(segments))
-    #if path != None: plot_matrix(segments_to_matrix(patterns_to_segments(patterns), (size,size)), path+'t1.png')
+    if path != None: plot_matrix(segments_to_matrix(patterns_to_segments(patterns), (size,size)), path+'t1.png')
     #print(patterns)
     #patterns = add_transitivity2(patterns)
     #patterns = add_transitivity(patterns, 1)#0.9)
@@ -133,7 +133,7 @@ def make_segments_hierarchical(segments, min_len, min_dist, size=None, path=None
     patterns = merge_patterns(patterns)
     if path != None: plot_matrix(segments_to_matrix(patterns_to_segments(patterns), (size,size)), path+'t3.png')
     #print(patterns)
-    patterns = remove_overlaps(patterns, min_len, min_dist, size)
+    patterns = remove_overlaps(patterns, min_len, min_dist, size, occs_length=True)
     if path != None: plot_matrix(segments_to_matrix(patterns_to_segments(patterns), (size,size)), path+'t4.png')
     #print(patterns)
     #patterns = add_transitivity2(patterns)
@@ -161,14 +161,14 @@ def get_most_frequent_pair(sequences, ignore=[], overlapping=False):
     pairs = [np.dstack([s[:-1], s[1:]])[0] for s in sequences]
     uneq = [thin_out2(ps) for ps in pairs]
     #print(uneq[0][:20])
-    valid = [np.where(np.all(np.logical_not(np.isin(ps, ignore)), axis=1))[0] for ps in uneq]
+    valid = [np.where(np.all(~np.isin(ps, ignore), axis=1))[0] for ps in uneq]
     valid = np.concatenate([ps[valid[i]] for i,ps in enumerate(uneq)])
     #print(valid[:5])
-    counts = Counter(valid.view(dtype=np.dtype([('x',int),('y',int)]))[:,0].tolist())
+    counts = Counter(valid.view(dtype=np.dtype([('x',valid.dtype),('y',valid.dtype)]))[:,0].tolist())
     #print(counts)
     counts = sorted(counts.items(), key=lambda c: c[1], reverse=True)
     if counts[0][1] > 1:
-        locs = [get_locs_of_pair(s, counts[0][0]) for s in sequences]
+        locs = [get_locs_of_pair(s, counts[0][0], overlapping) for s in sequences]
         return counts[0][0], [(i,j) for i,l in enumerate(locs) for j in l]
     return None, None
 
@@ -282,7 +282,6 @@ def find_sections_bottom_up(sequences, ignore=[]):
     sections = dict()
     occurrences = dict()
     #group recurring adjacent pairs into sections
-    print("group")
     while pair is not None:
         sections[next_index] = np.array(list(pair))
         occurrences[next_index] = [(l[0], seq_indices[l[0]][l[1]]) for l in locs]
@@ -293,7 +292,6 @@ def find_sections_bottom_up(sequences, ignore=[]):
         pair, locs = get_most_frequent_pair(sequences, ignore)
         next_index += 1
     #merge sections that always cooccur (nested)
-    print("merge")
     to_delete = []
     for t in sections.keys():
         parents = [k for (k,v) in sections.items() if t in v]
@@ -310,7 +308,6 @@ def find_sections_bottom_up(sequences, ignore=[]):
         del sections[t]
         del occurrences[t]
     #add sections for remaining adjacent surface objects
-    print("add")
     for i,s in enumerate(sequences):
         ungrouped = np.where(np.isin(s, list(sections.keys())+ignore) == False)[0]
         groups = np.split(ungrouped, np.where(np.diff(ungrouped) != 1)[0]+1)
@@ -339,12 +336,9 @@ def get_hierarchy_labels(sequences):
 
 def get_most_salient_labels(sequences, count, ignore):
     #print(sequences[0])
-    print("find")
     seqs, sections, occs = find_sections_bottom_up(sequences, ignore)
-    print("hier")
     flatsecs = {k:flatten(to_hierarchy(np.array([k]), sections))
         for k in sections.keys()}
-    print("filt")
     #only keep patterns longer than 2
     seclens = {k:len(flatsecs[k]) for k in sections.keys()}
     occs = {s:o for s,o in occs.items() if seclens[s] > 2}

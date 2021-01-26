@@ -16,6 +16,8 @@ import librosa
 import matplotlib.pyplot as plt
 import librosa.display
 
+from ..util import plot_matrix
+
 
 BPO = 12 * 3
 N_OCTAVES = 7
@@ -44,7 +46,8 @@ def make_beat_sync_features(y, sr):
                                                                 x_min=0,
                                                                 x_max=C.shape[1]),
                                         sr=sr)
-
+    #print(len(beats), len(beat_times))
+    
     #print('\tcomputing MFCCs...')
     mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=13)
     Msync = librosa.util.sync(mfcc, beats)
@@ -59,10 +62,13 @@ def embed_beats(A_rep, A_loc):
                                           mode='affinity',
                                           metric='cosine',
                                           sym=True)
-
+    #plot_matrix(R, 'est00.png')
+    
     # Enhance diagonals with a median filter (Equation 2)
     df = librosa.segment.timelag_filter(scipy.ndimage.median_filter)
     Rf = df(R, size=(1, REC_SMOOTH))
+    
+    #plot_matrix(Rf, 'est000.png')
 
     #print('\tbuilding local graph...')
     path_distance = np.sum(np.diff(A_loc, axis=1)**2, axis=0)
@@ -81,6 +87,7 @@ def embed_beats(A_rep, A_loc):
     mu = deg_path.dot(deg_path + deg_rec) / np.sum((deg_path + deg_rec)**2)
 
     A = mu * Rf + (1 - mu) * R_path
+    #A = Rf
 
     #####################################################
     # Now let's compute the normalized Laplacian (Eq. 10)
@@ -120,7 +127,7 @@ def decompose(A):
 
 def cluster(evecs, Cnorm, k):
     X = evecs[:, :k] / Cnorm[:, k-1:k]
-    X = np.nan_to_num(X)
+    X = np.nan_to_num(X).astype('float64')
     #print(evecs)
     #print(Cnorm)
 
@@ -250,6 +257,16 @@ def laplacian_segmentation(matrix):#pass in an affinity matrix
 #-------------
 
 from ..alignment.affinity import get_affinity_matrix
+
+#same as above method for comparison
+def get_smooth_affinity_matrix(filename):
+    y, sr = librosa.load(filename)
+    Csync, Msync, beat_times = make_beat_sync_features(y=y, sr=sr)
+    R = librosa.segment.recurrence_matrix(Csync, width=REC_WIDTH,
+        mode='affinity', metric='cosine', sym=True)
+    df = librosa.segment.timelag_filter(scipy.ndimage.median_filter)
+    #beat_times, tuple(zip(*add_beat_times(reindex(segmentations), beat_times)))
+    return df(R, size=(1, REC_SMOOTH)), beat_times
 
 def get_laplacian_struct_from_affinity(affinity):
     struct = laplacian_segmentation(affinity)
