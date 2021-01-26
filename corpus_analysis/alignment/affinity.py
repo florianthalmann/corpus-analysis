@@ -176,13 +176,14 @@ def get_alignment_segments(a, b, count, min_len, min_dist, max_gap_size, max_gap
     return get_segments_from_matrix(matrix, symmetric, count, min_len, min_dist, max_gap_size, max_gap_ratio, unsmoothed)
 
 def segments_to_matrix(segments, shape=None, sum=False):
-    points = np.concatenate(segments)
     if not shape: shape = tuple(np.max(points, axis=0)+1)
     matrix = np.zeros(shape)
-    if sum:
-        np.add.at(matrix, tuple(points.T), 1)
-    else:
-        matrix[points.T[0], points.T[1]] = 1
+    if len(segments) > 0:
+        points = np.concatenate(segments)
+        if sum:
+            np.add.at(matrix, tuple(points.T), 1)
+        else:
+            matrix[points.T[0], points.T[1]] = 1
     return matrix
 
 def get_alignment_matrix(a, b, min_len, min_dist, max_gap_size, max_gap_ratio):

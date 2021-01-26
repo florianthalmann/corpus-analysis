@@ -13,7 +13,7 @@ def multiprocess(title, func, data):
     with Pool(processes=cpu_count()-1) as pool:
         return list(tqdm.tqdm(pool.imap(func, data), total=len(data)))
 
-def flatten(array, iterations=math.inf):#iterations -1 is deep flatten
+def flatten(array, iterations=math.inf):#iterations inf is deep flatten
     if iterations >= 0 and isinstance(array, list):
         return [b for a in array for b in flatten(a, iterations-1)]
     return [array]

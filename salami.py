@@ -23,15 +23,15 @@ audio = corpus+'lma-audio/'
 annotations = corpus+'salami-data-public/annotations/'
 features = corpus+'features/'
 output = 'salami/'
-RESULTS = output+'results.csv'
+RESULTS = output+'results3.csv'
 graphditty = '/Users/flo/Projects/Code/Kyoto/GraphDitty/SongStructure.py'
 
 K_FACTOR = 10
-MIN_LEN = 16
+MIN_LEN = 8
 MIN_DIST = 1 # >= 1
 MAX_GAPS = 6
 MAX_GAP_RATIO = .4
-MIN_LEN2 = 10
+MIN_LEN2 = 8
 MIN_DIST2 = 1
 PLOT_FRAMES = 2000
 
@@ -146,7 +146,7 @@ def result_exists(groundtruth, method_name, index):
             MAX_GAPS, MAX_GAP_RATIO, MIN_LEN2, MIN_DIST2, i, method_name])
             for i in range(len(groundtruth))])
 
-def eval_and_add_results(method_name, groundtruth, intervals, labels):
+def eval_and_add_results(index, method_name, groundtruth, intervals, labels):
     results = []
     for i, (refint, reflab) in enumerate(groundtruth):
         score = evaluate_hierarchy(refint, reflab, intervals, labels)
@@ -165,20 +165,19 @@ def eval_and_add_results(method_name, groundtruth, intervals, labels):
         data = data.append(results, ignore_index=True)
         data.to_csv(RESULTS, index=False)
 
-def eval_laplacian(index, groundtruth, method_name='laplacian', plot_path=None, matrix=None, beats=None):
+def eval_laplacian(index, groundtruth, method_name, plot_path=None, matrix=None, beats=None):
     if not result_exists(groundtruth, method_name, index):
-        if matrix and beats:
+        if matrix is not None and beats is not None:
             lpi, lpl = get_laplacian_struct_from_affinity2(matrix, beats)
         else:
             lpi, lpl = get_laplacian_struct_from_audio(get_audio(index))
         if plot_path:
             plot_hierarchy(plot_path, index, method_name, lpi, lpl, groundtruth)
-        eval_and_add_results(method_name, groundtruth, lpi, lpl)
+        eval_and_add_results(index, method_name, groundtruth, lpi, lpl)
 
-def eval_transitive(index, groundtruth, matrix, beats, method_name='transitive', plot_path=None):
+def eval_transitive(index, groundtruth, matrix, beats, method_name, plot_path=None):
     if not result_exists(groundtruth, method_name, index):
         alignment = matrix_to_segments(matrix)
-        print(index, len(alignment))
         #plot_matrix(segments_to_matrix(alignment, (len(chroma),len(chroma))), 'est2.png')
         hierarchy = simple_structure(matrix[0], alignment, MIN_LEN2, MIN_DIST2)
         print(index, len(hierarchy), [len(h) for h in hierarchy])
@@ -187,18 +186,22 @@ def eval_transitive(index, groundtruth, matrix, beats, method_name='transitive',
         hi, hl = [beat_ints for h in range(len(hierarchy))], hierarchy.tolist()
         if plot_path:
             plot_hierarchy(plot_path, index, method_name, hi, hl, groundtruth)
-        eval_and_add_results(method_name, groundtruth, hi, hl)
+        eval_and_add_results(index, method_name, groundtruth, hi, hl)
 
-def eval_hierarchy(index, matrix_method='own', use_mat_in_lapl=False,
-        plot_path='salami/16 8/', hom_labels=False):
+def eval_hierarchy(index, matrix_method='own', use_mat_in_lapl=True,
+        plot_path='salami/all/', hom_labels=False):
+    tname = 't_'+matrix_method
+    lname = 'l'+(('_'+matrix_method) if use_mat_in_lapl else '')
     groundtruth = load_salami_hierarchies(index)
     if hom_labels:
         groundtruth = [homogenize_labels(g) for g in groundtruth]
     if plot_path:
-        for i,g in enumerate([homogenize_labels(g) for g in groundtruth]):
+        if not hom_labels:#:D
+            groundtruth = [homogenize_labels(g) for g in groundtruth]
+        for i,g in enumerate(groundtruth):
             plot_hierarchy(plot_path, index, 'a'+str(i+1), g[0], g[1], groundtruth)
-    if len(groundtruth) > 0 and not (result_exists(groundtruth, 'transitive', index)
-            and result_exists(groundtruth, 'laplacian', index)):
+    if len(groundtruth) > 0 and not (result_exists(groundtruth, tname, index)
+            and result_exists(groundtruth, lname, index)):
         if matrix_method == 'fused':
             matrix, beats = load_fused_matrix(index)
         elif matrix_method == 'mcfee':
@@ -213,14 +216,15 @@ def eval_hierarchy(index, matrix_method='own', use_mat_in_lapl=False,
         
         alignment = get_segments_from_matrix(matrix, True, 0, MIN_LEN,
             MIN_DIST, MAX_GAPS, MAX_GAP_RATIO)
-        matrix = segments_to_matrix(alignment)
+        print(index, len(alignment))
+        matrix = segments_to_matrix(alignment, (len(matrix), len(matrix)))
         beats = beats[:len(matrix)]
-        # plot_matrix(segments_to_matrix(alignment, (len(matrix),len(matrix))), 'est2.png')
+        # plot_matrix(matrix, 'est2.png')
         
-        eval_transitive(index, groundtruth, matrix, beats, 'transitive', plot_path)
+        eval_transitive(index, groundtruth, matrix, beats, tname, plot_path)
         if not use_mat_in_lapl:
             matrix, beats = None, None
-        eval_laplacian(index, groundtruth, 'laplacian', plot_path, matrix, beats)
+        eval_laplacian(index, groundtruth, lname, plot_path, matrix, beats)
     
 def run():
     result = buffered_run(output+'eval',
@@ -230,7 +234,7 @@ def run():
 
 def sweep():
     multiprocess('evaluating hierarchies', eval_hierarchy,
-        get_available_songs()[197:347])#[6:16])
+        get_available_songs()[197:222])#[197:347])#[6:16])
     #print([mean([ r[0]] for r in result])
 
 def plot():
@@ -275,7 +279,7 @@ def test_eval_detail(index):
 #print(get_available_songs()[297:])
 sweep()
 #INDEX = 955
-#test_hierarchy(958)#982)
+#eval_hierarchy(1226)#982)
 #load_fused_matrix(1319)
 #calculate_fused_matrices()
 #test_hierarchy(INDEX)
