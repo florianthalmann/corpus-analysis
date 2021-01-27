@@ -8,9 +8,11 @@ from matplotlib import pyplot as plt
 import seaborn as sns
 from graph_tool.all import graph_draw
 
-def multiprocess(title, func, data):
+def multiprocess(title, func, data, unordered=False):
     print(title)
     with Pool(processes=cpu_count()-1) as pool:
+        if unordered:
+            return list(tqdm.tqdm(pool.imap_unordered(func, data), total=len(data)))
         return list(tqdm.tqdm(pool.imap(func, data), total=len(data)))
 
 def flatten(array, iterations=math.inf):#iterations inf is deep flatten

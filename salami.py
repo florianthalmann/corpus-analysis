@@ -27,7 +27,7 @@ RESULTS = output+'results3.csv'
 graphditty = '/Users/flo/Projects/Code/Kyoto/GraphDitty/SongStructure.py'
 
 K_FACTOR = 10
-MIN_LEN = 8
+MIN_LEN = 16
 MIN_DIST = 1 # >= 1
 MAX_GAPS = 6
 MAX_GAP_RATIO = .4
@@ -36,7 +36,8 @@ MIN_DIST2 = 1
 PLOT_FRAMES = 2000
 
 def get_available_songs():
-    return np.unique([int(s.split('.')[0]) for s in os.listdir(audio) if '.mp3' in s])
+    return [int(s.split('.')[0]) for s in os.listdir(audio)
+        if os.path.splitext(s)[1] == '.mp3']
 
 def extract_features(audio):
     extract_chords(audio, features)
@@ -44,18 +45,20 @@ def extract_features(audio):
 
 def extract_all_features():
     audio_files = [os.path.join(audio, a) for a in os.listdir(audio)]
-    multiprocess('extracting features', extract_features, audio_files)
+    multiprocess('extracting features', extract_features, audio_files, True)
 
 def calculate_fused_matrix(audio):
     filename = audio.split('/')[-1].replace('.mp3', '')
-    subprocess.call(['python', graphditty, '--win_fac', str(-1),
-        '--filename', audio, '--matfilename', features+filename+'.mat',
-        '--jsonfilename', features+filename+'.json'])#,
-        #stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    if not os.path.isfile(features+filename+'.mat'):
+        subprocess.call(['python', graphditty, '--win_fac', str(-1),
+            '--filename', audio, '--matfilename', features+filename+'.mat',
+            '--jsonfilename', features+filename+'.json'])#,
+            #stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 def calculate_fused_matrices():
-    audio_files = [os.path.join(audio, a) for a in os.listdir(audio)]
-    multiprocess('calculating fused matrices', calculate_fused_matrix, audio_files)
+    audio_files = [os.path.join(audio, a) for a in os.listdir(audio)
+        if os.path.splitext(a)[1] == '.mp3']
+    [calculate_fused_matrix(a) for a in audio_files]
 
 def load_beatwise_chords(index):
     return get_summarized_chords(features+str(index)+'_bars.txt',
@@ -135,8 +138,9 @@ def plot_hierarchy(path, index, method_name, intervals, labels, groundtruth):
     if not os.path.isfile(filename):
         maxtime = np.max(np.concatenate(groundtruth[0][0]))
         frames = np.linspace(0, int(maxtime), PLOT_FRAMES, endpoint=False)
-        labels = beatwise((intervals, labels), frames)
-        plot_sequences(labels, path+str(index)+method_name+'.png')
+        labelseqs = beatwise((intervals, labels), frames)
+        if len(labelseqs) > 0:
+            plot_sequences(labelseqs, path+str(index)+method_name+'.png')
 
 def result_exists(groundtruth, method_name, index):
     exists = lambda data, col: (data[data.columns[:len(col)]] == col).all(1).any()
@@ -188,7 +192,7 @@ def eval_transitive(index, groundtruth, matrix, beats, method_name, plot_path=No
             plot_hierarchy(plot_path, index, method_name, hi, hl, groundtruth)
         eval_and_add_results(index, method_name, groundtruth, hi, hl)
 
-def eval_hierarchy(index, matrix_method='own', use_mat_in_lapl=True,
+def eval_hierarchy(index, matrix_method='fused', use_mat_in_lapl=True,
         plot_path='salami/all/', hom_labels=False):
     tname = 't_'+matrix_method
     lname = 'l'+(('_'+matrix_method) if use_mat_in_lapl else '')
@@ -225,16 +229,10 @@ def eval_hierarchy(index, matrix_method='own', use_mat_in_lapl=True,
         if not use_mat_in_lapl:
             matrix, beats = None, None
         eval_laplacian(index, groundtruth, lname, plot_path, matrix, beats)
-    
-def run():
-    result = buffered_run(output+'eval',
-        lambda: multiprocess('evaluating hierarchies', test_hierarchy,
-        get_available_songs()),
-        [MIN_LEN, MIN_DIST, MAX_GAPS, MAX_GAP_RATIO, MIN_LEN2, MIN_DIST2])
 
 def sweep():
     multiprocess('evaluating hierarchies', eval_hierarchy,
-        get_available_songs()[197:222])#[197:347])#[6:16])
+        get_available_songs()[197:222], False)#[197:347])#[6:16])
     #print([mean([ r[0]] for r in result])
 
 def plot():
@@ -279,7 +277,7 @@ def test_eval_detail(index):
 #print(get_available_songs()[297:])
 sweep()
 #INDEX = 955
-#eval_hierarchy(1226)#982)
+#eval_hierarchy(1192)#982)
 #load_fused_matrix(1319)
 #calculate_fused_matrices()
 #test_hierarchy(INDEX)

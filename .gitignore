@@ -1,6 +1,7 @@
 __pycache__
 *.png
 *.pdf
+*.json
 data
 data_bars
 results
