@@ -127,8 +127,9 @@ def decompose(A):
 
 def cluster(evecs, Cnorm, k):
     X = evecs[:, :k] / Cnorm[:, k-1:k]
-    X = np.nan_to_num(X, nan=0, posinf=np.finfo(np.float32).max,
-        neginf=np.finfo(np.float32).min)
+    X = np.nan_to_num(X, nan=0)
+    X[X > 1] = 1
+    X[X < -1] = -1
 
     KM = sklearn.cluster.KMeans(n_clusters=k, n_init=50, max_iter=500)
 

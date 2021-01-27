@@ -36,8 +36,8 @@ MIN_DIST2 = 1
 PLOT_FRAMES = 2000
 
 def get_available_songs():
-    return [int(s.split('.')[0]) for s in os.listdir(audio)
-        if os.path.splitext(s)[1] == '.mp3']
+    return np.unique([int(s.split('.')[0]) for s in os.listdir(audio)
+        if os.path.splitext(s)[1] == '.mp3'])
 
 def extract_features(audio):
     extract_chords(audio, features)
@@ -195,7 +195,7 @@ def eval_transitive(index, groundtruth, matrix, beats, method_name, plot_path=No
 def eval_hierarchy(index, matrix_method='fused', use_mat_in_lapl=True,
         plot_path='salami/all/', hom_labels=False):
     tname = 't_'+matrix_method
-    lname = 'l'+(('_'+matrix_method) if use_mat_in_lapl else '')
+    lname = 'l'+(('_2'+matrix_method) if use_mat_in_lapl else '')
     groundtruth = load_salami_hierarchies(index)
     if hom_labels:
         groundtruth = [homogenize_labels(g) for g in groundtruth]
@@ -221,22 +221,26 @@ def eval_hierarchy(index, matrix_method='fused', use_mat_in_lapl=True,
         alignment = get_segments_from_matrix(matrix, True, 0, MIN_LEN,
             MIN_DIST, MAX_GAPS, MAX_GAP_RATIO)
         print(index, len(alignment))
-        matrix = segments_to_matrix(alignment, (len(matrix), len(matrix)))
         beats = beats[:len(matrix)]
-        # plot_matrix(matrix, 'est2.png')
         
-        eval_transitive(index, groundtruth, matrix, beats, tname, plot_path)
         if not use_mat_in_lapl:
-            matrix, beats = None, None
-        eval_laplacian(index, groundtruth, lname, plot_path, matrix, beats)
+            eval_laplacian(index, groundtruth, lname, plot_path)
+        else:
+            eval_laplacian(index, groundtruth, lname, plot_path, matrix, beats)
+        
+        matrix = segments_to_matrix(alignment, (len(matrix), len(matrix)))
+        # plot_matrix(matrix, 'est2.png')
+        eval_transitive(index, groundtruth, matrix, beats, tname, plot_path)
 
 def sweep():
+    #print(get_available_songs()[197:222])
     multiprocess('evaluating hierarchies', eval_hierarchy,
         get_available_songs()[197:222], False)#[197:347])#[6:16])
     #print([mean([ r[0]] for r in result])
 
 def plot():
     data = pd.read_csv(RESULTS)
+    data = data[1183 <= data['SONG']][data['SONG'] <= 1211]
     #data = data[data['MIN_LEN'] == 24]
     #data = data[(data['K_FACTOR'] == 5) | (data['K_FACTOR'] == 10)]
     #data.groupby(['METHOD']).mean().T.plot(legend=True)
@@ -275,13 +279,13 @@ def test_eval_detail(index):
 #test_hierarchy(get_available_songs()[0])
 #run()
 #print(get_available_songs()[297:])
-sweep()
+#sweep()
 #INDEX = 955
-#eval_hierarchy(1192)#982)
+#eval_hierarchy(1208)#982)
 #load_fused_matrix(1319)
 #calculate_fused_matrices()
 #test_hierarchy(INDEX)
-#plot()
+plot()
 #print(beatwise(homogenize_labels(load_salami_hierarchies(957)[0]), get_beats(957)))
 #print(load_salami_hierarchies(972))
 #load_salami_hierarchy(1003, 1)
