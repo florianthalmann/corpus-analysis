@@ -1,18 +1,22 @@
-import os, json, timeit, random, itertools
+import os, json, timeit, random, itertools, librosa, dateutil, datetime
 import numpy as np
-from mir_eval.hierarchy import lmeasure
 from corpus_analysis.features import get_summarized_chords, to_multinomial, extract_essentia,\
-    load_leadsheets, get_summarized_chords2
+    load_leadsheets, get_summarized_chords2, get_beat_summary, get_summarized_chroma,\
+    get_summarized_mfcc, extract_chords, load_essentia
 from corpus_analysis.alignment.affinity import get_alignment_segments, get_affinity_matrix,\
     get_alignment_matrix, segments_to_matrix
 from corpus_analysis.alignment.multi_alignment import align_sequences
 from corpus_analysis.alignment.smith_waterman import smith_waterman
 from corpus_analysis.util import profile, plot_matrix, plot_hist, plot,\
-    buffered_run, multiprocess, plot_graph
+    buffered_run, multiprocess, plot_graph, boxplot, plot_sequences
 from corpus_analysis.structure.hcomparison import get_relative_meet_triples, get_meet_matrix
 from corpus_analysis.structure.structure import shared_structure, simple_structure
-from corpus_analysis.structure.laplacian import laplacian_segmentation, segment_file
-from corpus_analysis.structure.graphs import graph_from_matrix, adjacency_matrix
+from corpus_analysis.structure.laplacian import get_laplacian_struct_from_affinity,\
+    get_laplacian_struct_from_audio
+from corpus_analysis.structure.graphs import graph_from_matrix, adjacency_matrix, alignment_graph
+from corpus_analysis.structure.pattern_graph import PatternGraph, super_alignment_graph
+from corpus_analysis.structure.eval import evaluate_hierarchy_varlen
+from corpus_analysis.structure.hierarchies import get_hierarchy_labels, get_most_salient_labels
 import graph_tool
 
 corpus = '../fifteen-songs-dataset2/'
@@ -24,25 +28,37 @@ with open(os.path.join(corpus, 'dataset.json')) as f:
 
 DATA = 'data/'
 BARS = False
+SONG_INDEX = 4
 #alignment
-SEG_COUNT = 25
+SEG_COUNT = 0 #0 for all segments
 MIN_LEN = 16
 MIN_DIST = 1 # >= 1
 MAX_GAPS = 4
 MAX_GAP_RATIO = .2
-NUM_MUTUAL = 0
-MIN_LEN2 = 20
+NUM_MUTUAL = 40
+MIN_LEN2 = 5
 MIN_DIST2 = 4
 L_MAX_GAPS = 4
 L_MAX_GAP_RATIO = .2
 
 SONGS = list(DATASET.keys())
 
-def get_paths(song):
+def get_versions_by_date(song):
     versions = list(DATASET[song].keys())
+    dates = [dateutil.parser.parse(p.split('.')[0][2:]) for p in versions]
+    dates = [d.replace(year=d.year-100) if d > datetime.datetime.now() else d
+        for d in dates]
+    versions, dates = zip(*sorted(zip(versions, dates), key=lambda vd: vd[1]))
+    return versions, dates
+
+def get_paths(song):
+    versions = get_versions_by_date(song)[0]
     audio_paths = [os.path.join(audio, song, v).replace('.mp3','.wav') for v in versions]
     feature_paths = [get_feature_path(song, v)+'_freesound.json' for v in versions]
     return audio_paths, feature_paths
+
+def get_essentias(song):
+    return [load_essentia(p) for p in get_paths(song)[1]]
 
 def extract_features_for_song(song):
     audio_paths, feature_paths = get_paths(song)
@@ -56,7 +72,7 @@ def get_feature_path(song, version):
     return os.path.join(features, id, id)
 
 def get_sequences(song):
-    versions = list(DATASET[song].keys())
+    versions = get_versions_by_date(song)[0]
     paths = [get_feature_path(song, v) for v in versions]
     return [get_summarized_chords(p+'_madbars.json', p+'_gochords.json', BARS)
         for p in paths]
@@ -107,21 +123,23 @@ def get_alignments(song):
     return sequences, pairings, alignments, msa
 
 def get_simple_structure(sequence_n_alignment):
-    sequence, alignment = sequence_n_alignment
-    return simple_structure(sequence, alignment, MIN_LEN2, MIN_DIST2)
+    sequence, alignment, index = sequence_n_alignment
+    print(index, 'started')
+    s = simple_structure(sequence, alignment, MIN_LEN2, MIN_DIST2)
+    print(index, 'done')
+    return s
 
 def get_simple_structures(song, sequences, alignments):
     return buffered_run(DATA+song+'-structs',
         lambda: multiprocess('simple structures', get_simple_structure,
-        list(zip(sequences, alignments))),
+        list(zip(sequences, alignments, range(len(alignments))))),
         [SEG_COUNT, MAX_GAPS, MAX_GAP_RATIO, MIN_LEN, MIN_DIST, NUM_MUTUAL,
             MIN_LEN2, MIN_DIST2])
 
 def get_laplacian_structure(sequence):
     affinity = get_affinity_matrix(sequence, sequence, True,
         L_MAX_GAPS, L_MAX_GAP_RATIO)[0]
-    struct = laplacian_segmentation(affinity)
-    return np.append(struct, [sequence], axis=0)
+    return get_laplacian_struct_from_affinity(affinity)
 
 def get_laplacian_structures(song, sequences):
     return buffered_run(DATA+song+'-lstructs',
@@ -130,47 +148,31 @@ def get_laplacian_structures(song, sequences):
 
 def get_orig_laplacian_struct(song_n_audio_n_version):
     song, audio, version = song_n_audio_n_version
-    struct, beat_times = segment_file(audio)
     chords = get_summarized_chords2(beat_times,
         get_feature_path(song, version)+'_gochords.json')
-    return np.append(struct, [chords], axis=0)
+    return get_laplacian_struct_from_audio(audio, chords)
 
 def get_orig_laplacian_structs(song):
     audio_files = get_paths(song)[0]
-    versions = list(DATASET[song].keys())
+    versions = get_versions_by_date(song)[0]
     return buffered_run(DATA+song+'-olstructs',
         lambda: multiprocess('original laplacian structures', get_orig_laplacian_struct,
         list(zip(itertools.repeat(song), audio_files, versions))), [])
 
-def get_intervals(levels):
-    ivls = lambda l: np.stack([np.arange(l), np.arange(l)+1]).T
-    return [ivls(len(l)) for l in levels]
-
-def evaluate_hierarchy(reference_n_estimate):
-    reference, estimate = reference_n_estimate
-    sw = np.array(smith_waterman(reference[-1,:], estimate[-1,:])[0])
-    #plot_matrix(segments_to_matrix([sw], (400,400)))
-    #print('smith waterman', len(sw))
-    ref, est = reference[:,sw[:,0]], estimate[:,sw[:,1]]
-    lm = lmeasure(get_intervals(ref), ref, get_intervals(est), est)
-    #print('raw lmeasure', lm)
-    #rethink this multiplication...
-    return lm#lm[0]*len(sw)/len(reference[0]), lm[1]*len(sw)/len(estimate[0]), lm[2]
-
 def evaluate_hierarchies(song, reference, estimates):
     return buffered_run(DATA+song+'-eval',
-        lambda: multiprocess('evaluate hierarchies', evaluate_hierarchy,
+        lambda: multiprocess('evaluate hierarchies', evaluate_hierarchy_varlen,
         [(reference, e) for e in estimates]), [SEG_COUNT, MAX_GAPS,
             MAX_GAP_RATIO, MIN_LEN, MIN_DIST, NUM_MUTUAL, MIN_LEN2, MIN_DIST2])
 
 def evaluate_hierarchies2(song, reference, estimates):
     return buffered_run(DATA+song+'-eval',
-        lambda: multiprocess('evaluate hierarchies', evaluate_hierarchy,
+        lambda: multiprocess('evaluate hierarchies', evaluate_hierarchy_varlen,
         [(reference, e) for e in estimates]), [L_MAX_GAPS, L_MAX_GAP_RATIO])
 
 def evaluate_hierarchies3(song, reference, estimates):
     return buffered_run(DATA+song+'-eval',
-        lambda: multiprocess('evaluate hierarchies', evaluate_hierarchy,
+        lambda: multiprocess('evaluate hierarchies', evaluate_hierarchy_varlen,
         [(reference, e) for e in estimates]), [])
 
 ######################
@@ -191,11 +193,9 @@ def plot_hists(alignment):
     plot_hist(dias, 'results/hist_dias4.png')
 
 def simplify_graph(alignment, length):
-    g = graph_from_matrix(segments_to_matrix(alignment, (length, length)))
+    g = graph_from_matrix(segments_to_matrix(alignment, (length, length)))[0]
     print(g)
-    g = graph_tool.all.Graph(g=g, directed=True)
-    print(g)
-    g = graph_tool.topology.transitive_closure(g)
+    #g = graph_tool.topology.transitive_closure(g)
     plot_matrix(adjacency_matrix(g), 'ztc.png')
     # plot_graph(g, 'z1g.png')
     # state = graph_tool.inference.minimize_blockmodel_dl(g)
@@ -211,59 +211,136 @@ def simplify_graph(alignment, length):
     print([c for c in cliques if 10 in c])
     print(sorted(cliques, key=lambda c: len(c), reverse=True)[:10])
     #g = graph_tool.all.GraphView(g, vfilt=incli)
-    
     union = None
-    for c in enumerate(cliques):
+    for c in cliques:
         incli.a = np.isin(g.get_vertices(), c)
+        #print(c, np.isin(g.get_vertices(), c).shape, np.sum(np.isin(g.get_vertices(), c)))
         subgraph = graph_tool.all.GraphView(g, vfilt=incli)
+        #print(subgraph)
         union = subgraph if not union else graph_tool.generation.graph_union(union, subgraph)
     
-    graph_tool.all.graph_draw(union, vertex_fill_color=cli,
+    graph_tool.all.graph_draw(union, #vertex_fill_color=cli,
         output_size=(1000, 1000), bg_color=[1,1,1,1], output='z1c2.png')
+    plot_matrix(adjacency_matrix(union), 'z1u.png')
+
+def test_chroma_based_structure():
+    audio = get_paths(SONGS[SONG_INDEX])[0][I1]
+    version = list(DATASET[SONGS[SONG_INDEX]].keys())[I1]
+    beatsFile = get_feature_path(SONGS[SONG_INDEX], version)+'_madbars.json'
+    chroma = get_summarized_chroma(audio, beatsFile)
+    #mfcc = get_summarized_mfcc(audio, bars)
+    #combined = np.hstack([chroma, mfcc])
+    matrix = get_affinity_matrix(chroma, chroma, False, MAX_GAPS, MAX_GAP_RATIO)[0]
+    #plot_matrix(matrix)
+    alignment = get_alignment_segments(chroma, chroma, SEG_COUNT,
+        10, MIN_DIST, 10, 1)
+    #print(alignment)
+    plot_matrix(segments_to_matrix(alignment))
+    structure = simple_structure(chroma, alignment, MIN_LEN2, MIN_DIST2)
+
+def plot_msa(song, sequences, msa):
+    outseqs = [np.repeat(-1, len(s)) for s in sequences]
+    for i,a in enumerate(msa):
+        for j,m in enumerate(a):
+            if len(m) > 0:
+                outseqs[i][j] = int(m[1:])
+    plot_sequences(outseqs, song+'-msa.png')
+
+def plot_evolution(song):
+    import matplotlib.pyplot as plt
+    v, d = get_versions_by_date(song)
+    #b = [e['rhythm']['onset_rate'] for e in get_essentias(SONGS[SONG_INDEX])]
+    b = [e['lowlevel']['dynamic_complexity'] for e in get_essentias(song)]
+    #b = [e['metadata']['audio_properties']['length'] for e in get_essentias(SONGS[SONG_INDEX])]
+    #b = [b/2 if b > 140 else b for b in b]
+    print(len(b))
+    plt.plot(d, b)
+    def running_mean(x, N):
+        cumsum = np.cumsum(np.insert(x, 0, 0)) 
+        return (cumsum[N:] - cumsum[:-N]) / float(N)
+    b = running_mean(b, 10)
+    print(len(b))
+    b = np.pad(b, (5,4), 'constant', constant_values=(0,0))
+    import matplotlib.pyplot as plt
+    plt.plot(d, b)
+    plt.show()
 
 def run():
-    song_index = 0
-    sequences, pairings, alignments, msa = get_alignments(SONGS[song_index])
+    sequences, pairings, alignments, msa = get_alignments(SONGS[SONG_INDEX])
+    #plot_msa(SONGS[SONG_INDEX], sequences, msa)
+    #plot_evolution(SONGS[SONG_INDEX])
+    
     #print(len(np.concatenate(alignments[7])), len(np.concatenate(alignments[8])))
-    print(sorted([len(a) for a in alignments]))
+    #print(sorted([len(a) for a in alignments]))
+    
+    #PatternGraph(sequences, pairings, alignments)
+    super_alignment_graph(SONGS[SONG_INDEX], sequences, pairings, alignments)
+    # print(get_hierarchy_labels(sequences[:30])[0])
+    # profile(lambda: get_most_salient_labels(sequences, 1, [9]))
+    
+    #align twice
+    # plot_sequences(sequences.copy(), 'seqpat*.png')
+    # sequences = super_alignment_graph(sequences, pairings, alignments)
+    # plot_sequences(sequences.copy(), 'seqpat**.png')
+    # selfs = multiprocess('self-alignments', get_self_alignment, sequences)
+    # pairings = get_pairings(sequences)
+    # mutuals = multiprocess('mutual alignments', get_mutual_alignment,
+    #     [(p, sequences) for p in pairings])
+    # selfp = np.stack((np.arange(len(sequences)), np.arange(len(sequences)))).T
+    # pairings = np.concatenate((selfp, pairings))
+    # alignments = np.concatenate((selfs, mutuals))
+    # sequences = super_alignment_graph(sequences, pairings, alignments)
+    # plot_sequences(sequences.copy(), 'seqpat***.png')
+    
     #plot_matrix(segments_to_matrix(alignments[7]))
     # plot_matrix(segments_to_matrix(
     #     get_alignment_segments(sequences[7], sequences[7], SEG_COUNT, MIN_LEN, MIN_DIST, 4, .2),
     #     (len(sequences[7]), len(sequences[7]))))
-    #shared_structure(sequences, pairings, alignments, msa)
+    #shared_structure(sequences, pairings, alignments, msa, MIN_LEN, MIN_DIST)
     #profile(lambda: shared_structure(sequences, sas, multinomial, msa))
     groundtruth = load_leadsheets(leadsheets, SONGS)
-    print("ground", groundtruth[song_index])
+    #print("ground", groundtruth[SONG_INDEX])
     #plot_matrix(get_alignment_matrix(sequences[62], sequences[62],
     #    MIN_LEN, MIN_DIST, MAX_GAPS, MAX_GAP_RATIO), 's4.png')
     #print("done")
     
-    I1, I2 = 7, 62
+    I1, I2 = 62, 62#7, 62
     
-    #print(sequences[I1][:100], groundtruth[song_index][3][:100])
+    #print(sequences[I1][:100], groundtruth[SONG_INDEX][3][:100])
     # plot_matrix(segments_to_matrix(
-    #     [smith_waterman(sequences[I1], groundtruth[song_index][3])],
-    #     (len(sequences[I1]), len(groundtruth[song_index][3]))))
+    #     [smith_waterman(sequences[I1], groundtruth[SONG_INDEX][3])],
+    #     (len(sequences[I1]), len(groundtruth[SONG_INDEX][3]))))
     
-    #structure = simple_structure(sequences[I1], alignments[I1], MIN_LEN2, MIN_DIST2)
-    #print(str(sequences[7]))
-    # plot_matrix(segments_to_matrix(alignments[7],
-    #     (len(sequences[7]),len(sequences[7]))), 'z1m.png')
+    
+    
+    
+    
+    
+    #plot_matrix(segments_to_matrix(alignments[I1],
+    #    (len(sequences[I1]),len(sequences[I1]))), 'est1.png')
+    
+    #####structure = simple_structure(sequences[I1], alignments[I1], MIN_LEN2, MIN_DIST2)
+    
+    #print(str(sequences[I1]))
 
-    simplify_graph(alignments[7], len(sequences[7]))
+    #simplify_graph(alignments[7], len(sequences[7]))
     
-    # structs = get_simple_structures(SONGS[song_index], sequences, alignments)
-    # lstructs = get_laplacian_structures(SONGS[song_index], sequences)
-    # #print(segment_file(get_paths(SONGS[song_index])[0][0]).shape)
-    # flstructs = get_orig_laplacian_structs(SONGS[song_index])
+    #structs = get_simple_structures(SONGS[SONG_INDEX], sequences, alignments)
+    # lstructs = get_laplacian_structures(SONGS[SONG_INDEX], sequences)
+    # #print(segment_file(get_paths(SONGS[SONG_INDEX])[0][0]).shape)
+    # flstructs = get_orig_laplacian_structs(SONGS[SONG_INDEX])
     # #print(type(structs), type(lstructs))
-    # evals = evaluate_hierarchies(SONGS[song_index], groundtruth[song_index], structs)
-    # levals = evaluate_hierarchies2(SONGS[song_index], groundtruth[song_index], lstructs)
-    # print(np.mean(evals, axis=0), np.mean([s.shape[0] for s in structs]))
-    # print(np.mean(levals, axis=0), np.mean([s.shape[0] for s in lstructs]))
-    # flevals = evaluate_hierarchies3(SONGS[song_index], groundtruth[song_index], flstructs)
-    # print(np.mean(flevals, axis=0), np.mean([s.shape[0] for s in flstructs]))
-    # #print(structure[:,:30])
+    # evals = evaluate_hierarchies(SONGS[SONG_INDEX], groundtruth[SONG_INDEX], structs)
+    # levals = evaluate_hierarchies2(SONGS[SONG_INDEX], groundtruth[SONG_INDEX], lstructs)
+    # depths = lambda st: np.array([s.shape[0] for s in st])
+    # print(np.mean(evals, axis=0), np.mean(depths(structs)))
+    # print(np.mean(levals, axis=0), np.mean(depths(lstructs)))
+    # flevals = evaluate_hierarchies3(SONGS[SONG_INDEX], groundtruth[SONG_INDEX], flstructs)
+    # print(np.mean(flevals, axis=0), np.mean(depths(flstructs)))
+    # 
+    # boxplot(np.hstack([levals, evals, flevals]), 'lmeasures.png')
+    # boxplot(np.array([depths(lstructs), depths(structs), depths(flstructs)]).T, 'depths.png')
+    #print(structure[:,:30])
     
     #print(sequences[I1])
     #print(structure[-1,:])

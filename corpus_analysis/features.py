@@ -11,6 +11,9 @@ def extract_essentia(path, outpath):
         subprocess.call(['essentia_streaming_extractor_freesound', path, outpath],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
+def load_essentia(path):
+    return load_json(path)
+
 def extract_chords(path, outpath=None):
     audioFile = '/'.join(path.split('/')[-1:])
     audioPath = '/'.join(path.split('/')[:-1])
