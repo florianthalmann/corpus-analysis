@@ -243,8 +243,8 @@ def replace_lowest_level(hierarchy, sections):
         sections[tuple(h)] if all([isinstance(e, int) for e in h])
         else replace_lowest_level(h, sections) for h in hierarchy]
 
-def to_labels2(sequence, sections, section_lengths):
-    hierarchy = to_hierarchy(sequence, sections)
+def to_labels2(sequences, sections, section_lengths):
+    hierarchy = to_hierarchy(np.hstack(sequences), sections)
     sections_ids = {tuple(v):k for k,v in sections.items()}
     layers = []
     layers.append(np.array(flatten(hierarchy)))
@@ -261,7 +261,17 @@ def to_labels2(sequence, sections, section_lengths):
     labels = np.array([[uniques[i][-2] if u == uniques[i][-1] else u for u in l]
         for i,l in enumerate(labels)])
     #back to layers and reindex
-    return reindex2(labels.T[:-1])
+    reindexed = reindex2(labels.T[:-1])
+    #now cut at sequence boundaries
+    seqlens = [sum([section_lengths[c] if c in section_lengths else 1 for c in s])
+        for s in sequences]
+    indices = np.cumsum(seqlens)[:-1]
+    labseqs = np.split(reindexed, indices, axis=1)
+    #artificially insert maximum so that plots look nicer....
+    maxx = np.max(reindexed)
+    for l in labseqs:
+        l[-1][-1] = maxx
+    return labseqs
 
 #fancy reindexing based on section contents (similar contents = similar label)
 def reindex2(labels):
@@ -350,7 +360,7 @@ def get_hierarchy_labels(sequences):
     sequences, sections, occs = find_sections_bottom_up(sequences)
     section_lengths = {k:len(flatten((to_hierarchy(np.array([k]), sections))))
         for k in sections.keys()}
-    return [to_labels2(s, sections, section_lengths) for s in sequences]
+    return to_labels2(sequences, sections, section_lengths)
 
 def get_most_salient_labels(sequences, count, ignore):
     #print(sequences[0])
