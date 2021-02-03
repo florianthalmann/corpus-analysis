@@ -261,7 +261,22 @@ def to_labels2(sequence, sections, section_lengths):
     labels = np.array([[uniques[i][-2] if u == uniques[i][-1] else u for u in l]
         for i,l in enumerate(labels)])
     #back to layers and reindex
-    return reindex(labels.T[:-1])
+    return reindex2(labels.T[:-1])
+
+#fancy reindexing based on section contents (similar contents = similar label)
+def reindex2(labels):
+    newlabels = np.zeros(np.max(labels)+1).astype(float)
+    #map bottom level to integers
+    uniq = np.unique(labels[-1]) #maybe randomize order??
+    newlabels[uniq] = np.arange(len(uniq))
+    bottom = newlabels[labels[-1]]
+    #higher levels become averages of contained bottom-level ints
+    for l in labels[:-1]:
+        for u in np.unique(l):
+            newlabels[u] = np.mean(bottom[np.where(l == u)])
+    #map new labels to integers
+    uniq = np.unique(newlabels)
+    return np.array([np.argmax(uniq == l) for l in newlabels])
 
 def to_sections(sections):
     sections = []
@@ -379,6 +394,13 @@ def get_most_salient_labels(sequences, count, ignore):
     #print(outseqs[0])
     return outseqs
 
+def get_longest_sections(sequences, ignore):
+    seqs, sections, occs = find_sections_bottom_up(sequences, ignore)
+    flatsecs = [(flatten(to_hierarchy(np.array([k]), sections)), len(occs[k]))
+        for k in sections.keys()]
+    #sort by length * sqrt of occurrences
+    return sorted(flatsecs, key=lambda s: len(s[0])*sqrt(s[1]), reverse=True)
+
 def get_hierarchy_sections(sequences):
     sequences, sections, occs = find_sections_bottom_up(sequences)
     return [to_sections(s, sections) for s in sequences]
@@ -392,3 +414,4 @@ def get_hierarchy_sections(sequences):
 #     Pattern(16, 15, [0, 260, 516]), Pattern(86, 16, [0, 92, 348])], 0, 3)
 # print(reindex(np.array([3,1,5])))
 # print(indices_of_subarray(np.array([1,2,1,2]), np.array([1,2])))
+# reindex2(np.array([[0,0,1,1,1,1],[2,2,4,4,5,5],[6,7,6,8,9,10]]))
