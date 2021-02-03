@@ -267,7 +267,9 @@ def to_labels2(sequence, sections, section_lengths):
 def reindex2(labels):
     newlabels = np.zeros(np.max(labels)+1).astype(float)
     #map bottom level to integers
-    uniq = np.unique(labels[-1]) #maybe randomize order??
+    uniq = np.unique(labels[-1]) #ordered by original values
+    uniq = labels[-1][ #order of appearance
+        np.sort(np.array([np.argmax(u == labels[-1]) for u in uniq]))]
     newlabels[uniq] = np.arange(len(uniq))
     bottom = newlabels[labels[-1]]
     #higher levels become averages of contained bottom-level ints
@@ -276,7 +278,8 @@ def reindex2(labels):
             newlabels[u] = np.mean(bottom[np.where(l == u)])
     #map new labels to integers
     uniq = np.unique(newlabels)
-    return np.array([np.argmax(uniq == l) for l in newlabels])
+    newlabels = np.array([np.argmax(uniq == l) for l in newlabels])
+    return newlabels[labels]
 
 def to_sections(sections):
     sections = []
@@ -414,4 +417,4 @@ def get_hierarchy_sections(sequences):
 #     Pattern(16, 15, [0, 260, 516]), Pattern(86, 16, [0, 92, 348])], 0, 3)
 # print(reindex(np.array([3,1,5])))
 # print(indices_of_subarray(np.array([1,2,1,2]), np.array([1,2])))
-# reindex2(np.array([[0,0,1,1,1,1],[2,2,4,4,5,5],[6,7,6,8,9,10]]))
+# reindex2(np.array([[0,0,1,1,1,1],[2,2,4,4,5,5],[7,6,7,8,10,9]]))
