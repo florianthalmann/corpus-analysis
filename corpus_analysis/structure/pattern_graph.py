@@ -10,7 +10,8 @@ from scipy.sparse.csgraph import connected_components
 import graph_tool.all as gt
 from graph_tool.all import Graph, GraphView, graph_draw
 from .graphs import graph_from_matrix
-from .hierarchies import get_hierarchy_labels, get_most_salient_labels
+from .hierarchies import get_hierarchy_labels, get_most_salient_labels,\
+    get_longest_sections
 from ..util import plot_sequences, mode, flatten, group_by, plot_matrix
 from ..clusters.histograms import freq_hist_clusters, trans_hist_clusters,\
     freq_trans_hist_clusters
@@ -234,8 +235,7 @@ class PatternGraph:
 
 ########################################
 
-def super_alignment_graph(sequences, pairings, alignments):
-    plot_sequences(sequences, 'seqpat.png')
+def super_alignment_graph(song, sequences, pairings, alignments):
     all_patterns = create_pattern_dict(sequences, pairings, alignments)
     print(len(all_patterns))
     all_points = set([(i,j) for i,s in enumerate(sequences) for j in range(len(s))])
@@ -244,10 +244,10 @@ def super_alignment_graph(sequences, pairings, alignments):
     print(len(all_points))
     
     MIN_DIST = 16
-    MAX_OCCS = 100000
-    INIT_MIN_COUNT = 2#7
+    MAX_OCCS = 50000
+    INIT_MIN_COUNT = 5#7
     MIN_COUNT = 2
-    MAX_MIN_SIZE = 0#20
+    MAX_MIN_SIZE = 20
     all_ordered = sorted(all_patterns.items(),
         key=lambda p: len(np.unique([v for v,t in p[1]])), reverse=True)
     
@@ -258,7 +258,6 @@ def super_alignment_graph(sequences, pairings, alignments):
     # print("clustered", len(groups), statistics.median([len(g) for g in groups]))
     
     #all_ordered = list(all_patterns.items())
-    
     
     #print(by_versions[0])
     comps = []
@@ -326,120 +325,11 @@ def super_alignment_graph(sequences, pairings, alignments):
     #print('VALID', [valid(c,MIN_DIST) for c in comps])
     #print('REALLY', [[for i in np.unique([s[0] for s in c])] for c in comps])
     
-    
-    typeseqs = [np.repeat(-1, len(s)) for s in sequences]
-    for i,c in enumerate(comps):
-        for s in c:
-            typeseqs[s[0]][s[1]] = i
-    plot_sequences(typeseqs.copy(), 'seqpat..png')
-    
-    # #update sequences with mode of values in comps
-    # for i,c in enumerate(comps):
-    #     m = mode([sequences[s[0]][s[1]] for s in c])
-    #     for s in c:
-    #         sequences[s[0]][s[1]] = m
-    # return sequences
-    
-    # adjmin = get_comp_adjacency(flatten(scomps, 1), False)
-    # plot_matrix(adjmin, 'min.png')
-    # mins = sorted(list(zip(*np.nonzero(adjmin))), key=lambda ij: adjmin[ij], reverse=True)
-    # print(len(mins), mins[:10])
-    # 
-    # #merge components based on adjmin
-    # locs = {}
-    # for i,s in enumerate(scomps):
-    #     for c in s:
-    #         locs[comps.index(c)] = i
-    # print(len(locs))
-    # for i,j in mins:
-    #     ii = locs[i] if i in locs else -1
-    #     jj = locs[j] if j in locs else -1
-    #     #print(i, j, ii, jj)
-    #     if ii >= 0 and jj >= 0:
-    #         if ii != jj:
-    #             if comps[i][0] in scomps[ii][-1] and comps[j][0] in scomps[jj][0]:
-    #                 scomps[ii].extend(scomps[jj])
-    #                 locs = {k:ii if v == jj else v for k,v in locs.items()}
-    #                 scomps.pop(jj)
-    #                 locs = {k:v-1 if v > jj else v for k,v in locs.items()}
-    #             # else: #MERGE ALL!!!!!
-    #             #     iii = scomps[ii].index(comps[i])+1
-    #             #     for k in range(0, scomps[jj].index(comps[j])+1):
-    #             #         if iii+k < 
-    #             #     range(scomps[ii].index(comps[i]), len(scomps[ii]))
-    #     elif ii >= 0:
-    #         if comps[i][0] in scomps[ii][-1]:
-    #             scomps[ii].append(comps[j])
-    #             locs[j] = ii
-    #         else:
-    #             succ = next((k for k,s in enumerate(scomps[ii]) if comps[i][0] in s))+1
-    #             m = list(merge(scomps[ii][succ], comps[j]))
-    #             if valid(m, MIN_DIST):
-    #                 scomps[ii][succ] = m
-    #                 locs[j] = ii
-    #     elif jj >= 0:
-    #         if comps[j][0] in scomps[jj][0]:
-    #             scomps[jj].insert(0, comps[i])
-    #             locs[i] = jj
-    #         else:
-    #             # print(comps[j][0])
-    #             # print(scomps[jj])
-    #             pred = next((k for k,s in enumerate(scomps[jj]) if comps[j][0] in s))-1
-    #             m = list(merge(scomps[jj][pred], comps[i]))
-    #             if valid(m, MIN_DIST):
-    #                 scomps[jj][pred] = m
-    #                 locs[i] = jj
-    #     else:
-    #         scomps.append([comps[i], comps[j]])
-    #         locs[i] = locs[j] = len(scomps)-1
-    #     #print([[l for l,m in locs.items() if m == s] for s in range(len(scomps))])
-    
-    print(len(comps), datetime.datetime.now(), [len(c) for c in comps])
-    adjmax = get_comp_adjacency(comps, True)
-    plot_matrix(adjmax, 'max3.png')
-    
-    def plot_seq(k):
-        alo = np.zeros((len(comps), len(sequences[k])))
-        for j in range(len(sequences[k])):
-            i = next((i for i,c in enumerate(comps) if (k,j) in c), -1)
-            if i >= 0:
-                alo[i][j] = 1
-        plot_matrix(alo, 'maxs'+str(k)+'.png')
-    plot_seq(0)
-    plot_seq(1)
-    plot_seq(2)
-    plot_seq(3)
-    
+    #sort by avg first occ
     # comps = sorted(comps, key=lambda c:
     #     np.mean([min([o[1] for o in c if o[0] == i]) for i in np.unique([o[0] for o in c])]))
     # 
     # print(len(comps), datetime.datetime.now(), [len(c) for c in comps])
-    # adjmax = get_comp_adjacency(comps, True)
-    # plot_matrix(adjmax, 'maxx2.png')
-    # 
-    # alo = np.zeros((len(comps), len(sequences[0])))
-    # for j in range(len(sequences[0])):
-    #     i = next((i for i,c in enumerate(comps) if (0,j) in c), -1)
-    #     if i >= 0:
-    #         alo[i][j] = 1
-    # plot_matrix(alo, 'maxx3.png')
-    # alo = np.zeros((len(comps), len(sequences[1])))
-    # for j in range(len(sequences[1])):
-    #     i = next((i for i,c in enumerate(comps) if (0,j) in c), -1)
-    #     if i >= 0:
-    #         alo[i][j] = 1
-    # plot_matrix(alo, 'maxx4.png')
-    
-    # scomps = [[] for i in range(len(comps))]
-    # for i,r in enumerate(adjmax):
-    #     j = np.argmax(r)-1
-    #     if j >= 0: scomps[j].extend(comps[i])
-    # comps = [s for s in scomps if len(s) > 0]
-    # print(len(comps), datetime.datetime.now(), [len(c) for c in comps])
-    # adjmax = get_comp_adjacency(comps, True, 0.5)
-    # plot_matrix(adjmax, 'max2.png')
-    
-    
     
     # #merge compatible adjacent
     # while True:
@@ -458,18 +348,49 @@ def super_alignment_graph(sequences, pairings, alignments):
     #remove small comps
     # comps = [c for c in comps if len(c) > 10]
     
+    # typeseqs = comps_to_seqs(comps, sequences)
+    # plot_sequences(typeseqs.copy(), song+'-seqpat...png')
+    # 
+    # #typeseqs = [l[-2] for l in get_hierarchy_labels(typeseqs)]
+    # typeseqs = get_most_salient_labels(typeseqs, 20, [-1])
+    # plot_sequences(typeseqs, song+'-seqpat....png')
+    
+    return comps
+
+def comps_to_seqs(comps, sequences):
     typeseqs = [np.repeat(-1, len(s)) for s in sequences]
     for i,c in enumerate(comps):
         for s in c:
             typeseqs[s[0]][s[1]] = i
-    plot_sequences(typeseqs.copy(), 'seqpat...png')
+    return typeseqs
+
+def smooth_sequences(sequences):
+    max_len = math.inf#30
+    min_len = 10
+    min_occs = 4
+    secs = get_longest_sections(sequences, [-1])
+    secs = [s for s in secs if min_len <= len(s[0]) <= max_len and s[1] >= min_occs]
+    print(len(secs))
+    smoothed = [t.copy() for t in sequences]
+    smooth_seqs(smoothed, secs, 0.8, 0.6)
+    smooth_seqs(smoothed, reversed(secs), 0.8, 0.6) #most common have last effect
     
-    #return typeseqs
-    
-    # #typeseqs = [l[-2] for l in get_hierarchy_labels(typeseqs)]
-    # typeseqs = get_most_salient_labels(typeseqs, 20, [-1])
-    # plot_sequences(typeseqs, 'seqpat....png')
-    
+    t, s = np.hstack(sequences), np.hstack(smoothed)
+    print(len(np.unique(t)), len(np.unique(s)))
+    merged = np.where(np.logical_and(t != -1, t != s))
+    merged = Counter([tuple(m) for m in np.vstack((t[merged], s[merged])).T])
+    print({e:c for e,c in merged.items() if c >= 5})
+    return smoothed
+
+#update sequences with mode of values in comps
+def get_mode_sequences(sequences, comps):
+    for i,c in enumerate(comps):
+        m = mode([sequences[s[0]][s[1]] for s in c])
+        for s in c:
+            sequences[s[0]][s[1]] = m
+    return sequences
+
+def get_grouped_comp_typeseqs(comps, sequences):
     #infer types directly from components
     comp_groups = [[comps[0]]]
     #proj = lambda ts,i: [t[i] for t in ts]
@@ -492,10 +413,10 @@ def super_alignment_graph(sequences, pairings, alignments):
                 typeseqs[s[0]][s[1]] = i
     plot_sequences(typeseqs.copy(), 'seqpat....png')
     
-    # #typeseqs = get_most_salient_labels(typeseqs, 30, [-1])
-    # typeseqs = get_most_salient_labels(typeseqs, 20, [-1])
-    # #typeseqs = [l[1] for l in get_hierarchy_labels(typeseqs)]
-    # plot_sequences(typeseqs, 'seqpat.....png')
+    #typeseqs = get_most_salient_labels(typeseqs, 30, [-1])
+    typeseqs = get_most_salient_labels(typeseqs, 20, [-1])
+    #typeseqs = [l[1] for l in get_hierarchy_labels(typeseqs)]
+    plot_sequences(typeseqs, 'seqpat.....png')
     
     return [np.array(t) for t in typeseqs]
 
@@ -758,7 +679,10 @@ def order_by_maxadj(comps, sequences):
     print_comp_seqs(scomps)
     
     scomps = flatten([s for s in scomps if len(s) > 0], 1)
-    return scomps+[c for c in comps if c not in scomps]#add missing
+    comps = scomps+[c for c in comps if c not in scomps]#add missing
+    
+    plot_seq_x_comps(comps, sequences)
+    return comps
 
 def diff(c, d):
     df = []
@@ -797,6 +721,36 @@ def print_comp_seqs(scomps):
         # for i, (c,d) in enumerate(zip(s[:-1], s[1:])):
         #     if diff(c,d) > 1:
         # 
+
+def plot_seq_x_comps(comps, sequences):
+    def plot_seq(k):
+        alo = np.zeros((len(comps), len(sequences[k])))
+        for j in range(len(sequences[k])):
+            i = next((i for i,c in enumerate(comps) if (k,j) in c), -1)
+            if i >= 0:
+                alo[i][j] = 1
+        plot_matrix(alo, 'maxs'+str(k)+'.png')
+    plot_seq(0)
+    plot_seq(1)
+    plot_seq(2)
+    plot_seq(3)
+
+#returns matching proportion (need to be same length)
+def sim(s1, s2):
+    blank = np.logical_or(s1 == -1, s2 == -1)
+    same_or_blank = np.nonzero(np.logical_or(blank, s1 == s2))
+    return len(same_or_blank[0]) / len(s1)
+
+def smooth_seqs(sequences, sections, min_match, min_defined):
+    for c in sections:
+        print(c)
+        c = c[0]
+        for i,s in enumerate(sequences):
+            for j in range(len(s)-len(c)):
+                matched = sim(c, s[j:j+len(c)])
+                defined = len(np.where(s[j:j+len(c)] > -1)[0])/len(c)
+                if matched > min_match and defined > min_defined:
+                    s[j:j+len(c)] = c
 
 # adjmax = np.array([[0,1,0,0],[0,0,0,1],[0,0,1,0],[0,0,0,1]])
 # comps = [0,1,2,3]

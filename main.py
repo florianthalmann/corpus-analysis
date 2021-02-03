@@ -10,7 +10,8 @@ from corpus_analysis.alignment.smith_waterman import smith_waterman
 from corpus_analysis.util import profile, plot_matrix, plot_hist, plot,\
     buffered_run, multiprocess, plot_graph, boxplot, plot_sequences
 from corpus_analysis.structure.hcomparison import get_relative_meet_triples, get_meet_matrix
-from corpus_analysis.structure.structure import shared_structure, simple_structure
+from corpus_analysis.structure.structure import shared_structure, simple_structure,\
+    new_shared_structure
 from corpus_analysis.structure.laplacian import get_laplacian_struct_from_affinity,\
     get_laplacian_struct_from_audio
 from corpus_analysis.structure.graphs import graph_from_matrix, adjacency_matrix, alignment_graph
@@ -28,7 +29,7 @@ with open(os.path.join(corpus, 'dataset.json')) as f:
 
 DATA = 'data/'
 BARS = False
-SONG_INDEX = 4
+SONG_INDEX = 3
 #alignment
 SEG_COUNT = 0 #0 for all segments
 MIN_LEN = 16
@@ -274,7 +275,8 @@ def run():
     #print(sorted([len(a) for a in alignments]))
     
     #PatternGraph(sequences, pairings, alignments)
-    super_alignment_graph(SONGS[SONG_INDEX], sequences, pairings, alignments)
+    #super_alignment_graph(SONGS[SONG_INDEX], sequences, pairings, alignments)
+    new_shared_structure(SONGS[SONG_INDEX], sequences, pairings, alignments)
     # print(get_hierarchy_labels(sequences[:30])[0])
     # profile(lambda: get_most_salient_labels(sequences, 1, [9]))
     
