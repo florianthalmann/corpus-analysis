@@ -1,4 +1,4 @@
-import datetime, math, statistics
+import datetime, math, statistics, tqdm
 from itertools import groupby, product
 from collections import Counter, defaultdict
 from heapq import merge
@@ -12,7 +12,8 @@ from graph_tool.all import Graph, GraphView, graph_draw
 from .graphs import graph_from_matrix
 from .hierarchies import get_hierarchy_labels, get_most_salient_labels,\
     get_longest_sections
-from ..util import plot_sequences, mode, flatten, group_by, plot_matrix
+from ..util import plot_sequences, mode, flatten, group_by, plot_matrix,\
+    multiprocess
 from ..clusters.histograms import freq_hist_clusters, trans_hist_clusters,\
     freq_trans_hist_clusters
 from ..alignment.smith_waterman import smith_waterman
@@ -246,8 +247,8 @@ def super_alignment_graph(song, sequences, pairings, alignments):
     MIN_DIST = 16
     MAX_OCCS = 50000
     INIT_MIN_COUNT = 5#7
-    MIN_COUNT = 2
-    MAX_MIN_SIZE = 20
+    MIN_COUNT = 3
+    MAX_MIN_SIZE = 0#20
     all_ordered = sorted(all_patterns.items(),
         key=lambda p: len(np.unique([v for v,t in p[1]])), reverse=True)
     
@@ -364,16 +365,17 @@ def comps_to_seqs(comps, sequences):
             typeseqs[s[0]][s[1]] = i
     return typeseqs
 
-def smooth_sequences(sequences):
+def smooth_sequences(sequences, min_match=0.8, min_defined=0.6, count=10000):
     max_len = math.inf#30
     min_len = 10
     min_occs = 4
     secs = get_longest_sections(sequences, [-1])
-    secs = [s for s in secs if min_len <= len(s[0]) <= max_len and s[1] >= min_occs]
+    secs = [s for s in secs if min_len <= len(s[0]) <= max_len
+        and s[1] >= min_occs][:count]
     print(len(secs))
     smoothed = [t.copy() for t in sequences]
-    smooth_seqs(smoothed, secs, 0.8, 0.6)
-    smooth_seqs(smoothed, reversed(secs), 0.8, 0.6) #most common have last effect
+    smooth_seqs(smoothed, secs, min_match, min_defined)
+    #smooth_seqs(smoothed, reversed(secs), min_match, min_defined) #most common have last effect
     
     t, s = np.hstack(sequences), np.hstack(smoothed)
     print(len(np.unique(t)), len(np.unique(s)))
@@ -739,18 +741,28 @@ def plot_seq_x_comps(comps, sequences):
 def sim(s1, s2):
     blank = np.logical_or(s1 == -1, s2 == -1)
     same_or_blank = np.nonzero(np.logical_or(blank, s1 == s2))
-    return len(same_or_blank[0]) / len(s1)
+    return len(same_or_blank[0]) / len(s1), len(np.nonzero(blank)[0]) / len(s1)
 
 def smooth_seqs(sequences, sections, min_match, min_defined):
-    for c in sections:
-        print(c)
-        c = c[0]
-        for i,s in enumerate(sequences):
-            for j in range(len(s)-len(c)):
-                matched = sim(c, s[j:j+len(c)])
-                defined = len(np.where(s[j:j+len(c)] > -1)[0])/len(c)
-                if matched > min_match and defined > min_defined:
-                    s[j:j+len(c)] = c
+    sections = [s[0] for s in sections]
+    print(sections)
+    for s in tqdm.tqdm(sequences, desc='smoothing'):
+        matches = []
+        for i,c in enumerate(sections):
+            #print(c)
+            r = range(len(s)-len(c))
+            matched, blank = zip(*[sim(c, s[j:j+len(c)]) for j in r])
+            matched, blank = np.array(list(matched)), np.array(list(blank))
+            matched[np.where(np.logical_or(
+                matched < min_match, (1-blank) < min_defined))] = 0
+            m = len(matched)
+            matched = np.vstack((matched, np.repeat(i, m), np.arange(m))).T
+            matches.append(matched[np.where(matched[:,0] > 0)])
+        matches = np.concatenate(matches)
+        matches = matches[matches[:,0].argsort()]
+        for p,c,j in matches:
+            cc = sections[int(c)]
+            s[int(j):int(j)+len(cc)] = cc
 
 # adjmax = np.array([[0,1,0,0],[0,0,0,1],[0,0,1,0],[0,0,0,1]])
 # comps = [0,1,2,3]

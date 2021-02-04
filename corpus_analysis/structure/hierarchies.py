@@ -266,12 +266,7 @@ def to_labels2(sequences, sections, section_lengths):
     seqlens = [sum([section_lengths[c] if c in section_lengths else 1 for c in s])
         for s in sequences]
     indices = np.cumsum(seqlens)[:-1]
-    labseqs = np.split(reindexed, indices, axis=1)
-    #artificially insert maximum so that plots look nicer....
-    maxx = np.max(reindexed)
-    for l in labseqs:
-        l[-1][-1] = maxx
-    return labseqs
+    return np.split(reindexed, indices, axis=1)
 
 #fancy reindexing based on section contents (similar contents = similar label)
 def reindex2(labels):
