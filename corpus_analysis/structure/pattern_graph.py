@@ -415,10 +415,10 @@ def get_grouped_comp_typeseqs(comps, sequences):
                 typeseqs[s[0]][s[1]] = i
     plot_sequences(typeseqs.copy(), 'seqpat....png')
     
-    #typeseqs = get_most_salient_labels(typeseqs, 30, [-1])
-    typeseqs = get_most_salient_labels(typeseqs, 20, [-1])
-    #typeseqs = [l[1] for l in get_hierarchy_labels(typeseqs)]
-    plot_sequences(typeseqs, 'seqpat.....png')
+    # #typeseqs = get_most_salient_labels(typeseqs, 30, [-1])
+    # typeseqs = get_most_salient_labels(typeseqs, 20, [-1])
+    # #typeseqs = [l[1] for l in get_hierarchy_labels(typeseqs)]
+    # plot_sequences(typeseqs, 'seqpat.....png')
     
     return [np.array(t) for t in typeseqs]
 
@@ -678,7 +678,7 @@ def order_by_maxadj(comps, sequences):
     # adjmin = get_comp_adjacency(flatten(scomps, 1), False)
     # plot_matrix(adjmin, 'min.png')
     
-    print_comp_seqs(scomps)
+    print_comp_seqs(scomps, len(sequences))
     
     scomps = flatten([s for s in scomps if len(s) > 0], 1)
     comps = scomps+[c for c in comps if c not in scomps]#add missing
@@ -686,16 +686,16 @@ def order_by_maxadj(comps, sequences):
     plot_seq_x_comps(comps, sequences)
     return comps
 
-def diff(c, d):
+def diff(c, d, num_seqs):
     df = []
-    for i in range(len(sequences)):
+    for i in range(num_seqs):
         ci = [o[1] for o in c if o[0] == i]
         di = [o[1] for o in d if o[0] == i]
         if len(ci) > 0 and len(di) > 0:
             df.append(min([abs(b-a) for a in ci for b in di]))
     return mode(df)
 
-def print_comp_seqs(scomps):
+def print_comp_seqs(scomps, num_seqs):
     for sc in scomps:
         print('------------')
         for i in range(1):#len(sequences)):
@@ -714,12 +714,13 @@ def print_comp_seqs(scomps):
                     seq.append(nexx)
                     if nexx > ():
                         prev = nexx, len(seq)-1
-            seq = np.reshape(seq, (-1, len(sc))).tolist()
+            if len(seq) > len(sc):
+                seq = np.reshape(seq, (-1, len(sc))).tolist()
             seq = [s for s in seq if any(e > () for e in s)]
             [print(s) for s in seq]
     
     for s in scomps:
-        print([diff(c, d) for c, d in zip(s[:-1], s[1:])])
+        print([diff(c, d, num_seqs) for c, d in zip(s[:-1], s[1:])])
         # for i, (c,d) in enumerate(zip(s[:-1], s[1:])):
         #     if diff(c,d) > 1:
         # 
