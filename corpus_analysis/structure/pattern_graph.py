@@ -246,8 +246,8 @@ def super_alignment_graph(song, sequences, pairings, alignments):
     
     MIN_DIST = 16
     MAX_OCCS = 50000
-    INIT_MIN_COUNT = 5#7
-    MIN_COUNT = 3
+    INIT_MIN_COUNT = 3#7
+    MIN_COUNT = 1
     MAX_MIN_SIZE = 0#20
     all_ordered = sorted(all_patterns.items(),
         key=lambda p: len(np.unique([v for v,t in p[1]])), reverse=True)
@@ -745,19 +745,21 @@ def sim(s1, s2):
 
 def smooth_seqs(sequences, sections, min_match, min_defined):
     sections = [s[0] for s in sections]
-    print(sections)
+    #print(sections)
     for s in tqdm.tqdm(sequences, desc='smoothing'):
         matches = []
         for i,c in enumerate(sections):
             #print(c)
             r = range(len(s)-len(c))
-            matched, blank = zip(*[sim(c, s[j:j+len(c)]) for j in r])
-            matched, blank = np.array(list(matched)), np.array(list(blank))
-            matched[np.where(np.logical_or(
-                matched < min_match, (1-blank) < min_defined))] = 0
-            m = len(matched)
-            matched = np.vstack((matched, np.repeat(i, m), np.arange(m))).T
-            matches.append(matched[np.where(matched[:,0] > 0)])
+            sims = [sim(c, s[j:j+len(c)]) for j in r]
+            if len(sims) > 0:
+                matched, blank = zip(*sims)
+                matched, blank = np.array(list(matched)), np.array(list(blank))
+                matched[np.where(np.logical_or(
+                    matched < min_match, (1-blank) < min_defined))] = 0
+                m = len(matched)
+                matched = np.vstack((matched, np.repeat(i, m), np.arange(m))).T
+                matches.append(matched[np.where(matched[:,0] > 0)])
         matches = np.concatenate(matches)
         matches = matches[matches[:,0].argsort()]
         for p,c,j in matches:

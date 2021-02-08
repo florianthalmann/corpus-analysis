@@ -78,19 +78,47 @@ def shared_structure(sequences, pairings, alignments, msa, min_len, min_dist):
     #plot_matrix(hierarchy)
 
 def new_shared_structure(song, sequences, pairings, alignments):
-    #plot_sequences(sequences, song+'-seqpat.png')
+    # no_graph(song, sequences)
+    # return
+    plot_sequences(sequences, song+'-seqpat.png')
     sag = buffered_run(song+'-sag', lambda:
         super_alignment_graph(song, sequences, pairings, alignments), [])
+    sag = [s for s in sag if len(s) > 9]
     typeseqs = comps_to_seqs(sag, sequences)
-    #plot_sequences(typeseqs.copy(), song+'-seqpat..png')
-    typeseqs = buffered_run(song+'-smo', lambda: smooth_sequences(typeseqs), [])
-    #plot_sequences(typeseqs.copy(), song+'-seqpat...png')
+    plot_sequences(typeseqs.copy(), song+'-seqpat..png')
+    typeseqs = buffered_run(song+'-smo',
+        lambda: smooth_sequences(typeseqs, 0.7, 0.5), [])
+    plot_sequences(typeseqs.copy(), song+'-seqpat...png')
+    typeseqs = smooth_sequences(typeseqs, 0.7, 0.5)
+    plot_sequences(typeseqs.copy(), song+'-seqpat....png')
+    # hierarchies = get_hierarchy_labels(typeseqs)
+    # print(len(hierarchies), hierarchies[0].shape, hierarchies[1].shape)
+    # #artificially insert maximum so that plots look nicer....
+    # maxx = np.max(np.hstack(hierarchies))
+    # for h in hierarchies:
+    #     h[-1][-1] = maxx
+    # plot_sequences(hierarchies[0], song+'-seqpat....png')
+    # plot_sequences(hierarchies[1], song+'-seqpat.....png')
+    # plot_sequences(hierarchies[2], song+'-seqpat......png')
+    # plot_sequences(hierarchies[30], song+'-seqpat.......png')
+    # #print([len(h.T) for h in hierarchies[:10]], [len(h) for h in sequences[:10]])
+    # plot_sequences([h[12] for h in hierarchies], song+'-seqpat........png')
+
+
+
+def no_graph(song, sequences):
+    plot_sequences(sequences.copy(), song+'-seqpat,.png')
+    typeseqs = smooth_sequences(sequences, 0.9, 0.5)
+    plot_sequences(typeseqs.copy(), song+'-seqpat,,.png')
     hierarchies = get_hierarchy_labels(typeseqs)
     print(len(hierarchies), hierarchies[0].shape, hierarchies[1].shape)
     #artificially insert maximum so that plots look nicer....
-    maxx = np.max(hierarchies)
+    maxx = np.max(np.hstack(hierarchies))
     for h in hierarchies:
         h[-1][-1] = maxx
-    plot_sequences(hierarchies[0], song+'-seqpat....png')
-    plot_sequences(hierarchies[1], song+'-seqpat.....png')
-    plot_sequences(hierarchies[2], song+'-seqpat......png')
+    plot_sequences(hierarchies[0], song+'-seqpat,,,.png')
+    plot_sequences(hierarchies[1], song+'-seqpat,,,,.png')
+    plot_sequences(hierarchies[2], song+'-seqpat,,,,,.png')
+    #print([len(h.T) for h in hierarchies[:10]], [len(h) for h in sequences[:10]])
+    plot_sequences([h[1] for h in hierarchies], song+'-seqpat,,,,,,.png')
+    
