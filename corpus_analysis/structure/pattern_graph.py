@@ -13,7 +13,7 @@ from .graphs import graph_from_matrix
 from .hierarchies import get_hierarchy_labels, get_most_salient_labels,\
     get_longest_sections
 from ..util import plot_sequences, mode, flatten, group_by, plot_matrix,\
-    multiprocess
+    multiprocess, split
 from ..clusters.histograms import freq_hist_clusters, trans_hist_clusters,\
     freq_trans_hist_clusters
 from ..alignment.smith_waterman import smith_waterman
@@ -236,6 +236,13 @@ class PatternGraph:
 
 ########################################
 
+
+MIN_DIST = 16
+MAX_OCCS = 50000
+INIT_MIN_COUNT = 3#7
+MIN_COUNT = 1
+MAX_MIN_SIZE = 0#20
+
 def super_alignment_graph(song, sequences, pairings, alignments):
     all_patterns = create_pattern_dict(sequences, pairings, alignments)
     print(len(all_patterns))
@@ -244,11 +251,6 @@ def super_alignment_graph(song, sequences, pairings, alignments):
     print_status('all', all_patterns)
     print(len(all_points))
     
-    MIN_DIST = 16
-    MAX_OCCS = 50000
-    INIT_MIN_COUNT = 3#7
-    MIN_COUNT = 1
-    MAX_MIN_SIZE = 0#20
     all_ordered = sorted(all_patterns.items(),
         key=lambda p: len(np.unique([v for v,t in p[1]])), reverse=True)
     
@@ -619,19 +621,77 @@ def get_comp_adjacency(comps, max=True):
             adjacency[i][j] = adj_proportion(c, d, max)
     return adjacency
 
-def order_by_maxadj(comps, sequences):
-    comps = [c for c in comps if len(c) > len(sequences)/5]
-    print(len(comps))
+def cleanup_comps(comps, sequences, path):
+    print('bf', len(flatten(comps, 1)))
+    print([len(c) for c in comps])
+    scomps = group_by_maxadj(comps, sequences, path)
+    
+    #mixed up are removed automatically by individual seq grouping algo
+    seqs = get_individual_seqs(scomps, len(sequences))
+    #print_individual_seqs(seqs)
+    print('bf', len(flatten(scomps, 2)))
+    print([len(c) for c in flatten(scomps, 1)])
+    #separate sparse segments...
+    for i,s in enumerate(seqs):
+        if len(flatten(s, 1)) > 0:
+            newc = [[] for x in flatten(s, 1)[0]]
+            for t in flatten(s, 1):
+                defined = [seg for seg in t if seg > ()]
+                if len(defined) <= len(t)/2:
+                    for j,seg in enumerate(t):
+                        if seg > ():
+                            scomps[i][j].remove(seg)
+                            newc[j].append(seg)
+            scomps.extend([[c] for c in newc if len(c) > 0])
+    #add missing
+    locs = {o:(i,j) for i,s in enumerate(scomps) for j,t in enumerate(s) for o in t}
+    for i,s in sorted(zip(range(len(seqs)), seqs), key=lambda s: len(s[1][0])):
+        for t in flatten(s, 1):
+            defined = [seg for seg in t if seg > ()]
+            if len(defined) > len(t)/2:
+                offsets = [seg[1]-j for j,seg in enumerate(t) if seg > ()]
+                index = next(seg[0] for seg in t if seg > ())
+                if len(set(offsets)) <= 1: #all offsets the same
+                    for j,seg in enumerate(t):
+                        if seg == () and j+offsets[0] < len(sequences[index]):
+                            scomps[i][j].append((index, j+offsets[0]))
+                            #remove from old comp
+                            if t[j] in locs:
+                                l = locs[t[j]]
+                                #print(t[j], l, offsets, j, t)
+                                scomps[l[0]][l[1]].remove(t[j])
+                                locs[t[j]] = (i,j)
+    scomps = [s for s in scomps if len(s) > 0]
+    
+    # print('af', len(flatten(scomps, 2)))
+    # print([len(c) for c in flatten(scomps, 1)])
+    # scomps = group_by_maxadj(flatten(scomps, 1), sequences, path+'r')
+    # print('af', len(flatten(scomps, 2)))
+    # print([len(c) for c in flatten(scomps, 1)])
+    return scomps
+    
+    # seqs = get_individual_seqs(scomps, len(sequences))
+    # print_individual_seqs(seqs)
+    # print(len(flatten(scomps, 2)))
+    # print_scomp_gaps(scomps, len(sequences))
+    # plot_seq_x_comps(flatten(scomps, 1), sequences, path)
+    # 
+    # adjmax = get_comp_adjacency(flatten(scomps, 1), True)
+    # plot_matrix(adjmax, path+'-max3.png')
+    # print_offdiasum(adjmax)
+
+def group_by_maxadj(comps, sequences, path):
     #sort by adjacency
     adjmax = get_comp_adjacency(comps, True)
-    plot_matrix(adjmax, 'max.png')
+    plot_matrix(adjmax, path+'-max.png')
+    #print_offdiasum(adjmax)
     # adjmax = get_comp_adjacency(comps, True)
     # plot_matrix(adjmax, 'maxl.png')
     #maxes = list(zip(*np.nonzero(adjmax)))
     maxes = list(zip(*np.where(adjmax > 0.5)))
     maxes = sorted(maxes, key=lambda ij: adjmax[ij], reverse=True)
-    print(len(list(zip(*np.nonzero(adjmax)))))
-    print(len(maxes), maxes[:10])
+    #print(len(list(zip(*np.nonzero(adjmax)))))
+    #print(len(maxes), maxes[:10])
     #print([(comps[i], comps[j]) for i,j in maxes[:5]])
     scomps = []
     for i,j in maxes:
@@ -669,22 +729,23 @@ def order_by_maxadj(comps, sequences):
     #scomps = flatten(scomps, 1)
     #comps = scomps+[c for c in comps if c not in scomps]#add missing
     #print('VALID', [valid(c, MIN_DIST) for c in flatten(scomps, 1)])
+    #scomps = scomps+[[c for c in comps if c not in scomps]]#add missing
     scomps = sorted(scomps, key=lambda c: np.mean([s[1] for s in c[0]]))
     
-    print(len(flatten(scomps, 1)), datetime.datetime.now(), [len(c) for c in flatten(scomps, 1)])
+    #print(len(flatten(scomps, 1)), datetime.datetime.now(), [len(c) for c in flatten(scomps, 1)])
     adjmax = get_comp_adjacency(flatten(scomps, 1), True)
-    plot_matrix(adjmax, 'max2.png')
+    plot_matrix(adjmax, path+'-max2.png')
+    #print_offdiasum(adjmax)
     
     # adjmin = get_comp_adjacency(flatten(scomps, 1), False)
     # plot_matrix(adjmin, 'min.png')
     
-    print_comp_seqs(scomps, len(sequences))
-    
-    scomps = flatten([s for s in scomps if len(s) > 0], 1)
-    comps = scomps+[c for c in comps if c not in scomps]#add missing
-    
-    plot_seq_x_comps(comps, sequences)
-    return comps
+    return [s for s in scomps if len(s) > 0]
+
+def print_offdiasum(matrix):
+    matrix = matrix.copy()
+    np.fill_diagonal(matrix, 0)
+    print('offdia', np.sum(matrix))
 
 def diff(c, d, num_seqs):
     df = []
@@ -695,11 +756,11 @@ def diff(c, d, num_seqs):
             df.append(min([abs(b-a) for a in ci for b in di]))
     return mode(df)
 
-def print_comp_seqs(scomps, num_seqs):
+def get_individual_seqs(scomps, num_seqs):
+    seqs = []
     for sc in scomps:
-        print('------------')
-        for i in range(1):#len(sequences)):
-            print('')
+        seqs.append([])
+        for i in range(num_seqs):
             occs = [[o for o in c if o[0] == i] for c in sc]
             seq = []
             prev = (), -1
@@ -714,25 +775,33 @@ def print_comp_seqs(scomps, num_seqs):
                     seq.append(nexx)
                     if nexx > ():
                         prev = nexx, len(seq)-1
-            if len(seq) > len(sc):
-                seq = np.reshape(seq, (-1, len(sc))).tolist()
-            seq = [s for s in seq if any(e > () for e in s)]
-            [print(s) for s in seq]
-    
+            seq = split(seq, len(sc))
+            seqs[-1].append([s for s in seq if any(e > () for e in s)])
+    return seqs
+
+def print_individual_seqs(seqs):
+    for s in seqs:
+        print('------------')
+        for i in s[:1]:
+            print('')
+            [print(s) for s in i]
+
+def print_scomp_gaps(scomps, num_seqs):
     for s in scomps:
         print([diff(c, d, num_seqs) for c, d in zip(s[:-1], s[1:])])
         # for i, (c,d) in enumerate(zip(s[:-1], s[1:])):
         #     if diff(c,d) > 1:
         # 
+    
 
-def plot_seq_x_comps(comps, sequences):
+def plot_seq_x_comps(comps, sequences, path):
     def plot_seq(k):
         alo = np.zeros((len(comps), len(sequences[k])))
         for j in range(len(sequences[k])):
             i = next((i for i,c in enumerate(comps) if (k,j) in c), -1)
             if i >= 0:
                 alo[i][j] = 1
-        plot_matrix(alo, 'maxs'+str(k)+'.png')
+        plot_matrix(alo, path+'-maxs'+str(k)+'.png')
     plot_seq(0)
     plot_seq(1)
     plot_seq(2)
