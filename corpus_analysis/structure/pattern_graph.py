@@ -663,12 +663,12 @@ def cleanup_comps(comps, sequences, path):
                                 locs[t[j]] = (i,j)
     scomps = [s for s in scomps if len(s) > 0]
     
-    # print('af', len(flatten(scomps, 2)))
-    # print([len(c) for c in flatten(scomps, 1)])
-    # scomps = group_by_maxadj(flatten(scomps, 1), sequences, path+'r')
-    # print('af', len(flatten(scomps, 2)))
-    # print([len(c) for c in flatten(scomps, 1)])
-    return scomps
+    print('af', len(flatten(scomps, 2)))
+    print([len(c) for c in flatten(scomps, 1)])
+    scomps = group_by_maxadj(flatten(scomps, 1), sequences, path+'r')
+    print('af', len(flatten(scomps, 2)))
+    print([len(c) for c in flatten(scomps, 1)])
+    return [c for c in flatten(scomps, 1) if len(c) > 1]
     
     # seqs = get_individual_seqs(scomps, len(sequences))
     # print_individual_seqs(seqs)
@@ -740,7 +740,10 @@ def group_by_maxadj(comps, sequences, path):
     # adjmin = get_comp_adjacency(flatten(scomps, 1), False)
     # plot_matrix(adjmin, 'min.png')
     
-    return [s for s in scomps if len(s) > 0]
+    #add remaining comps
+    in_scomps = set(flatten(scomps, 2))
+    comps = [[n for n in c if n not in in_scomps] for c in comps]
+    return [s for s in scomps if len(s) > 0] + [[c] for c in comps if len(c) > 0]
 
 def print_offdiasum(matrix):
     matrix = matrix.copy()
@@ -814,14 +817,12 @@ def sim(s1, s2):
     return len(same_or_blank[0]) / len(s1), len(np.nonzero(blank)[0]) / len(s1)
 
 def smooth_seqs(sequences, sections, min_match, min_defined):
-    sections = [s[0] for s in sections]
-    #print(sections)
     for s in tqdm.tqdm(sequences, desc='smoothing'):
         matches = []
         for i,c in enumerate(sections):
             #print(c)
-            r = range(len(s)-len(c))
-            sims = [sim(c, s[j:j+len(c)]) for j in r]
+            r = range(len(s)-len(c[0]))
+            sims = [sim(c[0], s[j:j+len(c[0])]) for j in r]
             if len(sims) > 0:
                 matched, blank = zip(*sims)
                 matched, blank = np.array(list(matched)), np.array(list(blank))
@@ -830,10 +831,11 @@ def smooth_seqs(sequences, sections, min_match, min_defined):
                 m = len(matched)
                 matched = np.vstack((matched, np.repeat(i, m), np.arange(m))).T
                 matches.append(matched[np.where(matched[:,0] > 0)])
+        #sort by increasing certainty and importance and apply in this order (best have last say)
         matches = np.concatenate(matches)
-        matches = matches[matches[:,0].argsort()]
+        matches = matches[np.lexsort((len(sections)-matches[:,1], matches[:,0]))]
         for p,c,j in matches:
-            cc = sections[int(c)]
+            cc = sections[int(c)][0]
             s[int(j):int(j)+len(cc)] = cc
 
 # adjmax = np.array([[0,1,0,0],[0,0,0,1],[0,0,1,0],[0,0,0,1]])
