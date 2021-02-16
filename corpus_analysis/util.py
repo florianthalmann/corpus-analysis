@@ -20,6 +20,10 @@ def flatten(array, iterations=math.inf):#iterations inf is deep flatten
         return [b for a in array for b in flatten(a, iterations-1)]
     return [array]
 
+def split(lst, n):
+    for i in range(0, len(lst), n):
+        yield lst[i:i + n]
+
 def group_by(l, key=lambda x: x):
     d = defaultdict(list)
     for item in l:
@@ -70,7 +74,9 @@ def plot_sequences(sequences, path=None):
     #offset to 1 and pad with 0s
     matrix = np.vstack([np.pad(s-minval+1, (0, maxlen-len(s))) for s in sequences])
     hls = sns.color_palette("hls", np.max(matrix)+1)
-    if np.min(matrix) == 0: hls[0] = (1,1,1)
+    if np.min(matrix) == 0:
+        hls[0] = (1,1,1)
+        hls[1] = (0,0,0)
     plt.figure(figsize=(6.4,4.8))#somehow heatmap gets squished otherwise
     sns.heatmap(matrix, xticklabels=False, yticklabels=False, cmap=hls)
     plt.savefig(path, dpi=1000) if path else plt.show()

@@ -257,9 +257,10 @@ def to_labels2(sequences, sections, section_lengths):
     #print(np.array(layers).shape)
     #replace sequence-level labels
     labels = np.array(layers).T
-    uniques = [ordered_unique(l) for l in labels]
-    labels = np.array([[uniques[i][-2] if u == uniques[i][-1] else u for u in l]
-        for i,l in enumerate(labels)])
+    # #replace sequence-level labels
+    # uniques = [ordered_unique(l) for l in labels]
+    # labels = np.array([[uniques[i][-2] if u == uniques[i][-1] else u for u in l]
+    #     for i,l in enumerate(labels)])
     #back to layers and reindex
     reindexed = reindex2(labels.T[:-1])
     #now cut at sequence boundaries
