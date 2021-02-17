@@ -1,4 +1,4 @@
-import datetime, math, statistics, tqdm
+import datetime, math, statistics, tqdm, os, psutil
 from itertools import groupby, product
 from collections import Counter, defaultdict
 from heapq import merge
@@ -238,21 +238,26 @@ class PatternGraph:
 
 
 MIN_DIST = 16
-MAX_OCCS = 50000
-INIT_MIN_COUNT = 3#7
-MIN_COUNT = 1
+MAX_OCCS = 30000
+INIT_MIN_COUNT = 5#7
+MIN_COUNT = 3
 MAX_MIN_SIZE = 0#20
 
 def super_alignment_graph(song, sequences, pairings, alignments):
+    print(psutil.Process(os.getpid()).memory_info())
     all_patterns = create_pattern_dict(sequences, pairings, alignments)
     print(len(all_patterns))
+    print(psutil.Process(os.getpid()).memory_info())
     all_points = set([(i,j) for i,s in enumerate(sequences) for j in range(len(s))])
     all_patterns = filter_patterns(all_patterns, 0, remove_uniform=True)
     print_status('all', all_patterns)
     print(len(all_points))
+    print(psutil.Process(os.getpid()).memory_info())
     
     all_ordered = sorted(all_patterns.items(),
         key=lambda p: len(np.unique([v for v,t in p[1]])), reverse=True)
+    
+    groups = group_patterns(all_patterns, length=True, cooccurrence=True, similarity=False)
     
     # groups = group_patterns(all_patterns, length=True)
     # groups = [c for g in groups for c in cluster(g, True)[0]]
@@ -367,17 +372,15 @@ def comps_to_seqs(comps, sequences):
             typeseqs[s[0]][s[1]] = i
     return typeseqs
 
-def smooth_sequences(sequences, min_match=0.8, min_defined=0.6, count=10000):
+def smooth_sequences(sequences, min_match=0.8, min_defined=0.6, min_len=10, min_occs=4, count=10000):
     max_len = math.inf#30
-    min_len = 10
-    min_occs = 4
     secs = get_longest_sections(sequences, [-1])
     secs = [s for s in secs if min_len <= len(s[0]) <= max_len
         and s[1] >= min_occs][:count]
     print(len(secs))
     smoothed = [t.copy() for t in sequences]
     smooth_seqs(smoothed, secs, min_match, min_defined)
-    #smooth_seqs(smoothed, reversed(secs), min_match, min_defined) #most common have last effect
+    #smooth_seqs(smoothed, secs, min_match, min_defined)
     
     t, s = np.hstack(sequences), np.hstack(smoothed)
     print(len(np.unique(t)), len(np.unique(s)))
@@ -488,8 +491,9 @@ def group_patterns(patterns, length=True, cooccurrence=False, similarity=False):
     
     #group by cooccurrence (groups not overlapping)
     if cooccurrence:
-        eqfunc = lambda p, q: len(patterns[p].intersection(patterns[q])) > 0
-        groups = flatten([group_patterns2(eqfunc, g, False) for g in groups], 1)
+        # eqfunc = lambda p, q: len(patterns[p].intersection(patterns[q])) > 0
+        # groups = flatten([group_patterns2(eqfunc, g, False) for g in groups], 1)
+        groups = flatten([fast_group_by_cooc(g, patterns) for g in groups], 1)
     
     #group by similarity (groups are overlapping)
     if similarity:
@@ -514,6 +518,26 @@ def group_patterns2(equiv_func, patterns, cliques_not_comps):
         return [[patterns[i] for i in e] for e in equivs]\
             +[[patterns[i]] for i in range(len(patterns)) if i not in union]
     return [patterns]
+
+def fast_group_by_cooc(patterns, occ_dict):
+    groups = []
+    for p in patterns:
+        occs = occ_dict[p]
+        isects = [g[1].intersection(occs) for g in groups]
+        pos = np.nonzero(isects)[0]
+        if len(pos) > 0:
+            if len(pos) > 1: #merge groups
+                groups[pos[0]] = ([q for p in pos for q in groups[p][0]],
+                    set().union(*[groups[p][1] for p in pos]))
+                for k in pos[1:]:
+                    groups[k] = ()
+            #add to first group
+            groups[pos[0]][0].append(p)
+            groups[pos[0]][1].update(occs)
+        else:
+            groups.append(([p], occs))
+        groups = [g for g in groups if len(g) > 0]
+    return [g[0] for g in groups]
 
 #catalogue all connection counts between equivalent patterns
 def get_most_common_connections(groups, patterns, sequences, min_dist, min_count):
