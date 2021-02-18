@@ -1,4 +1,4 @@
-import datetime, math, statistics, tqdm, os, psutil
+import datetime, math, statistics, tqdm, os, psutil, sys
 from itertools import groupby, product
 from collections import Counter, defaultdict
 from heapq import merge
@@ -238,7 +238,7 @@ class PatternGraph:
 
 
 MIN_DIST = 16
-MAX_OCCS = 30000
+MAX_OCCS = 300000
 INIT_MIN_COUNT = 5#7
 MIN_COUNT = 3
 MAX_MIN_SIZE = 0#20
@@ -254,10 +254,25 @@ def super_alignment_graph(song, sequences, pairings, alignments):
     print(len(all_points))
     print(psutil.Process(os.getpid()).memory_info())
     
-    all_ordered = sorted(all_patterns.items(),
-        key=lambda p: len(np.unique([v for v,t in p[1]])), reverse=True)
-    
     groups = group_patterns(all_patterns, length=True, cooccurrence=True, similarity=False)
+    #groups to new patterns
+    new_patterns = {}
+    for g in groups:
+        new_patterns[g[0]] = set([o for p in g for o in all_patterns[p]])
+    all_patterns = new_patterns
+    
+    #sort by num different versions...
+    # all_ordered = sorted(all_patterns.items(),
+    #     key=lambda p: len(np.unique([v for v,t in p[1]])), reverse=False)
+    
+    #sort by average first time point
+    avg_first = lambda p: np.mean([min([o[1] for o in p[1] if o[0] == i])
+        for i in np.unique([o[0] for o in p[1]])])
+    all_ordered = sorted(all_patterns.items(), key=avg_first)
+    
+    #shortest first
+    #all_ordered = sorted(all_patterns.items(), key=lambda p: len(p[0]))
+    
     
     # groups = group_patterns(all_patterns, length=True)
     # groups = [c for g in groups for c in cluster(g, True)[0]]
@@ -276,10 +291,10 @@ def super_alignment_graph(song, sequences, pairings, alignments):
     remaining_points = all_points
     min_count = INIT_MIN_COUNT
     min_size = 0
-    last_adjusted = "min_count"
+    scanning = True
     while len(remaining) > 0 and len(ordered) > 0:
         #filter patterns
-        cutoff = np.argmax(np.cumsum([len(o) for p,o in ordered]) > MAX_OCCS)
+        cutoff = np.argmax(np.cumsum([len(o)*len(p) for p,o in ordered]) > MAX_OCCS)
         if cutoff == 0:#always at least 5, or all remaining if no cutoff
             cutoff = 5 if len(ordered[0][1]) > MAX_OCCS else len(ordered)
         patterns = {p:o for p,o in ordered[:cutoff]}
@@ -288,6 +303,7 @@ def super_alignment_graph(song, sequences, pairings, alignments):
         if len(patterns) > 0:
             
             groups = group_patterns(patterns, length=True, cooccurrence=True, similarity=False)
+            print(psutil.Process(os.getpid()).memory_info())
             
             conns = get_most_common_connections(groups, patterns, sequences, MIN_DIST, min_count=min_count)
             
@@ -303,10 +319,10 @@ def super_alignment_graph(song, sequences, pairings, alignments):
             print('rempoints', len(remaining_points))
             
             #no improvement or all patterns taken at once
-            if len(remaining_points) == previous or len(patterns) == len(ordered):
+            if not scanning and (len(remaining_points) == previous or len(patterns) == len(ordered)):
                 if min_size < MAX_MIN_SIZE:
                     min_size += 10
-                    remaining = all_patterns #need to widen selection
+                    #remaining = all_patterns #need to widen selection
                     print('increased min size to', min_size)
                     inbigcomps = set([p for c in comps if len(c) >= min_size for p in c])
                     remaining_points = all_points - inbigcomps#locs.keys()
@@ -320,7 +336,11 @@ def super_alignment_graph(song, sequences, pairings, alignments):
                     print('reduced min count to', min_count)
                 else: break
             else:
-                remaining = filter_patterns(remaining, include=remaining_points)
+                scanning = True
+                remaining = [p for p in remaining if p not in patterns]#try scanning through
+                if len(remaining) == 0:
+                    scanning = False
+                    remaining = filter_patterns(all_patterns, include=remaining_points)
                 ordered = [p for p in all_ordered if p[0] in remaining]
                 print('remaining', len(remaining))
     
@@ -364,6 +384,64 @@ def super_alignment_graph(song, sequences, pairings, alignments):
     # plot_sequences(typeseqs, song+'-seqpat....png')
     
     return comps
+
+def super_alignment_graph2(song, sequences, pairings, alignments):
+    all_patterns = create_pattern_dict(sequences, pairings, alignments)
+    print(len(all_patterns))
+    all_points = set([(i,j) for i,s in enumerate(sequences) for j in range(len(s))])
+    all_patterns = filter_patterns(all_patterns, 0, remove_uniform=True)
+    print_status('all', all_patterns)
+    print(len(all_points))
+    
+    groups = group_patterns(all_patterns, length=True, cooccurrence=True, similarity=False)
+    #groups to new patterns
+    new_patterns = {}
+    for g in groups:
+        new_patterns[g[0]] = set([o for p in g for o in all_patterns[p]])
+    all_patterns = new_patterns
+    
+    lengths = [len(s) for s in sequences]
+    total = sum(lengths)
+    print(total**2)
+    maxlen = max(lengths)
+    size = maxlen*len(sequences)
+    print(size**2)
+    versions = np.insert(np.cumsum(lengths), 0, 0)
+    conns = []
+    matrix = csr_matrix((size, size), dtype='int8')
+    for pattern,occs in tqdm.tqdm(all_patterns.items(), desc='creating matrix'):
+        #sort occurrences in group and convert to matrix indices
+        occs = np.array(sorted(occs))
+        locs = np.array([(o[0]*maxlen)+o[1] for o in occs])
+        #get all pairwise connections that are not within min dist
+        i = np.array([[i1,i2]
+            for i1 in range(len(occs)) for i2 in range(i1+1, len(occs))])
+        occs = occs[i] #pairs of occurrences
+        locs = locs[i] #pairs of indices
+        locs = locs[np.logical_or(occs[:,0,0] != occs[:,1,0],
+            np.absolute(occs[:,0,1] - occs[:,1,1]) >= MIN_DIST)]
+        #add all connections within segment durations
+        conns.append(np.hstack(locs[:,:,None] + np.arange(0, len(pattern))).T)
+        if len(conns) >= 500: #dump every 500 patterns to save memory
+            matrix += conns_to_matrix(conns, size)
+            conns = []
+    matrix += conns_to_matrix(conns, size)
+    
+    comps = []
+    locs = {}
+    incomp = set()
+    for i in tqdm.tqdm(range(np.max(matrix), 2, -1), desc='creating components'):
+        conns = np.vstack(np.nonzero(matrix == i)).T
+        edges = np.dstack((np.floor(conns/maxlen), conns % maxlen)).astype(int)
+        add_to_components(edges, comps, locs, incomp, MIN_DIST)
+    
+    comps = [c for c in comps if len(c) > 0]
+    comps = sorted(comps, key=lambda c: np.mean([s[1] for s in c]))
+    return comps
+
+def conns_to_matrix(conns, size):
+    c = np.concatenate(conns)
+    return csr_matrix((np.repeat(1, len(c)), (c[:,0], c[:,1])), (size, size))
 
 def comps_to_seqs(comps, sequences):
     typeseqs = [np.repeat(-1, len(s)) for s in sequences]
@@ -544,6 +622,7 @@ def get_most_common_connections(groups, patterns, sequences, min_dist, min_count
     conns = []
     maxlen = max([len(s) for s in sequences])
     total = maxlen*len(sequences)
+    print("conns1", psutil.Process(os.getpid()).memory_info())
     #print('conns')
     for g in groups:
         #sort occurrences in group
@@ -561,17 +640,22 @@ def get_most_common_connections(groups, patterns, sequences, min_dist, min_count
         #to edge indices and append
         ooooo = oooo[:,0]*total + oooo[:,1]
         conns.append(ooooo)
+    print("conns2", psutil.Process(os.getpid()).memory_info())
     #concat and count
     c = np.concatenate(conns)
     #print('count', datetime.datetime.now())
     #counts = np.bincount(c)
+    print(len(c))
     edges = Counter(c.tolist())
+    print(c.nbytes, sys.getsizeof(c), sys.getsizeof(edges))
     print(len(edges))
+    print("conns3", psutil.Process(os.getpid()).memory_info())
     edges = {e:c for e,c in edges.items() if c >= min_count}
     print(len(edges))
     #print('sort', datetime.datetime.now())
     bestconns = sorted(edges.items(), key=lambda c: c[1], reverse=True)
     bestconns = np.array(bestconns)[:,0]
+    print("conns4", psutil.Process(os.getpid()).memory_info())
     #print('post', datetime.datetime.now())
     pairs = np.vstack((np.floor(bestconns/total), bestconns % total)).T
     #print('post2', datetime.datetime.now())
@@ -819,7 +903,6 @@ def print_scomp_gaps(scomps, num_seqs):
         # for i, (c,d) in enumerate(zip(s[:-1], s[1:])):
         #     if diff(c,d) > 1:
         # 
-    
 
 def plot_seq_x_comps(comps, sequences, path):
     def plot_seq(k):
