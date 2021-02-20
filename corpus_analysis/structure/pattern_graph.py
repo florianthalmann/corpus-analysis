@@ -75,18 +75,54 @@ def cluster(patterns, relative):
 
 #keys: pattern tuples with -1 for blanks, values: list of occurrences (sequence, position)
 def create_pattern_dict(sequences, pairings, alignments):
-    patterns = dict()
-    #what to do with overlapping locations?
+    return {p:o for p,o in
+        create_pattern_list(sequences, pairings, alignments, True)}
+
+#tuples with patterns with -1 for blanks and occurrences (sequence index, position)
+#all patterns remain separate, duplicates with different occurrences exist
+def create_pattern_list(sequences, pairings, alignments, combine_similar=False,
+        min_versions=0, remove_uniform=False, include=None):
+    patterns = []
+    id = 0
     for i,a in enumerate(alignments):
         for s in a:
             j, k = pairings[i]
             s1, s2 = sequences[j][s.T[0]], sequences[k][s.T[1]]
-            pattern = tuple(np.where(s1 == s2, s1, -1))
+            if isinstance(s1[0], np.integer):
+                pattern = tuple(np.where(s1 == s2, s1, -1))
+            else:
+                pattern = tuple(np.repeat(id, len(s1)))
             locations = [(j, s[0][0]), (k, s[0][1])]
-            if not pattern in patterns:
-                patterns[pattern] = set()
-            patterns[pattern].update(locations)
+            patterns.append((pattern, set(locations)))
+            id += 1
+    if combine_similar:
+        pdict = dict()
+        for pattern, occs in enumerate(patterns):
+            if not pattern in pdict:
+                pdict[pattern] = set()
+            pdict[pattern].update(occs)
+        patterns = list(pict.items())
+    return filter_patterns(patterns, min_versions, remove_uniform, include)
+
+#returns the subset of patterns occurring in a given min number of versions
+def filter_patterns(patterns, min_versions=0, remove_uniform=False, include=None):
+    #remove uniform (all same value or blank)
+    if remove_uniform:
+        uniq = [len(np.unique(list(p[0]))) for p in patterns]
+        patterns = [p for i,p in enumerate(patterns)
+            if uniq[i] > 2 or (uniq[i] == 2 and -1 not in p[0])]
+        print_status('removed uniform', patterns)
+    #prune pattern dict: keep only ones occurring in a min num of versions
+    if min_versions > 0:
+        patterns = [p for p in patterns
+            if len(np.unique([o[0] for o in p[1]])) >= min_versions]
+        print_status('frequent', patterns)
+    if include != None:
+        include = np.array(list(include))
+        pv = set(include[:,0])
+        patterns = [p for p in patterns if contains(p, include, pv)]
     return patterns
+
 
 class PatternGraph:
     
@@ -245,33 +281,27 @@ MAX_MIN_SIZE = 0#20
 
 def super_alignment_graph(song, sequences, pairings, alignments):
     print(psutil.Process(os.getpid()).memory_info())
-    all_patterns = create_pattern_dict(sequences, pairings, alignments)
-    print(len(all_patterns))
-    print(psutil.Process(os.getpid()).memory_info())
+    all_patterns = create_pattern_dict(sequences, pairings, alignments, remove_uniform=True)
     all_points = set([(i,j) for i,s in enumerate(sequences) for j in range(len(s))])
-    all_patterns = filter_patterns(all_patterns, 0, remove_uniform=True)
     print_status('all', all_patterns)
     print(len(all_points))
     print(psutil.Process(os.getpid()).memory_info())
     
     groups = group_patterns(all_patterns, length=True, cooccurrence=True, similarity=False)
     #groups to new patterns
-    new_patterns = {}
-    for g in groups:
-        new_patterns[g[0]] = set([o for p in g for o in all_patterns[p]])
-    all_patterns = new_patterns
+    all_patterns = groups_to_patterns(groups)
     
     #sort by num different versions...
-    # all_ordered = sorted(all_patterns.items(),
+    # all_ordered = sorted(all_patterns,
     #     key=lambda p: len(np.unique([v for v,t in p[1]])), reverse=False)
     
     #sort by average first time point
     avg_first = lambda p: np.mean([min([o[1] for o in p[1] if o[0] == i])
         for i in np.unique([o[0] for o in p[1]])])
-    all_ordered = sorted(all_patterns.items(), key=avg_first)
+    all_ordered = sorted(all_patterns, key=avg_first)
     
     #shortest first
-    #all_ordered = sorted(all_patterns.items(), key=lambda p: len(p[0]))
+    #all_ordered = sorted(all_patterns, key=lambda p: len(p[0]))
     
     
     # groups = group_patterns(all_patterns, length=True)
@@ -280,7 +310,7 @@ def super_alignment_graph(song, sequences, pairings, alignments):
     # all_ordered = [(p,all_patterns[p]) for p in flatten(groups, 1)]
     # print("clustered", len(groups), statistics.median([len(g) for g in groups]))
     
-    #all_ordered = list(all_patterns.items())
+    #all_ordered = all_patterns
     
     #print(by_versions[0])
     comps = []
@@ -297,7 +327,7 @@ def super_alignment_graph(song, sequences, pairings, alignments):
         cutoff = np.argmax(np.cumsum([len(o)*len(p) for p,o in ordered]) > MAX_OCCS)
         if cutoff == 0:#always at least 5, or all remaining if no cutoff
             cutoff = 5 if len(ordered[0][1]) > MAX_OCCS else len(ordered)
-        patterns = {p:o for p,o in ordered[:cutoff]}
+        patterns = [p for p in ordered[:cutoff]]
         print('selected', len(patterns), 'of', len(ordered))
         
         if len(patterns) > 0:
@@ -386,19 +416,11 @@ def super_alignment_graph(song, sequences, pairings, alignments):
     return comps
 
 def super_alignment_graph2(song, sequences, pairings, alignments):
-    all_patterns = create_pattern_dict(sequences, pairings, alignments)
-    print(len(all_patterns))
-    all_points = set([(i,j) for i,s in enumerate(sequences) for j in range(len(s))])
-    all_patterns = filter_patterns(all_patterns, 0, remove_uniform=True)
+    all_patterns = create_pattern_list(sequences, pairings, alignments, remove_uniform=True)
     print_status('all', all_patterns)
-    print(len(all_points))
     
     groups = group_patterns(all_patterns, length=True, cooccurrence=True, similarity=False)
-    #groups to new patterns
-    new_patterns = {}
-    for g in groups:
-        new_patterns[g[0]] = set([o for p in g for o in all_patterns[p]])
-    all_patterns = new_patterns
+    all_patterns = groups_to_patterns(groups)
     
     lengths = [len(s) for s in sequences]
     total = sum(lengths)
@@ -409,7 +431,7 @@ def super_alignment_graph2(song, sequences, pairings, alignments):
     versions = np.insert(np.cumsum(lengths), 0, 0)
     conns = []
     matrix = csr_matrix((size, size), dtype='int8')
-    for pattern,occs in tqdm.tqdm(all_patterns.items(), desc='creating matrix'):
+    for pattern,occs in tqdm.tqdm(all_patterns, desc='creating matrix'):
         #sort occurrences in group and convert to matrix indices
         occs = np.array(sorted(occs))
         locs = np.array([(o[0]*maxlen)+o[1] for o in occs])
@@ -422,7 +444,7 @@ def super_alignment_graph2(song, sequences, pairings, alignments):
             np.absolute(occs[:,0,1] - occs[:,1,1]) >= MIN_DIST)]
         #add all connections within segment durations
         conns.append(np.hstack(locs[:,:,None] + np.arange(0, len(pattern))).T)
-        if len(conns) >= 500: #dump every 500 patterns to save memory
+        if len(conns) >= 100: #dump every 500 patterns to save memory
             matrix += conns_to_matrix(conns, size)
             conns = []
     matrix += conns_to_matrix(conns, size)
@@ -430,7 +452,7 @@ def super_alignment_graph2(song, sequences, pairings, alignments):
     comps = []
     locs = {}
     incomp = set()
-    for i in tqdm.tqdm(range(np.max(matrix), 2, -1), desc='creating components'):
+    for i in tqdm.tqdm(range(np.max(matrix), MIN_COUNT, -1), desc='creating components'):
         conns = np.vstack(np.nonzero(matrix == i)).T
         edges = np.dstack((np.floor(conns/maxlen), conns % maxlen)).astype(int)
         add_to_components(edges, comps, locs, incomp, MIN_DIST)
@@ -530,28 +552,9 @@ def merge_tiny_comp_groups(comp_groups, adjmax, adjmin, comps):
             comp_groups.remove(g)
 
 def print_status(title, patterns):
-    longest3 = [len(l[1]) for l in sorted(list(patterns.items()),
+    longest3 = [len(l[1]) for l in sorted(patterns,
         key=lambda p: len(p[1]), reverse=True)[:3]]
     print(title, len(patterns), longest3)
-
-#returns the subset of patterns occurring in a given min number of versions
-def filter_patterns(patterns, min_versions=0, remove_uniform=False, include=None):
-    #remove uniform (all same value or blank)
-    if remove_uniform:
-        uniq = {k:len(np.unique(list(k))) for k in patterns.keys()}
-        patterns = {k:v for k,v in patterns.items()
-            if uniq[k] > 2 or (uniq[k] == 2 and -1 not in k)}
-        print_status('removed uniform', patterns)
-    #prune pattern dict: keep only ones occurring in a min num of versions
-    if min_versions > 0:
-        patterns = {k:v for k,v in patterns.items()
-            if len(np.unique([o[0] for o in v])) >= min_versions}
-        print_status('frequent', patterns)
-    if include != None:
-        include = np.array(list(include))
-        pv = set(include[:,0])
-        patterns = {p:o for p,o in patterns.items() if contains((p,o), include, pv)}
-    return patterns
 
 def contains(pattern, points, points_versions):
     versions = list(set([p[0] for p in pattern[1]]).intersection(points_versions))
@@ -565,13 +568,14 @@ def contains(pattern, points, points_versions):
 
 def group_patterns(patterns, length=True, cooccurrence=False, similarity=False):
     #group by length
-    groups = group_by(patterns.keys(), lambda p: len(p))
+    groups = group_by(patterns, lambda p: len(p[0]))
+    print('grouped', len(groups),sum([len(g) for g in groups]))
     
     #group by cooccurrence (groups not overlapping)
     if cooccurrence:
         # eqfunc = lambda p, q: len(patterns[p].intersection(patterns[q])) > 0
         # groups = flatten([group_patterns2(eqfunc, g, False) for g in groups], 1)
-        groups = flatten([fast_group_by_cooc(g, patterns) for g in groups], 1)
+        groups = flatten([fast_group_by_cooc(g) for g in groups], 1)
     
     #group by similarity (groups are overlapping)
     if similarity:
@@ -584,7 +588,7 @@ def group_patterns(patterns, length=True, cooccurrence=False, similarity=False):
 
 def group_patterns2(equiv_func, patterns, cliques_not_comps):
     if len(patterns) > 1:
-        matrix = np.array([[1 if equiv_func(p,q) else 0
+        matrix = np.array([[1 if equiv_func(p[0],q[0]) else 0
             for q in patterns] for p in patterns])
         g = graph_from_matrix(matrix)[0]
         if cliques_not_comps:
@@ -597,10 +601,13 @@ def group_patterns2(equiv_func, patterns, cliques_not_comps):
             +[[patterns[i]] for i in range(len(patterns)) if i not in union]
     return [patterns]
 
-def fast_group_by_cooc(patterns, occ_dict):
+def groups_to_patterns(groups):
+    return [(g[0][0], set().union(*[p[1] for p in g])) for g in groups]
+
+def fast_group_by_cooc(patterns):
     groups = []
     for p in patterns:
-        occs = occ_dict[p]
+        occs = p[1]
         isects = [g[1].intersection(occs) for g in groups]
         pos = np.nonzero(isects)[0]
         if len(pos) > 0:
@@ -745,7 +752,7 @@ def cleanup_comps(comps, sequences, path):
             newc = [[] for x in flatten(s, 1)[0]]
             for t in flatten(s, 1):
                 defined = [seg for seg in t if seg > ()]
-                if len(defined) <= len(t)/2:
+                if len(defined) <= len(t)/2:#remove ones that are less than half full
                     for j,seg in enumerate(t):
                         if seg > ():
                             scomps[i][j].remove(seg)

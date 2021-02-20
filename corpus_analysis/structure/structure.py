@@ -1,3 +1,4 @@
+import os, psutil
 from itertools import product
 import numpy as np
 from ..alignment.affinity import matrix_to_segments, segments_to_matrix
@@ -5,8 +6,10 @@ from .graphs import alignment_graph, structure_graph, component_labels,\
     adjacency_matrix, graph_from_matrix, clean_up
 from .hierarchies import make_segments_hierarchical,\
     get_hierarchy_labels, get_hierarchies
-from .pattern_graph import super_alignment_graph, comps_to_seqs, smooth_sequences
-from ..util import plot_matrix, mode, profile, plot_sequences, buffered_run
+from .pattern_graph import super_alignment_graph2, comps_to_seqs, smooth_sequences,\
+    cleanup_comps
+from ..util import plot_matrix, mode, profile, plot_sequences, buffered_run,\
+    flatten
 from graph_tool.topology import max_cliques
 
 def remove_blocks(alignment, shape, min_len):
@@ -78,37 +81,52 @@ def shared_structure(sequences, pairings, alignments, msa, min_len, min_dist):
     #plot_matrix(hierarchy)
 
 def new_shared_structure(song, sequences, pairings, alignments):
+    print(psutil.Process(os.getpid()).memory_info())
     # no_graph(song, sequences)
     # return
     plot_sequences(sequences, song+'-seqpat.png')
-    sag = buffered_run(song+'-sag', lambda:
-        super_alignment_graph(song, sequences, pairings, alignments), [])
-    sag = [s for s in sag if len(s) > 9]
-    typeseqs = comps_to_seqs(sag, sequences)
+    comps = buffered_run(song+'-sag', lambda:
+        super_alignment_graph2(song, sequences, pairings, alignments), [])
+    #sag = [s for s in sag if len(s) > 9]
+    print([len(c) for c in comps])
+    typeseqs = comps_to_seqs(comps, sequences)
     plot_sequences(typeseqs.copy(), song+'-seqpat..png')
+    
+    #comps = [c for c in comps if len(c) >= len(sequences)/5]
+    print(len(comps))
+    comps = cleanup_comps(comps, sequences, song)
+    #comps = cleanup_comps(comps, sequences, song)
+    comps = [c for c in comps if len(c) > 4]
+    print([len(c) for c in comps])
+    typeseqs = comps_to_seqs(comps, sequences)
+    plot_sequences(typeseqs.copy(), song+'-seqpat...png')
+    
+    
     typeseqs = buffered_run(song+'-smo',
         lambda: smooth_sequences(typeseqs, 0.7, 0.5), [])
-    plot_sequences(typeseqs.copy(), song+'-seqpat...png')
-    typeseqs = smooth_sequences(typeseqs, 0.7, 0.5)
     plot_sequences(typeseqs.copy(), song+'-seqpat....png')
-    # hierarchies = get_hierarchy_labels(typeseqs)
-    # print(len(hierarchies), hierarchies[0].shape, hierarchies[1].shape)
-    # #artificially insert maximum so that plots look nicer....
-    # maxx = np.max(np.hstack(hierarchies))
-    # for h in hierarchies:
-    #     h[-1][-1] = maxx
-    # plot_sequences(hierarchies[0], song+'-seqpat....png')
-    # plot_sequences(hierarchies[1], song+'-seqpat.....png')
-    # plot_sequences(hierarchies[2], song+'-seqpat......png')
-    # plot_sequences(hierarchies[30], song+'-seqpat.......png')
-    # #print([len(h.T) for h in hierarchies[:10]], [len(h) for h in sequences[:10]])
-    # plot_sequences([h[12] for h in hierarchies], song+'-seqpat........png')
+    
+    # typeseqs = smooth_sequences(typeseqs, 0.7, 0.5)
+    # plot_sequences(typeseqs.copy(), song+'-seqpat.....png')
+    
+    hierarchies = get_hierarchy_labels(typeseqs)
+    print(len(hierarchies), hierarchies[0].shape, hierarchies[1].shape)
+    #artificially insert maximum so that plots look nicer....
+    maxx = np.max(np.hstack(hierarchies))
+    for h in hierarchies:
+        h[-1][-1] = maxx
+    plot_sequences(hierarchies[0], song+'-seqpat.....png')
+    plot_sequences(hierarchies[1], song+'-seqpat......png')
+    plot_sequences(hierarchies[2], song+'-seqpat.......png')
+    plot_sequences(hierarchies[30], song+'-seqpat........png')
+    #print([len(h.T) for h in hierarchies[:10]], [len(h) for h in sequences[:10]])
+    plot_sequences([h[12] for h in hierarchies], song+'-seqpat.........png')
 
 
 
 def no_graph(song, sequences):
     plot_sequences(sequences.copy(), song+'-seqpat,.png')
-    typeseqs = smooth_sequences(sequences, 0.9, 0.5)
+    typeseqs = smooth_sequences(sequences, 0.7, 0.5)
     plot_sequences(typeseqs.copy(), song+'-seqpat,,.png')
     hierarchies = get_hierarchy_labels(typeseqs)
     print(len(hierarchies), hierarchies[0].shape, hierarchies[1].shape)
