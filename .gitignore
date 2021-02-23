@@ -5,6 +5,6 @@ __pycache__
 *.npy
 data
 data_bars
-results
+results*
 demo
 salami

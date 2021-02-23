@@ -65,8 +65,9 @@ def plot_hist(data, path=None, bincount=None, binwidth=1):
     plt.savefig(path, dpi=1000) if path else plt.show()
     plt.clf()
 
-def plot_graph(graph, path):
-    graph_draw(graph, output_size=(1000, 1000), output=path, bg_color=[1,1,1,1])
+def plot_graph(graph, path, edge_weights=None, vertex_weights=None):
+    graph_draw(graph, output_size=(1000, 1000), output=path, bg_color=[1,1,1,1],
+        edge_pen_width=edge_weights, vertex_size=vertex_weights)
 
 def plot_sequences(sequences, path=None):
     maxlen = max([len(s) for s in sequences])

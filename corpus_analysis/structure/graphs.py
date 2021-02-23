@@ -16,10 +16,10 @@ def adjacency_matrix(graph, weight=None):
 def prune_isolated_vertices(g):
     return GraphView(g, vfilt=g.get_total_degrees(g.get_vertices()) > 0)
 
-def graph_from_matrix(matrix):
-    g = Graph(directed=False)
+def graph_from_matrix(matrix, directed=False):
+    g = Graph(directed=directed)
     g.add_vertex(len(matrix))
-    weights = g.new_ep("int")
+    weights = g.new_ep("float")
     edges = np.nonzero(matrix)
     edges = np.append(edges, [matrix[edges]], axis=0)
     g.add_edge_list(list(zip(*edges)), eprops=[weights])
