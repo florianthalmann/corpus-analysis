@@ -9,14 +9,14 @@ from scipy.sparse import csr_matrix
 from scipy.sparse.csgraph import connected_components
 import graph_tool.all as gt
 from graph_tool.all import Graph, GraphView, graph_draw
-from .graphs import graph_from_matrix
-from .hierarchies import get_hierarchy_labels, get_most_salient_labels,\
-    get_longest_sections
 from ..util import plot_sequences, mode, flatten, group_by, plot_matrix,\
     multiprocess, split
 from ..clusters.histograms import freq_hist_clusters, trans_hist_clusters,\
     freq_trans_hist_clusters
-from ..alignment.smith_waterman import smith_waterman
+from .graphs import graph_from_matrix
+from .hierarchies import get_hierarchy_labels, get_most_salient_labels,\
+    get_longest_sections
+from .similarity import sw_similarity, isect_similarity, cooc_similarity
 
 MIN_VERSIONS = 0.2 #how many of the versions need to contain the patterns
 PARSIM = True
@@ -24,29 +24,12 @@ PARSIM_DIFF = 0 #the largest allowed difference in parsimonious mode (full conta
 MIN_SIM = 0.9 #min similarity for non-parsimonious similarity
 COMPS_NOT_BLOCKS = True #use connected components instead of community blocks
 
-def similarity(match, p1, p2, parsim):
-    minlen = min(len(p1), len(p2))
-    if parsim: return 1 if abs(match - minlen) == PARSIM_DIFF else 0
-    return match / minlen
-
-def sw_similarity(p1, p2, parsim=PARSIM):
-    return similarity(len(smith_waterman(p1, p2)[0]), p1, p2, parsim)
-
-def isect_similarity(p1, p2, parsim=PARSIM):
-    return similarity(len(snp.intersect(p1, p2)), p1, p2, parsim)
 
 def get_occ_matrix(pattern, dict, num_seqs, max_len):
     matrix = np.zeros((num_seqs, max_len))
     for occ in dict[pattern]:
         matrix[occ[0], np.arange(occ[1], occ[1]+len(pattern))] = 1
     return matrix
-
-#finds the longest overlap between any two occurrences of the patterns
-def cooc_similarity(p1, p2, occmat1, occmat2, parsim=PARSIM):
-    both = np.logical_and(occmat1, occmat2)
-    diffs = np.transpose(np.diff(np.where(both == 1)))
-    overlaps = np.split(diffs, np.where(diffs != [0,1])[0]+1)
-    return similarity(max([len(o) for o in overlaps]), p1, p2, parsim)
 
 def group_by_comps(patterns, adjacency_matrix):
     comps = connected_components(adjacency_matrix)[1]
@@ -276,7 +259,7 @@ class PatternGraph:
 MIN_DIST = 16
 MAX_OCCS = 300000
 INIT_MIN_COUNT = 5#7
-MIN_COUNT = 3
+MIN_COUNT = 2
 MAX_MIN_SIZE = 0#20
 
 def super_alignment_graph(song, sequences, pairings, alignments):
@@ -416,18 +399,23 @@ def super_alignment_graph(song, sequences, pairings, alignments):
     return comps
 
 def super_alignment_graph2(song, sequences, pairings, alignments):
-    all_patterns = create_pattern_list(sequences, pairings, alignments, remove_uniform=True)
+    all_patterns = create_pattern_list(sequences, pairings, alignments)#, remove_uniform=True)
     print_status('all', all_patterns)
     
     groups = group_patterns(all_patterns, length=True, cooccurrence=True, similarity=False)
     all_patterns = groups_to_patterns(groups)
     
+    matrix = get_connection_matrix(sequences, all_patterns)
+    
+    return matrix_to_components(matrix, sequences)
+
+def get_connection_matrix(sequences, all_patterns):
     lengths = [len(s) for s in sequences]
-    total = sum(lengths)
-    print(total**2)
+    #total = sum(lengths)
+    #print(total**2)
     maxlen = max(lengths)
     size = maxlen*len(sequences)
-    print(size**2)
+    #print(size**2)
     versions = np.insert(np.cumsum(lengths), 0, 0)
     conns = []
     matrix = csr_matrix((size, size), dtype='int8')
@@ -436,34 +424,37 @@ def super_alignment_graph2(song, sequences, pairings, alignments):
         occs = np.array(sorted(occs))
         locs = np.array([(o[0]*maxlen)+o[1] for o in occs])
         #get all pairwise connections that are not within min dist
-        i = np.array([[i1,i2]
-            for i1 in range(len(occs)) for i2 in range(i1+1, len(occs))])
+        i = np.dstack(np.nonzero(np.triu(np.ones((len(occs),len(occs))), k=1)))[0]
         occs = occs[i] #pairs of occurrences
         locs = locs[i] #pairs of indices
         locs = locs[np.logical_or(occs[:,0,0] != occs[:,1,0],
             np.absolute(occs[:,0,1] - occs[:,1,1]) >= MIN_DIST)]
         #add all connections within segment durations
-        conns.append(np.hstack(locs[:,:,None] + np.arange(0, len(pattern))).T)
-        if len(conns) >= 100: #dump every 500 patterns to save memory
+        #conns.append(np.hstack(locs[:,:,None] + np.arange(0, len(pattern))).T)
+        locs = locs[:,:,None] + np.arange(0, len(pattern))
+        conns.append(np.reshape(np.transpose(locs, (0,2,1)), (-1,2)))
+        if len(conns) >= 1000: #dump every 500 patterns to save memory
             matrix += conns_to_matrix(conns, size)
             conns = []
     matrix += conns_to_matrix(conns, size)
-    
-    comps = []
-    locs = {}
-    incomp = set()
-    for i in tqdm.tqdm(range(np.max(matrix), MIN_COUNT, -1), desc='creating components'):
-        conns = np.vstack(np.nonzero(matrix == i)).T
-        edges = np.dstack((np.floor(conns/maxlen), conns % maxlen)).astype(int)
-        add_to_components(edges, comps, locs, incomp, MIN_DIST)
-    
-    comps = [c for c in comps if len(c) > 0]
-    comps = sorted(comps, key=lambda c: np.mean([s[1] for s in c]))
-    return comps
+    return matrix
 
 def conns_to_matrix(conns, size):
     c = np.concatenate(conns)
     return csr_matrix((np.repeat(1, len(c)), (c[:,0], c[:,1])), (size, size))
+
+def matrix_to_components(matrix, sequences):
+    maxlen = max([len(s) for s in sequences])
+    comps = []
+    locs = {}
+    incomp = set()
+    for i in tqdm.tqdm(range(np.max(matrix), MIN_COUNT-1, -1), desc='creating components'):
+        conns = np.vstack(np.nonzero(matrix == i)).T
+        edges = np.dstack((np.floor(conns/maxlen), conns % maxlen)).astype(int)
+        add_to_components(edges, comps, locs, incomp, MIN_DIST)
+    comps = [c for c in comps if len(c) > 0]
+    comps = sorted(comps, key=lambda c: np.mean([s[1] for s in c]))
+    return comps
 
 def comps_to_seqs(comps, sequences):
     typeseqs = [np.repeat(-1, len(s)) for s in sequences]
@@ -477,6 +468,7 @@ def smooth_sequences(sequences, min_match=0.8, min_defined=0.6, min_len=10, min_
     secs = get_longest_sections(sequences, [-1])
     secs = [s for s in secs if min_len <= len(s[0]) <= max_len
         and s[1] >= min_occs][:count]
+    #secs = sorted(secs, key=lambda s: len(s[0]), reverse=True)
     print(len(secs))
     smoothed = [t.copy() for t in sequences]
     smooth_seqs(smoothed, secs, min_match, min_defined)
@@ -491,11 +483,14 @@ def smooth_sequences(sequences, min_match=0.8, min_defined=0.6, min_len=10, min_
 
 #update sequences with mode of values in comps
 def get_mode_sequences(sequences, comps):
+    modes = get_comp_modes(sequences, comps)
     for i,c in enumerate(comps):
-        m = mode([sequences[s[0]][s[1]] for s in c])
         for s in c:
-            sequences[s[0]][s[1]] = m
+            sequences[s[0]][s[1]] = modes[i]
     return sequences
+
+def get_comp_modes(sequences, comps):
+    return np.array([mode([sequences[s[0]][s[1]] for s in c]) for c in comps])
 
 def get_grouped_comp_typeseqs(comps, sequences):
     #infer types directly from components
@@ -746,18 +741,6 @@ def cleanup_comps(comps, sequences, path):
     #print_individual_seqs(seqs)
     print('bf', len(flatten(scomps, 2)))
     print([len(c) for c in flatten(scomps, 1)])
-    #separate sparse segments...
-    for i,s in enumerate(seqs):
-        if len(flatten(s, 1)) > 0:
-            newc = [[] for x in flatten(s, 1)[0]]
-            for t in flatten(s, 1):
-                defined = [seg for seg in t if seg > ()]
-                if len(defined) <= len(t)/2:#remove ones that are less than half full
-                    for j,seg in enumerate(t):
-                        if seg > ():
-                            scomps[i][j].remove(seg)
-                            newc[j].append(seg)
-            scomps.extend([[c] for c in newc if len(c) > 0])
     #add missing
     locs = {o:(i,j) for i,s in enumerate(scomps) for j,t in enumerate(s) for o in t}
     for i,s in sorted(zip(range(len(seqs)), seqs), key=lambda s: len(s[1][0])):
@@ -776,6 +759,20 @@ def cleanup_comps(comps, sequences, path):
                                 #print(t[j], l, offsets, j, t)
                                 scomps[l[0]][l[1]].remove(t[j])
                                 locs[t[j]] = (i,j)
+    
+    #separate sparse segments...
+    for i,s in enumerate(seqs):
+        if len(flatten(s, 1)) > 0:
+            newc = [[] for x in flatten(s, 1)[0]]
+            for t in flatten(s, 1):
+                defined = [seg for seg in t if seg > ()]
+                if len(defined) <= len(t)/2:#remove ones that are less than half full
+                    for j,seg in enumerate(t):
+                        if seg > ():
+                            scomps[i][j].remove(seg)
+                            newc[j].append(seg)
+            scomps.extend([[c] for c in newc if len(c) > 0])
+    
     scomps = [s for s in scomps if len(s) > 0]
     
     print('af', len(flatten(scomps, 2)))
@@ -803,7 +800,7 @@ def group_by_maxadj(comps, sequences, path):
     # adjmax = get_comp_adjacency(comps, True)
     # plot_matrix(adjmax, 'maxl.png')
     #maxes = list(zip(*np.nonzero(adjmax)))
-    maxes = list(zip(*np.where(adjmax > 0.5)))
+    maxes = list(zip(*np.where(adjmax >= 0.5)))
     maxes = sorted(maxes, key=lambda ij: adjmax[ij], reverse=True)
     #print(len(list(zip(*np.nonzero(adjmax)))))
     #print(len(maxes), maxes[:10])
@@ -825,8 +822,8 @@ def group_by_maxadj(comps, sequences, path):
                 v = [valid(m, MIN_DIST) for m in merged]
                 #print(v, all(v))
                 if all(v):
-                    print(len(scomps[ii]), len(scomps[jj]), iii, jjj, r, len(merged),
-                        len(scomps[ii][:iii+1] + merged + scomps[jj][jjj+len(r):]))
+                    # print(len(scomps[ii]), len(scomps[jj]), iii, jjj, r, len(merged),
+                    #     len(scomps[ii][:iii+1] + merged + scomps[jj][jjj+len(r):]))
                     scomps[ii] = scomps[ii][:iii+1] + merged + scomps[jj][jjj+len(r):]
                     scomps.pop(jj)
                 # else:
@@ -947,7 +944,8 @@ def smooth_seqs(sequences, sections, min_match, min_defined):
                 matches.append(matched[np.where(matched[:,0] > 0)])
         #sort by increasing certainty and importance and apply in this order (best have last say)
         matches = np.concatenate(matches)
-        matches = matches[np.lexsort((len(sections)-matches[:,1], matches[:,0]))]
+        #matches = matches[np.lexsort((len(sections)-matches[:,1], matches[:,0]))]
+        matches = matches[np.lexsort((len(sections)-matches[:,1], len(sections)-matches[:,1]))]
         for p,c,j in matches:
             cc = sections[int(c)][0]
             s[int(j):int(j)+len(cc)] = cc
