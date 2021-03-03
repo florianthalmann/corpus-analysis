@@ -433,7 +433,7 @@ def get_connection_matrix(sequences, all_patterns):
         #conns.append(np.hstack(locs[:,:,None] + np.arange(0, len(pattern))).T)
         locs = locs[:,:,None] + np.arange(0, len(pattern))
         conns.append(np.reshape(np.transpose(locs, (0,2,1)), (-1,2)))
-        if len(conns) >= 1000: #dump every 500 patterns to save memory
+        if len(conns) >= 100: #dump every 500 patterns to save memory
             matrix += conns_to_matrix(conns, size)
             conns = []
     matrix += conns_to_matrix(conns, size)
@@ -600,24 +600,23 @@ def groups_to_patterns(groups):
     return [(g[0][0], set().union(*[p[1] for p in g])) for g in groups]
 
 def fast_group_by_cooc(patterns):
-    groups = []
-    for p in patterns:
-        occs = p[1]
-        isects = [g[1].intersection(occs) for g in groups]
-        pos = np.nonzero(isects)[0]
-        if len(pos) > 0:
-            if len(pos) > 1: #merge groups
-                groups[pos[0]] = ([q for p in pos for q in groups[p][0]],
-                    set().union(*[groups[p][1] for p in pos]))
-                for k in pos[1:]:
-                    groups[k] = ()
-            #add to first group
-            groups[pos[0]][0].append(p)
-            groups[pos[0]][1].update(occs)
-        else:
-            groups.append(([p], occs))
-        groups = [g for g in groups if len(g) > 0]
-    return [g[0] for g in groups]
+    #group index for each pattern (first all different)
+    locs = np.arange(len(patterns))
+    #dict with patterns by occurrence
+    occs = defaultdict(list)
+    for i,p in enumerate(patterns):
+        for o in p[1]:
+            occs[o].append(i)
+    #iteratively set all group indices of cooccurring patterns to min index
+    for ps in occs.values():
+        ids = np.unique(locs[ps]) #find all involved group ids
+        if len(ids) > 1:
+            locs[np.isin(locs, ids)] = ids[0] #unify group ids
+    #make groups and return
+    groups = defaultdict(list)
+    for i,l in enumerate(locs):
+        groups[l].append(patterns[i])
+    return list(groups.values())
 
 #catalogue all connection counts between equivalent patterns
 def get_most_common_connections(groups, patterns, sequences, min_dist, min_count):
