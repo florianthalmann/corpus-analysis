@@ -55,7 +55,7 @@ def argmax(a):
 def plot_matrix(matrix, path=None):
     sns.heatmap(matrix, xticklabels=False, yticklabels=False, cmap=sns.cm.rocket_r)
     plt.savefig(path, dpi=1000) if path else plt.show()
-    plt.clf()
+    plt.close()
 
 def plot_hist(data, path=None, bincount=None, binwidth=1):
     if bincount:
@@ -63,7 +63,7 @@ def plot_hist(data, path=None, bincount=None, binwidth=1):
     else:
         plt.hist(data, bins=np.arange(min(data), max(data) + binwidth, binwidth))
     plt.savefig(path, dpi=1000) if path else plt.show()
-    plt.clf()
+    plt.close()
 
 def plot_graph(graph, path, edge_weights=None, vertex_weights=None):
     graph_draw(graph, output_size=(1000, 1000), output=path, bg_color=[1,1,1,1],
@@ -81,18 +81,18 @@ def plot_sequences(sequences, path=None):
     plt.figure(figsize=(6.4,4.8))#somehow heatmap gets squished otherwise
     sns.heatmap(matrix, xticklabels=False, yticklabels=False, cmap=hls)
     plt.savefig(path, dpi=1000) if path else plt.show()
-    plt.clf()
+    plt.close()
 
 def plot(data, path=None):
     plt.plot(data)
     plt.savefig(path, dpi=1000) if path else plt.show()
-    plt.clf()
+    plt.close()
 
 def boxplot(data, path=None):
     pd.DataFrame(data).boxplot()
     plt.tight_layout()
     plt.savefig(path, dpi=1000) if path else plt.show()
-    plt.clf()
+    plt.close()
 
 def save_json(path, data):
     with open(path, 'w') as f:
