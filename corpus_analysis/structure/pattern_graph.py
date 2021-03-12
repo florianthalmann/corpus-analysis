@@ -445,15 +445,12 @@ def super_alignment_graph3(song, sequences, pairings, alignments):
     
     #returns the proportion of ps aligned with p
     connectedness = lambda p, ps: np.sum(matrix.getrow(p).toarray()[0][ps])\
-        / sum([aligned[seqid[p]][seqid[q]] for q in ps])
+        / np.sum(aligned[seqid[p],seqid[ps]])
     
-    for p in tqdm.tqdm(patterns[:50000]):
+    for p in tqdm.tqdm(patterns):
         o = list(p[1])
         #print(o)
         v1, v2, o1, o2 = o[0][0], o[1][0], o[0][1], o[1][1]
-        occs = [[(o[0],o[1]+i) for i in range(len(p[0]))] for o in p[1]]
-        #print(o)
-        #ADDING AND MERGING ONLY WHEN STRONGLY CONNECTED
         
         ids = np.arange(len(p[0]))
         pos = np.vstack((seqlocs[v1] + o1 + ids, seqlocs[v2] + o2 + ids)).T
@@ -467,13 +464,16 @@ def super_alignment_graph3(song, sequences, pairings, alignments):
         #DO THIS DIST HERE: AND ALSO NARROW DOWN STEP BY STEP TO SPEED UP!!!!!!!
         
         check = unequal & (dist >= MIN_DIST) & (diff > 3)
-        dists = np.zeros((len(p[0])))
-        for i in range(len(p[0])):
-            if check[i]:
-                c1 = comps[loc[i,0]] if loc[i,0] >= 0 else np.array([pos[i,0]])
-                c2 = comps[loc[i,1]] if loc[i,1] >= 0 else np.array([pos[i,1]])
-                dists[i] = np.min(np.absolute(c1[:,None] - c2))
         
+        def get_dists():
+            dists = np.zeros((len(p[0])))
+            for i in range(len(p[0])):
+                if check[i]:
+                    c1 = comps[loc[i,0]] if loc[i,0] >= 0 else np.array([pos[i,0]])
+                    c2 = comps[loc[i,1]] if loc[i,1] >= 0 else np.array([pos[i,1]])
+                    dists[i] = np.min(np.absolute(np.diff(np.sort(np.concatenate((c1, c2))))))
+            return dists
+        dists = get_dists()
         
         # dist1 = [np.min(np.absolute(comps[i] - p)) for i,p in enumerate(pos[:,1])]
         # dist2 = np.min(np.absolute(comps[l1] - p2)) >= MIN_DIST
@@ -491,12 +491,12 @@ def super_alignment_graph3(song, sequences, pairings, alignments):
         conns[check2, 1] = np.array([connectedness(pos[i,0], comps[loc[i,1]])
             for i in np.where(check2)[0]])
         #print(conns[:,0][np.nonzero(conns[:,0])])
-        avgconns = np.nan_to_num(np.array([
+        avgconns = [
             np.mean(conns[:,0][np.nonzero(conns[:,0])]),
-            np.mean(conns[:,1][np.nonzero(conns[:,1])])]))
+            np.mean(conns[:,1][np.nonzero(conns[:,1])])]
         #print(conns)
         
-        if np.any(avgconns >= 0.5) or np.all(loc == -1):
+        if any([a >= 0.5 for a in avgconns]) or np.all(loc == -1):
             for i in range(len(p[0])):
             #if True:#np.any(conns[i] > 0) or np.all(loc[i] == -1):
                 loc = locs[pos]
@@ -504,24 +504,29 @@ def super_alignment_graph3(song, sequences, pairings, alignments):
                 d1, d2 = loc[:,0] >= 0, loc[:,1] >= 0
                 if d1[i] and not d2[i]:
                     #if conns[i,0] == 1:
-                    if dists[i] >= MIN_DIST:#np.min(np.absolute(comps[l1] - p2)) >= MIN_DIST:
-                        locs[p2] = l1
-                        comps[l1] = np.union1d(comps[l1], [p2])
+                    if dists[i] >= MIN_DIST:
+                        union = np.union1d(comps[l1], [p2])
+                        if np.min(np.absolute(np.diff(union))) >= MIN_DIST:
+                            locs[p2] = l1
+                            comps[l1] = union
                 elif d2[i] and not d1[i]:
                     #if conns[i,1] == 1:
-                    if dists[i] >= MIN_DIST:#np.min(np.absolute(comps[l2] - p1)) >= MIN_DIST:
-                        locs[p1] = l2
-                        comps[l2] = np.union1d(comps[l2], [p1])
+                    if dists[i] >= MIN_DIST:
+                        union = np.union1d(comps[l2], [p1])
+                        if np.min(np.absolute(np.diff(union))) >= MIN_DIST:
+                            locs[p1] = l2
+                            comps[l2] = union
                 elif not (d1[i] or d2[i]): #both -1
                     locs[p1] = locs[p2] = len(comps)
                     comps.append(np.unique(np.array([p1, p2], dtype=int)))
                 elif l1 != l2:
                     #if np.all(conns[i] == 1):
-                    if dists[i] >= MIN_DIST: #np.min(np.absolute(comps[l1][:,None] - comps[l2])) >= MIN_DIST:
-                        comps[l1] = np.union1d(comps[l1], comps[l2])
-                        comps[l2] = np.array([], dtype=int)
-                        #print(l1, l2, comps[l1], comps[l2])
-                        locs[comps[l1]] = l1
+                    if dists[i] >= MIN_DIST:
+                        union = np.union1d(comps[l1], comps[l2])
+                        if np.min(np.absolute(np.diff(union))) >= MIN_DIST: #check again in case several merges in one iteration
+                            comps[l1] = union
+                            comps[l2] = np.array([], dtype=int)
+                            locs[comps[l1]] = l1
         
         # for i in range(len(p[0])):
         #     p1, p2, l1, l2 = ps1[i], ps2[i], ls1[i], ls2[i]
