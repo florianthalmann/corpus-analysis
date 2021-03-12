@@ -9,6 +9,7 @@ from scipy.sparse import csr_matrix
 from scipy.sparse.csgraph import connected_components
 import graph_tool.all as gt
 from graph_tool.all import Graph, GraphView, graph_draw
+from ..alignment.affinity import segments_to_matrix
 from ..util import plot_sequences, mode, flatten, group_by, plot_matrix,\
     multiprocess, split
 from ..clusters.histograms import freq_hist_clusters, trans_hist_clusters,\
@@ -402,12 +403,157 @@ def super_alignment_graph2(song, sequences, pairings, alignments):
     all_patterns = create_pattern_list(sequences, pairings, alignments)#, remove_uniform=True)
     print_status('all', all_patterns)
     
-    groups = group_patterns(all_patterns, length=True, cooccurrence=True, similarity=False)
+    groups = group_patterns(all_patterns, length=False, cooccurrence=False, similarity=False)
     all_patterns = groups_to_patterns(groups)
     
     matrix = get_connection_matrix(sequences, all_patterns)
     
     return matrix_to_components(matrix, sequences)
+
+def alignment_csr_matrix(sequences, pairings, alignments):
+    lens = [len(s) for s in sequences]
+    locs = np.cumsum([0]+lens)
+    size = sum(lens)
+    conns = []
+    for p,a in zip(pairings[1:], alignments[1:]):
+        a0, b0 = locs[p[0]], locs[p[1]]
+        [conns.append(s + [a0, b0]) for s in a]
+    matrix = conns_to_matrix(conns, size)
+    return matrix+matrix.T #make symmetric for fast queries
+
+def super_alignment_graph3(song, sequences, pairings, alignments):
+    print(len(np.concatenate(flatten(alignments, 1))))
+    matrix = alignment_csr_matrix(sequences, pairings, alignments)
+    print(len(matrix.data))
+    #print(matrix.data.nbytes, sys.getsizeof(matrix))
+    #try all longest segments first!
+    #mutual = [a for i,a in enumerate(alignments) if pairings[i][0] != pairings[i][1]]
+    #for m in mutual:
+    patterns = create_pattern_list(sequences, pairings, alignments)
+    patterns = sorted(patterns, key=lambda p: len(p[0]), reverse=True)
+    
+    seqlens = [len(s) for s in sequences]
+    seqlocs = np.cumsum([0]+seqlens)
+    seqid = np.hstack([np.repeat(i,l) for i,l in enumerate(seqlens)])
+    size = sum([len(s) for s in sequences])
+    # matrix = csr_matrix((size, size), dtype='int8')
+    comps = []
+    locs = np.repeat(-1, size)
+    
+    aligned = conns_to_matrix([pairings], len(sequences)).toarray()
+    aligned = aligned+aligned.T
+    
+    #returns the proportion of ps aligned with p
+    connectedness = lambda p, ps: np.sum(matrix.getrow(p).toarray()[0][ps])\
+        / sum([aligned[seqid[p]][seqid[q]] for q in ps])
+    
+    for p in tqdm.tqdm(patterns[:50000]):
+        o = list(p[1])
+        #print(o)
+        v1, v2, o1, o2 = o[0][0], o[1][0], o[0][1], o[1][1]
+        occs = [[(o[0],o[1]+i) for i in range(len(p[0]))] for o in p[1]]
+        #print(o)
+        #ADDING AND MERGING ONLY WHEN STRONGLY CONNECTED
+        
+        ids = np.arange(len(p[0]))
+        pos = np.vstack((seqlocs[v1] + o1 + ids, seqlocs[v2] + o2 + ids)).T
+        loc = locs[pos]
+        d1, d2 = loc[:,0] >= 0, loc[:,1] >= 0
+        
+        conns = np.zeros((len(p[0]),2))
+        unequal = loc[:,0] != loc[:,1]
+        diff = np.absolute(loc[:,0] - loc[:,1])
+        dist = np.absolute(pos[:,0] - pos[:,1])
+        #DO THIS DIST HERE: AND ALSO NARROW DOWN STEP BY STEP TO SPEED UP!!!!!!!
+        
+        check = unequal & (dist >= MIN_DIST) & (diff > 3)
+        dists = np.zeros((len(p[0])))
+        for i in range(len(p[0])):
+            if check[i]:
+                c1 = comps[loc[i,0]] if loc[i,0] >= 0 else np.array([pos[i,0]])
+                c2 = comps[loc[i,1]] if loc[i,1] >= 0 else np.array([pos[i,1]])
+                dists[i] = np.min(np.absolute(c1[:,None] - c2))
+        
+        
+        # dist1 = [np.min(np.absolute(comps[i] - p)) for i,p in enumerate(pos[:,1])]
+        # dist2 = np.min(np.absolute(comps[l1] - p2)) >= MIN_DIST
+        
+        #print(dist[0])
+        check = check & (dists >= MIN_DIST)
+        check1 = check & (loc[:,0] >= 0)
+        check2 = check & (loc[:,1] >= 0)
+        # l1, l2, l3 = len(np.nonzero(unequal)[0]), len(np.nonzero(check1)[0]), len(np.nonzero(check2)[0])
+        # if sum([l1,l2,l3]) > 0:
+        #     print(l1,l2,l3, loc[:3,0], loc[:3,1])
+        #print(len(np.where(unequal)[0]), len(np.where(check1)[0]), len(np.where(check2)[0]))
+        conns[check1, 0] = np.array([connectedness(pos[i,1], comps[loc[i,0]])
+            for i in np.where(check1)[0]])
+        conns[check2, 1] = np.array([connectedness(pos[i,0], comps[loc[i,1]])
+            for i in np.where(check2)[0]])
+        #print(conns[:,0][np.nonzero(conns[:,0])])
+        avgconns = np.nan_to_num(np.array([
+            np.mean(conns[:,0][np.nonzero(conns[:,0])]),
+            np.mean(conns[:,1][np.nonzero(conns[:,1])])]))
+        #print(conns)
+        
+        if np.any(avgconns >= 0.5) or np.all(loc == -1):
+            for i in range(len(p[0])):
+            #if True:#np.any(conns[i] > 0) or np.all(loc[i] == -1):
+                loc = locs[pos]
+                p1, p2, l1, l2 = pos[i,0], pos[i,1], loc[i,0], loc[i,1]
+                d1, d2 = loc[:,0] >= 0, loc[:,1] >= 0
+                if d1[i] and not d2[i]:
+                    #if conns[i,0] == 1:
+                    if dists[i] >= MIN_DIST:#np.min(np.absolute(comps[l1] - p2)) >= MIN_DIST:
+                        locs[p2] = l1
+                        comps[l1] = np.union1d(comps[l1], [p2])
+                elif d2[i] and not d1[i]:
+                    #if conns[i,1] == 1:
+                    if dists[i] >= MIN_DIST:#np.min(np.absolute(comps[l2] - p1)) >= MIN_DIST:
+                        locs[p1] = l2
+                        comps[l2] = np.union1d(comps[l2], [p1])
+                elif not (d1[i] or d2[i]): #both -1
+                    locs[p1] = locs[p2] = len(comps)
+                    comps.append(np.unique(np.array([p1, p2], dtype=int)))
+                elif l1 != l2:
+                    #if np.all(conns[i] == 1):
+                    if dists[i] >= MIN_DIST: #np.min(np.absolute(comps[l1][:,None] - comps[l2])) >= MIN_DIST:
+                        comps[l1] = np.union1d(comps[l1], comps[l2])
+                        comps[l2] = np.array([], dtype=int)
+                        #print(l1, l2, comps[l1], comps[l2])
+                        locs[comps[l1]] = l1
+        
+        # for i in range(len(p[0])):
+        #     p1, p2, l1, l2 = ps1[i], ps2[i], ls1[i], ls2[i]
+        #     if l1 >= 0 and l2 == -1:
+        #         # print(p2, comps[l1])
+        #         # print(connectedness(p2, comps[l1]))
+        #         if connectedness(p2, comps[l1]) == 1:
+        #             locs[p2] = l1
+        #             comps[l1] = np.union1d(comps[l1], [p2])
+        #     elif l2 >= 0 and l1 == -1:
+        #         # print(p1, comps[l2])
+        #         # print(connectedness(p1, comps[l2]))
+        #         if connectedness(p1, comps[l2]) == 1:
+        #             locs[p1] = l2
+        #             comps[l2] = np.union1d(comps[l2], [p1])
+        #     elif l1 == l2 == -1:
+        #         locs[p1] = locs[p2] = len(comps)
+        #         comps.append(np.unique([p1, p2]))
+        #     elif l1 != l2:
+        #         if connectedness(p2, comps[l1]) == 1\
+        #         and connectedness(p1, comps[l2]) == 1:
+        #             comps[l1] = np.union1d(comps[l1], comps[l2])
+        #             comps[l2] = np.array([])
+        #             locs[comps[l1]] = l1
+                #print(comps[locs[p1]], comps[locs[p2]])
+        #print(comps)
+        # v1, l1, v2, l2 = p[1][0], p[1][1]
+        # matrix.indptr()
+    to_point = lambda id: (seqid[id], id-seqlocs[seqid[id]])
+    comps = [[to_point(p) for p in c] for c in comps if len(c) > 0]
+    #print(comps)
+    return comps
 
 def get_connection_matrix(sequences, all_patterns):
     lengths = [len(s) for s in sequences]
@@ -433,15 +579,16 @@ def get_connection_matrix(sequences, all_patterns):
         #conns.append(np.hstack(locs[:,:,None] + np.arange(0, len(pattern))).T)
         locs = locs[:,:,None] + np.arange(0, len(pattern))
         conns.append(np.reshape(np.transpose(locs, (0,2,1)), (-1,2)))
-        if len(conns) >= 100: #dump every 500 patterns to save memory
+        if len(conns) >= 500: #dump every 500 patterns to save memory
             matrix += conns_to_matrix(conns, size)
             conns = []
     matrix += conns_to_matrix(conns, size)
     return matrix
 
 def conns_to_matrix(conns, size):
-    c = np.concatenate(conns)
-    return csr_matrix((np.repeat(1, len(c)), (c[:,0], c[:,1])), (size, size))
+    conns = np.concatenate(conns)
+    data = (np.repeat(1, len(conns)), (conns[:,0], conns[:,1]))
+    return csr_matrix(data, (size, size), 'int8')
 
 def matrix_to_components(matrix, sequences):
     maxlen = max([len(s) for s in sequences])
@@ -563,8 +710,11 @@ def contains(pattern, points, points_versions):
 
 def group_patterns(patterns, length=True, cooccurrence=False, similarity=False):
     #group by length
-    groups = group_by(patterns, lambda p: len(p[0]))
-    print('grouped', len(groups),sum([len(g) for g in groups]))
+    if length:
+        groups = group_by(patterns, lambda p: len(p[0]))
+        print('grouped', len(groups), sum([len(g) for g in groups]))
+    else:
+        groups = [[p] for p in patterns]
     
     #group by cooccurrence (groups not overlapping)
     if cooccurrence:
