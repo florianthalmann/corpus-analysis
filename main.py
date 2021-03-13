@@ -1,8 +1,9 @@
-import os, json, timeit, random, itertools, librosa, dateutil, datetime
+import os, json, timeit, random, itertools, librosa, dateutil, datetime, psutil
 import numpy as np
 from corpus_analysis.features import get_summarized_chords, to_multinomial, extract_essentia,\
     load_leadsheets, get_summarized_chords2, get_beat_summary, get_summarized_chroma,\
     get_summarized_mfcc, extract_chords, load_essentia
+from corpus_analysis.double_time import check_double_time
 from corpus_analysis.alignment.affinity import get_alignment_segments, get_affinity_matrix,\
     get_alignment_matrix, segments_to_matrix
 from corpus_analysis.alignment.multi_alignment import align_sequences
@@ -28,8 +29,9 @@ with open(os.path.join(corpus, 'dataset.json')) as f:
     DATASET = json.load(f)
 
 DATA = 'data/'
+RESULTS = 'resultsN/'
 BARS = False
-SONG_INDEX = 3
+SONG_INDEX = 0
 #alignment
 SEG_COUNT = 0 #0 for all segments
 MIN_LEN = 16
@@ -72,7 +74,14 @@ def get_feature_path(song, version):
     id = version.replace('.mp3','.wav').replace('.','_').replace('/','_')
     return os.path.join(features, id, id)
 
-def get_sequences(song):
+def get_chroma_sequences(song):
+    audio = get_paths(song)[0]
+    versions = get_versions_by_date(song)[0]
+    paths = [get_feature_path(song, v) for v in versions]
+    return [get_summarized_chroma(audio[i], p+'_madbars.json')
+        for i,p in enumerate(paths)]
+
+def get_chord_sequences(song):
     versions = get_versions_by_date(song)[0]
     paths = [get_feature_path(song, v) for v in versions]
     return [get_summarized_chords(p+'_madbars.json', p+'_gochords.json', BARS)
@@ -85,15 +94,16 @@ def get_self_alignment(sequence):
 def get_self_alignments(sequences):
     return multiprocess('self-alignments', get_self_alignment, sequences)
 
-def get_random_pairings(length):
-    perm = np.random.permutation(np.arange(length))
-    #add another pairing for the odd one out
-    if length % 2 == 1: perm = np.append(perm, random.randint(0, length-1))
-    return perm.reshape((2,-1)).T
-
-def get_pairings(sequences):
-    return np.concatenate([get_random_pairings(len(sequences))
-        for i in range(NUM_MUTUAL)])
+def get_pairings(sequences, num_mutual=NUM_MUTUAL):
+    matrix = np.ones((len(sequences),len(sequences)), dtype=int)
+    np.fill_diagonal(matrix, 0)
+    for i in range(len(matrix)-1):
+        places = np.where(np.sum(matrix, axis=0) > num_mutual)[0]
+        places = places[places > i]
+        num = min(np.sum(matrix[i])-num_mutual, len(places))
+        choice = np.random.choice(places, num, replace=False)
+        matrix[i,choice] = matrix[choice,i] = 0
+    return np.vstack(np.nonzero(np.triu(matrix))).T.tolist()
 
 def get_mutual_alignment(pairing_n_sequences):
     pairing, sequences = pairing_n_sequences
@@ -106,7 +116,7 @@ def get_mutual_alignments(sequences, pairings):
 
 def get_alignments(song):
     sequences = buffered_run(DATA+song+'-chords',
-        lambda: get_sequences(song))
+        lambda: get_chord_sequences(song))
     selfs = buffered_run(DATA+song+'-salign',
         lambda: get_self_alignments(sequences),
         [SEG_COUNT, MAX_GAPS, MAX_GAP_RATIO, MIN_LEN, MIN_DIST])
@@ -267,7 +277,15 @@ def plot_evolution(song):
     plt.show()
 
 def run():
+    print(psutil.Process(os.getpid()).memory_info())
+    # sequences, pairings, alignments, msa = get_alignments(SONGS[6])
+    # check_double_time(sequences)
+    # for s in SONGS:
+    #     sequences, pairings, alignments, msa = get_alignments(s)
+    #     new_shared_structure(RESULTS+s, sequences, pairings, alignments)
+    
     sequences, pairings, alignments, msa = get_alignments(SONGS[SONG_INDEX])
+    new_shared_structure(RESULTS+SONGS[SONG_INDEX], sequences, pairings, alignments)
     #plot_msa(SONGS[SONG_INDEX], sequences, msa)
     #plot_evolution(SONGS[SONG_INDEX])
     
@@ -276,7 +294,7 @@ def run():
     
     #PatternGraph(sequences, pairings, alignments)
     #super_alignment_graph(SONGS[SONG_INDEX], sequences, pairings, alignments)
-    new_shared_structure(SONGS[SONG_INDEX], sequences, pairings, alignments)
+    #profile(lambda: new_shared_structure(RESULTS+SONGS[SONG_INDEX], sequences, pairings, alignments))
     # print(get_hierarchy_labels(sequences[:30])[0])
     # profile(lambda: get_most_salient_labels(sequences, 1, [9]))
     
@@ -386,3 +404,5 @@ def run():
     #plot_matrix(matrix, 'results/meet_abs0_60-.png')
 
 run()
+
+#print(get_pairings([0,1,2,3,4,5,6,7], 5))
