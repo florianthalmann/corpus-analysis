@@ -288,15 +288,15 @@ def reindex2(labels):
     return newlabels[labels]
 
 def to_sections(sections):
-    sections = []
+    sects = []
     keys = list(sections.keys())
     for k in keys:
         section = sections[k]
         while len(np.intersect1d(section, keys)) > 0:
             section = np.concatenate([sections[s]
                 if s in sections else [s] for s in section])
-        sections.append(section)
-    return sections
+        sects.append(section)
+    return sects
 
 def find_sections_bottom_up(sequences, ignore=[]):
     sequences = [np.copy(s) for s in sequences]
@@ -349,7 +349,7 @@ def find_sections_bottom_up(sequences, ignore=[]):
     return sequences, sections, occurrences
 
 def get_hierarchies(sequences):
-    sequence, sections, occs = find_sections_bottom_up(sequences)
+    sequences, sections, occs = find_sections_bottom_up(sequences)
     return [to_hierarchy(s, sections) for s in sequences]
 
 def get_hierarchy_labels(sequences):
@@ -358,50 +358,53 @@ def get_hierarchy_labels(sequences):
         for k in sections.keys()}
     return to_labels2(sequences, sections, section_lengths)
 
-def get_most_salient_labels(sequences, count, ignore):
-    #print(sequences[0])
+def get_recurring_subseqs(sequences):
+    sequences, sections, occs = find_sections_bottom_up(sequences)
+    seqs = {k:flatten(to_hierarchy(np.array([k]), sections))
+        for k in sections.keys()}
+    seqs = [(seqs[k], len(occs[k])) for k in seqs.keys()]
+    return sorted(seqs, key=lambda s: s[1], reverse=True)
+
+#finds the best non-overlapping labels for the given set of sequences
+def get_most_salient_labels(sequences, count=0, ignore=[], min_len=2):
     seqs, sections, occs = find_sections_bottom_up(sequences, ignore)
     flatsecs = {k:flatten(to_hierarchy(np.array([k]), sections))
         for k in sections.keys()}
-    #only keep patterns longer than 2
     seclens = {k:len(flatsecs[k]) for k in sections.keys()}
-    occs = {s:o for s,o in occs.items() if seclens[s] > 2}
-    sections = {s:o for s,o in sections.items() if seclens[s] > 2}
-    #find occurrences (somehow this sometimes finds more than num_occs)
-    # occs = defaultdict(list)
-    # for m in sections.keys():
-    #     for j,s in enumerate(sequences):
-    #         for k in indices_of_subarray(s, flatsecs[m]):
-    #             occs[m].append((j,k))
-    #             #occs.append((j,k+seclens[m[0]]-1))
+    #only keep patterns longer than min_len
+    occs = {s:o for s,o in occs.items() if seclens[s] >= min_len}
+    #sections = {s:o for s,o in sections.items() if seclens[s] >= min_len}
     #sort by coverage and occurrences
     most_salient = []
     outseqs = [np.repeat(-1, len(s)) for s in sequences]
     remaining = list(occs.items())
-    while count == 0 or len(most_salient) < count:
+    while len(remaining) > 0 and (count == 0 or len(most_salient) < count):
         coverages = [seclens[o[0]]*len(o[1]) for o in remaining]
         current_best = remaining.pop(np.argmax(coverages))
         #update sequences
-        for j,s in enumerate(sequences):
-            for o in current_best[1]:
-                outseqs[o[0]][o[1]:o[1]+seclens[current_best[0]]] = len(most_salient)
+        for o in current_best[1]:
+            outseqs[o[0]][o[1]:o[1]+seclens[current_best[0]]] = current_best[0]#len(most_salient)
         most_salient.append(current_best)
         #remove overlaps
         remaining = [(r[0], [o for o in r[1]
             if np.all(outseqs[o[0]][o[1]:o[1]+seclens[r[0]]] == -1)])
             for r in remaining]
         remaining = [r for r in remaining if len(r[1]) > 0]
-    print([(flatsecs[o[0]], len(o[1])) for o in most_salient[:20]])
-    
-    #print([(flatsecs[m[0]], m[1]) for m in most_salient[:30]])
-    #print([indices_of_subarray(s, flatsecs[most_common[0][0]]) for s in sequences])
-    # outseqs = [np.repeat(-1, len(s)) for s in sequences]
-    # for i,m in enumerate(reversed(most_salient[:count]), 0):
-    #     for j,s in enumerate(sequences):
-    #         for k in indices_of_subarray(s, flatsecs[m[0]]):
-    #             outseqs[j][k:k+seclens[m[0]]] = i
-    #print(outseqs[0])
-    return outseqs
+    return outseqs, sections, dict(most_salient)
+
+def contract_sections(seqs, sections, occs):
+    seclens = {k:len(flatten(to_hierarchy(np.array([k]), sections)))
+        for k in occs.keys()}
+    contracted = []
+    for s in seqs:
+        contracted.append([])
+        i = 0
+        while i < len(s):
+            contracted[-1].append(s[i])
+            if s[i] in occs:
+                i += seclens[s[i]]
+            else: i += 1
+    return [np.array(c) for c in contracted]
 
 def get_longest_sections(sequences, ignore):
     seqs, sections, occs = find_sections_bottom_up(sequences, ignore)

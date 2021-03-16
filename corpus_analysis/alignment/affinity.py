@@ -57,20 +57,21 @@ def get_affinity_matrix(a, b, equality, max_gaps, max_gap_ratio, k_factor=10, kn
         for i,k in enumerate(knn):
             conns[i][k] = 1
         matrix = conns
-        plot_matrix(matrix, 'est-.png')
+        #plot_matrix(matrix, 'est-.png')
     else:
         matrix = 1-pairwise_distances(a, b, metric="cosine")
         #plot_hist(np.hstack(matrix), 'est..png', 100)
         k *= len(matrix)
         thresh = np.partition(matrix.flatten(), -k)[-k]
         matrix = np.where(matrix >= thresh, 1, 0)
-        plot_matrix(matrix, 'est-.png')
+        #plot_matrix(matrix, 'est-.png')
     unsmoothed = matrix
     #only keep upper triangle in symmetric case
     if symmetric: matrix = np.triu(matrix, k=1)
     #smooth with a median filter
     if max_gaps > 0:
         matrix = smooth_matrix(matrix, symmetric, max_gaps, max_gap_ratio)
+    #plot_matrix(matrix, 'est-1.png')
     return matrix, unsmoothed
 
 #returns a list of arrays of index pairs
@@ -176,15 +177,15 @@ def get_alignment_segments(a, b, count, min_len, min_dist, max_gap_size, max_gap
     return get_segments_from_matrix(matrix, symmetric, count, min_len, min_dist, max_gap_size, max_gap_ratio, unsmoothed)
 
 def segments_to_matrix(segments, shape=None, sum=False):
-    if not shape: shape = tuple(np.max(points, axis=0)+1)
-    matrix = np.zeros(shape)
     if len(segments) > 0:
         points = np.concatenate(segments)
+        if not shape: shape = tuple(np.max(points, axis=0)+1)
+        matrix = np.zeros(shape)
         if sum:
             np.add.at(matrix, tuple(points.T), 1)
         else:
             matrix[points.T[0], points.T[1]] = 1
-    return matrix
+        return matrix
 
 def get_alignment_matrix(a, b, min_len, min_dist, max_gap_size, max_gap_ratio):
     segments = get_alignment_segments(a, b, min_len, min_dist, max_gap_size, max_gap_ratio)
