@@ -882,6 +882,9 @@ def cleanup_comps(comps, sequences, path):
             if len(offset) == 1: #all offsets the same
                 offset = next(iter(offset))
                 index = next(seg[0] for seg in t if seg > ())
+                first = next(i for i,s in enumerate(t) if s > ())
+                last = len(t)-1-next(i for i,s in enumerate(reversed(t)) if s > ())
+                gaps = [1 if first < i < last and s == () else 0 for i,s in enumerate(t)]
                 for j,seg in enumerate(t):
                     if seg == () and 0 <= j+offset < len(sequences[index]):
                         seg = (index, j+offset)
@@ -890,7 +893,8 @@ def cleanup_comps(comps, sequences, path):
                         #move if nowhere or in smaller scomp and this one quite complete
                         if seg in seqlocs:
                             sl = seqlocs[seg]
-                        if not loc or len(t) > len(seqs[sl[0]][sl[1]]): #numdef(t) > numdef(seqs[sl[0]][sl[1]]):# or (len(scomps[loc[0]]) < len(t) and numdef > len(t)/2):
+                        #len(t) > len(seqs[sl[0]][sl[1]]): #
+                        if not loc or gaps[j]:#numdef(t) > numdef(seqs[sl[0]][sl[1]]):# or (len(scomps[loc[0]]) < len(t) and numdef > len(t)/2):
                             scomps[i][j].append(seg)
                             seqs[i][k][j] = seg
                             locs[seg] = (i,j)
@@ -900,13 +904,9 @@ def cleanup_comps(comps, sequences, path):
                                 seqs[loc2[0]][loc2[1]] = [() if c == seg else c for c in seqs[loc2[0]][loc2[1]]]
                                 moves.append((loc[0], loc[1], i, j))
     
-    print('bf', len(flatten(scomps)))
-    nummoves = Counter(moves)
-    print([len(scomps[c[0][0]][c[0][1]]) for c in list(nummoves.items())[:20]])
-    
     # seqs = get_individual_seqs(scomps, len(sequences))
-    # print_individual_seqs(seqs)
-    #return
+    # #print_individual_seqs(seqs)
+    # seqs = [flatten(s, 1) for s in seqs]
     
     #separate sparse segments...
     for i,s in enumerate(seqs):
@@ -920,6 +920,16 @@ def cleanup_comps(comps, sequences, path):
                             scomps[i][j].remove(seg)
                             newc[j].append(seg)
             scomps.extend([[c] for c in newc if len(c) > 0])
+    
+    print('bf', len(flatten(scomps)))
+    nummoves = Counter(moves)
+    print([len(scomps[c[0][0]][c[0][1]]) for c in list(nummoves.items())[:20]])
+    
+    # seqs = get_individual_seqs(scomps, len(sequences))
+    #print_individual_seqs(seqs)
+    #return
+    
+    
     
     scomps = [[c for c in s if len(c) > 0] for s in scomps]
     scomps = [s for s in scomps if len(s) > 0]
@@ -1046,7 +1056,7 @@ def get_individual_seqs(scomps, num_seqs):
 def print_individual_seqs(seqs):
     for s in seqs:
         print('------------')
-        for i in s[:1]:
+        for i in s[5:6]:
             print('')
             [print(s) for s in i]
 
@@ -1093,8 +1103,8 @@ def smooth_seqs(sequences, sections, min_match, min_defined):
                 matches.append(matched[np.where(matched[:,0] > 0)])
         #sort by increasing certainty and importance and apply in this order (best have last say)
         matches = np.concatenate(matches)
-        matches = matches[np.lexsort((len(sections)-matches[:,1], matches[:,0]))]
-        #matches = matches[np.lexsort((len(sections)-matches[:,1], len(sections)-matches[:,1]))]
+        #matches = matches[np.lexsort((len(sections)-matches[:,1], matches[:,0]))]#longest of best
+        matches = matches[np.lexsort((len(sections)-matches[:,1], len(sections)-matches[:,1]))]#just longest
         for p,c,j in matches:
             cc = sections[int(c)][0]
             s[int(j):int(j)+len(cc)] = cc

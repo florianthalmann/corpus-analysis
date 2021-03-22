@@ -411,7 +411,7 @@ def get_longest_sections(sequences, ignore):
     flatsecs = [(flatten(to_hierarchy(np.array([k]), sections)), len(occs[k]))
         for k in sections.keys()]
     #sort by length * sqrt of occurrences
-    return sorted(flatsecs, key=lambda s: len(s[0])*sqrt(s[1]), reverse=True)
+    return sorted(flatsecs, key=lambda s: len(s[0])*s[1], reverse=True)
 
 def get_hierarchy_sections(sequences):
     sequences, sections, occs = find_sections_bottom_up(sequences)
