@@ -4,36 +4,69 @@ from graph_tool import topology, GraphView
 from ..util import plot_matrix, plot_graph, flatten
 from .graphs import graph_from_matrix, prune_isolated_vertices
 
-def form_diagram(sequences):#, sections):
-    sequences = [s[s >= 0] for s in sequences]
-    #size = max(sections.keys())+1
+def sequence_probability(sequences, form_diagram, seq_to_v, probs):
+    probabilities = np.empty(len(sequences))
+    for i,s in enumerate(sequences):
+        vs = seq_to_v[s]
+        edges = [form_diagram.edge(vs[i], vs[i+1]) for i in range(len(vs)-1)]
+        ps = np.array([probs.a[form_diagram.edge_index[e]] for e in edges])
+        probabilities[i] = np.prod(ps)
+    print((probabilities/np.max(probabilities)*1000).round())
+
+def essence(sequences, form_diagram, v_to_seq, probs):
+    print(sequences[:4])
+    probs.a = -np.log(probs.a)
+    size = form_diagram.num_vertices()
+    start = form_diagram.vertex(size-2)
+    end = form_diagram.vertex(size-1)
+    vs, es = topology.shortest_path(form_diagram, start, end, probs)
+    vs = np.array([int(v) for v in vs])[1:-1]
+    print(v_to_seq[vs])
+
+def form_diagram(sequences):
+    sequences = [s[s >= 0] for s in sequences] #ignore gaps (-1)
+    #calculate transition matrix for all section types
     size = np.max(np.concatenate(sequences))+1
     freqs = np.bincount(np.concatenate(sequences))
-    transitions = np.zeros((size, size))
+    ids = np.arange(size)
+    transitions = np.zeros((size+2, size+2))
     for s in sequences:
+        transitions[-2][s[0]] += 1 #start
         for i in range(len(s)-1):
             transitions[s[i]][s[i+1]] += 1
-    #transitions /= np.max(transitions)
+        transitions[s[-1]][-1] += 1 #end
+    #remove isolated vertices
     isolated = np.logical_and(np.all(np.equal(transitions, 0), axis=1),
         np.all(np.equal(transitions.T, 0), axis=1))
-    #print(len(isolated))
     transitions = transitions[~isolated].T[~isolated].T
-    freqs = freqs[~isolated]
-    # transitions = transitions.T[~np.all(np.equal(transitions.T, 0), axis=1)].T
-    #print(np.sum(transitions, axis=1)[:,None])
+    freqs = freqs[~isolated[:-2]]
+    ids = ids[~isolated[:-2]]
+    #normalize transition probabilities for each section
     sums = np.sum(transitions, axis=1)
     sums[sums == 0] = 1
     sums = np.repeat(sums, transitions.shape[1]).reshape(transitions.shape)
     transitions /= sums
     plot_matrix(transitions, 'form1.png')
-    graph, weights = graph_from_matrix(transitions, directed=True)
-    weights.a *= 10
-    vsize = graph.new_vp("int")
-    vsize.a = freqs
-    print(freqs)
-    graph = GraphView(graph, vsize.a > 3)
-    plot_graph(graph, 'form2.png', weights)
+    #create graph
+    graph, probs = graph_from_matrix(transitions, directed=True)
+    # vsize = graph.new_vp("int")
+    # vsize.a = freqs
+    # graph = GraphView(graph, vsize.a > 3)
+    edge_width = probs.copy()
+    edge_width.a *= 10
+    plot_graph(graph, 'form2.png', edge_width)
     
+    #simplify_graph(graph)
+    seq_to_v = np.repeat(-1, size)
+    seq_to_v[ids] = np.arange(len(ids))
+    sequence_probability(sequences, graph, seq_to_v, probs)
+    essence(sequences, graph, ids, probs)
+
+def collapse_similar(sequences):
+    return
+
+def simplify_graph(graph):
+    #gather alternative paths
     forks = [v for v in graph.vertices() if len(list(v.out_edges())) > 1]
     joins = [v for v in graph.vertices() if len(list(v.in_edges())) > 1]
     print([int(f) for f in forks])
@@ -53,16 +86,12 @@ def form_diagram(sequences):#, sections):
         graph.remove_vertex(v)
     print(graph)
     plot_graph(prune_isolated_vertices(graph), 'form3.png', weights)
-    
     #print([len(list(p)) for p in paths])
     #print(len(paths))
     # for p in paths[0]:
     #     print(p)
     # print(paths[0][0])
     # print([p for p in paths[0]])
-
-def collapse_similar(sequences):
-    return
 
 #returns paths between fork and the earliest vertex at which some of the forked paths join
 def get_simple_alternative_paths(fork, graph):
