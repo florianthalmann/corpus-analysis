@@ -1,34 +1,49 @@
+import tqdm
+from itertools import product
 import numpy as np
+from .alignment.affinity import get_alignment_segments, get_longest_segment
+from .alignment.smith_waterman import smith_waterman
 from .clusters.histograms import freq_trans_hists, frequency_histograms
-from .util import plot_sequences
+from .util import plot_sequences, plot_matrix
 from matplotlib import pyplot as plt
 
 def check_double_time(sequences):
     plot_sequences(sequences, 'results5/-1.png')
     doubles = np.array([s[np.arange(round(len(s)/2))*2] for s in sequences])
     halves = np.array([np.repeat(s, 2) for s in sequences])
-    hists = freq_trans_hists(np.hstack((sequences, doubles, halves)), False)
-    avg = np.mean(hists[:len(sequences)], axis=0)
-    best = []
-    for i in range(len(sequences)):
-        ref = chiSquared(hists[i], avg)
-        if chiSquared(hists[i+len(sequences)], avg) < ref:
-            best.append(doubles[i])
-        elif chiSquared(hists[i+(2*len(sequences))], avg) < ref:
-            best.append(halves[i])
-        else:
-            best.append(sequences[i])
-    plot_sequences(best, 'results5/-2.png')
-    
-    # plt.bar(np.arange(len(hists[0])), hists[0])
-    # plt.savefig('results5/1.png', dpi=1000)
-    # plt.close()
-    # plt.bar(np.arange(len(hists[0])), hists[60])
-    # plt.savefig('results5/2.png', dpi=1000)
-    # plt.close()
-    # plt.bar(np.arange(len(hists[0])), hists[-1])
-    # plt.savefig('results5/3.png', dpi=1000)
-    # plt.close()
+    b = best_with_feature_freq(sequences)
+    b += best_with_patterns([halves[i] if b[i] == -1 else doubles[i] if b[i] == 1 else s
+        for i,s in enumerate(sequences)])
+    sequences = [halves[i] if b[i] == -1 else doubles[i] if b[i] == 1 else s
+        for i,s in enumerate(sequences)]
+    plot_sequences(sequences, 'results5/-2.png')
+    return sequences
+
+def best_with_patterns(sequences):
+    sas = [get_alignment_segments(s, s, 20, 16, 1, 4, .2) for s in tqdm.tqdm(sequences)]
+    intervals = np.array([np.array([s[0][1]-s[0][0] for s in a]) for a in sas])
+    doubles = np.array([(i/2).astype(int) for i in intervals])
+    halves = np.array([i*2 for i in intervals])
+    hists = frequency_histograms(np.concatenate((intervals, doubles, halves)), False)
+    return best_sequence_combo(sequences, hists)
+
+def best_with_feature_freq(sequences):
+    doubles = np.array([s[np.arange(round(len(s)/2))*2] for s in sequences])
+    halves = np.array([np.repeat(s, 2) for s in sequences])
+    hists = freq_trans_hists(np.hstack((sequences, doubles, halves)), False, True)
+    return best_sequence_combo(sequences, hists)
+
+def best_sequence_combo(sequences, hists):
+    l = len(sequences)
+    dists = np.zeros((l, l))
+    for i,j in product(range(l), range(l)):
+        o = chiSquared(hists[i], hists[j])
+        d = chiSquared(hists[i+l], hists[j])
+        h = chiSquared(hists[i+(2*l)], hists[j])
+        dists[i][j] = np.array([0,1,-1])[np.argmin([o,d,h])]
+    plot_matrix(dists, 'results5/-3.png')
+    means = (np.mean(dists, axis=1) - np.mean(dists, axis=0)) / 2
+    return np.array([-1 if m <= -0.33 else 1 if m >= 0.33 else 0 for m in means])
 
 def chiSquared(p,q):
     return 0.5*np.sum((p-q)**2/(p+q+1e-6))
