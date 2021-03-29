@@ -1,11 +1,11 @@
 import tqdm
 from itertools import product
 import numpy as np
-from .alignment.affinity import get_alignment_segments, get_longest_segment
-from .alignment.smith_waterman import smith_waterman
-from .clusters.histograms import freq_trans_hists, frequency_histograms
-from .util import plot_sequences, plot_matrix
-from matplotlib import pyplot as plt
+from ..alignment.affinity import get_alignment_segments, get_longest_segment
+from ..alignment.smith_waterman import smith_waterman
+from ..util import plot_sequences, plot_matrix
+from .histograms import freq_trans_hists, frequency_histograms
+from .util import chiSquared
 
 def check_double_time(sequences):
     plot_sequences(sequences, 'results5/-1.png')
@@ -44,6 +44,3 @@ def best_sequence_combo(sequences, hists):
     plot_matrix(dists, 'results5/-3.png')
     means = (np.mean(dists, axis=1) - np.mean(dists, axis=0)) / 2
     return np.array([-1 if m <= -0.33 else 1 if m >= 0.33 else 0 for m in means])
-
-def chiSquared(p,q):
-    return 0.5*np.sum((p-q)**2/(p+q+1e-6))

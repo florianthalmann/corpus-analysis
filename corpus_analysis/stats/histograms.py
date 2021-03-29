@@ -32,9 +32,12 @@ def transition_histograms(sequences, relative, ignore_same=False):
     return frequency_histograms(pairs, relative)
 
 #element frequency and non-equal transition frequency histogram
-def freq_trans_hists(sequences, relative):
-    return np.append(frequency_histograms(sequences, relative),
-        transition_histograms(sequences, relative, True), axis=1)
+def freq_trans_hists(sequences, relative, ignore_same=False):
+    hists = np.append(frequency_histograms(sequences, relative),
+        transition_histograms(sequences, relative, ignore_same), axis=1)
+    if relative:
+        hists = np.array([h/np.sum(h) for h in hists])
+    return hists
 
 #returns indices of clustered and unclustered hists
 def clusters(hists):
