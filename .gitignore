@@ -2,6 +2,7 @@ __pycache__
 *.png
 *.pdf
 *.json
+*.csv
 *.npy
 data
 data_bars

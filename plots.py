@@ -1,7 +1,8 @@
 import numpy as np
+import pandas as pd
 from matplotlib import pyplot as plt
 from corpus_analysis.util import flatten, plot_sequences, boxplot
-from main import get_versions_by_date, get_essentias
+from gd import get_versions_by_date, get_essentias
 
 def plot_msa(song, sequences, msa):
     outseqs = [np.repeat(-1, len(s)) for s in sequences]
@@ -35,7 +36,17 @@ def plot_date_histogram2():
     fig.savefig('gd1.pdf')
     #plt.show()
 
-def plot_
+def plot_msa_eval(path):
+    data = pd.read_csv(path)
+    #data['avgent'] = data['entropy'] / data['length']
+    #data['norment'] = data['entropy'] * data['vertices'] / data['vertices'].max()
+    fig, axes = plt.subplots(1,3, figsize=(7, 5.25))
+    data.boxplot(by='method', column=['entropy','partition count','total points'],
+        ax=axes, positions=[0,2,3,1])
+    plt.tight_layout()
+    plt.suptitle('')
+    #plt.show()
+    plt.savefig('gd3.pdf')
 
 def plot_evolution(song):
     import matplotlib.pyplot as plt
@@ -55,3 +66,5 @@ def plot_evolution(song):
     import matplotlib.pyplot as plt
     plt.plot(d, b)
     plt.show()
+
+plot_msa_eval('eval.csv')

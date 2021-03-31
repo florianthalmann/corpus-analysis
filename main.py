@@ -1,91 +1,47 @@
-import os, json, timeit, random, itertools, librosa, dateutil, datetime, psutil
+import os, json, random, itertools
 import numpy as np
+import pandas as pd
+import graph_tool
 from corpus_analysis.features import get_summarized_chords, to_multinomial, extract_essentia,\
     load_leadsheets, get_summarized_chords2, get_beat_summary, get_summarized_chroma,\
     get_summarized_mfcc, extract_chords, load_essentia
-from corpus_analysis.double_time import check_double_time
+from corpus_analysis.stats.double_time import check_double_time
+from corpus_analysis.stats.outliers import remove_outliers
 from corpus_analysis.alignment.affinity import get_alignment_segments, get_affinity_matrix,\
     get_alignment_matrix, segments_to_matrix
 from corpus_analysis.alignment.multi_alignment import align_sequences
 from corpus_analysis.alignment.smith_waterman import smith_waterman
 from corpus_analysis.util import profile, plot_matrix, plot_hist, plot,\
-    buffered_run, multiprocess, plot_graph, boxplot, plot_sequences
+    buffered_run, multiprocess, plot_graph, boxplot, plot_sequences, flatten,\
+    load_json, save_json
 from corpus_analysis.structure.hcomparison import get_relative_meet_triples, get_meet_matrix
 from corpus_analysis.structure.structure import shared_structure, simple_structure,\
-    new_shared_structure
+    new_shared_structure, get_old_eval, get_new_eval, get_msa_eval
 from corpus_analysis.structure.laplacian import get_laplacian_struct_from_affinity,\
     get_laplacian_struct_from_audio
 from corpus_analysis.structure.graphs import graph_from_matrix, adjacency_matrix, alignment_graph
 from corpus_analysis.structure.pattern_graph import PatternGraph, super_alignment_graph
 from corpus_analysis.structure.eval import evaluate_hierarchy_varlen
 from corpus_analysis.structure.hierarchies import get_hierarchy_labels, get_most_salient_labels
-import graph_tool
-
-corpus = '../fifteen-songs-dataset2/'
-audio = os.path.join(corpus, 'tuned_audio')
-features = os.path.join(corpus, 'features')
-leadsheets = os.path.join(corpus, 'leadsheets')
-with open(os.path.join(corpus, 'dataset.json')) as f:
-    DATASET = json.load(f)
+from gd import get_versions_by_date, get_paths, SONGS
 
 DATA = 'data/'
-RESULTS = 'resultsN/'
+RESULTS = 'results20pp/'
 BARS = False
-SONG_INDEX = 0
+SONG_INDEX = 3
 #alignment
 SEG_COUNT = 0 #0 for all segments
 MIN_LEN = 16
 MIN_DIST = 1 # >= 1
 MAX_GAPS = 4
 MAX_GAP_RATIO = .2
-NUM_MUTUAL = 40
+NUM_MUTUAL = 20
 MIN_LEN2 = 5
 MIN_DIST2 = 4
 L_MAX_GAPS = 4
 L_MAX_GAP_RATIO = .2
 
-SONGS = list(DATASET.keys())
 
-def get_versions_by_date(song):
-    versions = list(DATASET[song].keys())
-    dates = [dateutil.parser.parse(p.split('.')[0][2:]) for p in versions]
-    dates = [d.replace(year=d.year-100) if d > datetime.datetime.now() else d
-        for d in dates]
-    versions, dates = zip(*sorted(zip(versions, dates), key=lambda vd: vd[1]))
-    return versions, dates
-
-def get_paths(song):
-    versions = get_versions_by_date(song)[0]
-    audio_paths = [os.path.join(audio, song, v).replace('.mp3','.wav') for v in versions]
-    feature_paths = [get_feature_path(song, v)+'_freesound.json' for v in versions]
-    return audio_paths, feature_paths
-
-def get_essentias(song):
-    return [load_essentia(p) for p in get_paths(song)[1]]
-
-def extract_features_for_song(song):
-    audio_paths, feature_paths = get_paths(song)
-    [extract_essentia(a, p) for (a, p) in zip(audio_paths, feature_paths)]
-
-def extract_features():
-    multiprocess('extracting features', extract_features_for_song, SONGS)
-
-def get_feature_path(song, version):
-    id = version.replace('.mp3','.wav').replace('.','_').replace('/','_')
-    return os.path.join(features, id, id)
-
-def get_chroma_sequences(song):
-    audio = get_paths(song)[0]
-    versions = get_versions_by_date(song)[0]
-    paths = [get_feature_path(song, v) for v in versions]
-    return [get_summarized_chroma(audio[i], p+'_madbars.json')
-        for i,p in enumerate(paths)]
-
-def get_chord_sequences(song):
-    versions = get_versions_by_date(song)[0]
-    paths = [get_feature_path(song, v) for v in versions]
-    return [get_summarized_chords(p+'_madbars.json', p+'_gochords.json', BARS)
-        for p in paths]
 
 def get_self_alignment(sequence):
     return get_alignment_segments(sequence, sequence, SEG_COUNT,
@@ -101,8 +57,9 @@ def get_pairings(sequences, num_mutual=NUM_MUTUAL):
         places = np.where(np.sum(matrix, axis=0) > num_mutual)[0]
         places = places[places > i]
         num = min(np.sum(matrix[i])-num_mutual, len(places))
-        choice = np.random.choice(places, num, replace=False)
-        matrix[i,choice] = matrix[choice,i] = 0
+        if num > 0:
+            choice = np.random.choice(places, num, replace=False)
+            matrix[i,choice] = matrix[choice,i] = 0
     return np.vstack(np.nonzero(np.triu(matrix))).T.tolist()
 
 def get_mutual_alignment(pairing_n_sequences):
@@ -114,19 +71,32 @@ def get_mutual_alignments(sequences, pairings):
     return multiprocess('mutual alignments', get_mutual_alignment,
         [(p, sequences) for p in pairings])
 
-def get_alignments(song):
+def preprocess_sequences(sequences):
+    previous = [np.hstack(sequences)]
+    sequences = remove_outliers(check_double_time(sequences))
+    while not any([np.array_equal(s, np.hstack(sequences)) for s in previous]):
+        plot_sequences(sequences, str(len(previous))+'.png')
+        previous.append(np.hstack(sequences))
+        sequences = remove_outliers(check_double_time(sequences, 50), 5)
+    return sequences
+
+def get_alignments(song, preprocess=False):
     sequences = buffered_run(DATA+song+'-chords',
         lambda: get_chord_sequences(song))
-    selfs = buffered_run(DATA+song+'-salign',
+    if preprocess:
+        sequences = buffered_run(DATA+song+'-pp',
+            lambda: preprocess_sequences(sequences))
+    extension = 'pp' if preprocess else ''
+    selfs = buffered_run(DATA+song+'-salign'+extension,
         lambda: get_self_alignments(sequences),
         [SEG_COUNT, MAX_GAPS, MAX_GAP_RATIO, MIN_LEN, MIN_DIST])
     if NUM_MUTUAL > 0:
-        pairings = buffered_run(DATA+song+'-pairs',
+        pairings = buffered_run(DATA+song+'-pairs'+extension,
             lambda: get_pairings(sequences), [NUM_MUTUAL])
-        mutuals = buffered_run(DATA+song+'-malign',
+        mutuals = buffered_run(DATA+song+'-malign'+extension,
             lambda: get_mutual_alignments(sequences, pairings),
             [SEG_COUNT, MAX_GAPS, MAX_GAP_RATIO, MIN_LEN, MIN_DIST, NUM_MUTUAL])
-    msa = buffered_run(DATA+song+'-msa',
+    msa = buffered_run(DATA+song+'-msa'+extension,
         lambda: align_sequences(sequences)[0])
     selfp = np.stack((np.arange(len(sequences)), np.arange(len(sequences)))).T
     pairings = np.concatenate((selfp, pairings)) if NUM_MUTUAL > 0 else selfp
@@ -249,43 +219,46 @@ def test_chroma_based_structure():
     plot_matrix(segments_to_matrix(alignment))
     structure = simple_structure(chroma, alignment, MIN_LEN2, MIN_DIST2)
 
-def plot_msa(song, sequences, msa):
-    outseqs = [np.repeat(-1, len(s)) for s in sequences]
-    for i,a in enumerate(msa):
-        for j,m in enumerate(a):
-            if len(m) > 0:
-                outseqs[i][j] = int(m[1:])
-    plot_sequences(outseqs, song+'-msa.png')
 
-def plot_evolution(song):
-    import matplotlib.pyplot as plt
-    v, d = get_versions_by_date(song)
-    #b = [e['rhythm']['onset_rate'] for e in get_essentias(SONGS[SONG_INDEX])]
-    b = [e['lowlevel']['dynamic_complexity'] for e in get_essentias(song)]
-    #b = [e['metadata']['audio_properties']['length'] for e in get_essentias(SONGS[SONG_INDEX])]
-    #b = [b/2 if b > 140 else b for b in b]
-    print(len(b))
-    plt.plot(d, b)
-    def running_mean(x, N):
-        cumsum = np.cumsum(np.insert(x, 0, 0)) 
-        return (cumsum[N:] - cumsum[:-N]) / float(N)
-    b = running_mean(b, 10)
-    print(len(b))
-    b = np.pad(b, (5,4), 'constant', constant_values=(0,0))
-    import matplotlib.pyplot as plt
-    plt.plot(d, b)
-    plt.show()
+def save_msa_eval(song, outfile):
+    method = 'new2'
+    data = pd.read_csv(outfile)
+    if not ((data['song'] == song) & (data['method'] == method)).any():
+        sequences, pairings, alignments, msa = get_alignments(song)
+        # eval = get_msa_eval(RESULTS+song, sequences, msa)
+        # eval = get_old_eval(RESULTS+song, sequences, pairings, alignments,
+        #     msa, MIN_LEN, MIN_DIST)
+        eval = get_new_eval(RESULTS+song, sequences, pairings, alignments)
+        data = pd.read_csv(outfile)
+        data.loc[len(data)] = [song, method]+list(eval)
+        data.to_csv(outfile, index=False)
 
 def run():
-    print(psutil.Process(os.getpid()).memory_info())
-    # sequences, pairings, alignments, msa = get_alignments(SONGS[6])
-    # check_double_time(sequences)
-    # for s in SONGS:
-    #     sequences, pairings, alignments, msa = get_alignments(s)
-    #     new_shared_structure(RESULTS+s, sequences, pairings, alignments)
+    #plot_date_histogram()
+    # sequences, pairings, alignments, msa = get_alignments(SONGS[2])
+    # plot_sequences(sequences, '0.png')
+    # previous = [np.hstack(sequences)]
+    # sequences = remove_outliers(check_double_time(sequences))
+    # while not any([np.array_equal(s, np.hstack(sequences)) for s in previous]):
+    #     plot_sequences(sequences, str(len(previous))+'.png')
+    #     previous.append(np.hstack(sequences))
+    #     sequences = remove_outliers(check_double_time(sequences, 50), 5)
     
-    sequences, pairings, alignments, msa = get_alignments(SONGS[SONG_INDEX])
-    new_shared_structure(RESULTS+SONGS[SONG_INDEX], sequences, pairings, alignments)
+    for s in SONGS:
+        sequences, pairings, alignments, msa = get_alignments(s, True)
+        new_shared_structure(RESULTS+s, sequences, pairings, alignments)
+        #save_msa_eval(s, 'eval.csv')
+    
+    # sequences, pairings, alignments, msa = get_alignments(SONGS[SONG_INDEX])
+    # new_shared_structure(RESULTS+SONGS[SONG_INDEX], sequences, pairings, alignments)
+    
+    #save_msa_eval(SONGS[1], 'eval.json')
+    
+    #shared_structure(sequences, pairings, alignments, msa, MIN_LEN, MIN_DIST)
+    
+    # plot_matrix(get_affinity_matrix(sequences[0], sequences[0], True, MAX_GAPS, MAX_GAP_RATIO)[0], 'aff2.png')
+    # plot_matrix(get_affinity_matrix(sequences[0], sequences[0], True, MAX_GAPS, MAX_GAP_RATIO)[1], 'aff0.png')
+    
     #plot_msa(SONGS[SONG_INDEX], sequences, msa)
     #plot_evolution(SONGS[SONG_INDEX])
     
