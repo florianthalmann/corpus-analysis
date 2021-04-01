@@ -74,15 +74,18 @@ def go_index_to_pcset(index):
   return sorted(pcset)
 
 def to_intervals(timepoints):
-    return list(zip(timepoints, timepoints[1:])) \
-        + [(timepoints[-1], float("inf"))]
+    return np.concatenate((np.dstack((timepoints[:-1], timepoints[1:]))[0],
+        [[timepoints[-1], np.inf]]))
 
 def get_overlaps(interval, intervals):
-    return [min(i[1], interval[1]) - max(i[0], interval[0]) for i in intervals]
+    interval = np.tile(interval, (len(intervals), 1))
+    return np.min(np.vstack((interval[:,1], intervals[:,1])), axis=0)\
+        - np.max(np.vstack((interval[:,0], intervals[:,0])), axis=0)
+    #return [min(i[1], interval[1]) - max(i[0], interval[0]) for i in intervals]
 
 def summarize(feature, timepoints):
-    t_intervals = to_intervals(timepoints)
-    f_intervals = to_intervals([f[0] for f in feature])
+    t_intervals = to_intervals(np.array(timepoints))
+    f_intervals = to_intervals(np.array(feature)[:,0])
     modes = [np.argmax(get_overlaps(t, f_intervals)) for t in t_intervals]
     return np.array([feature[m][1] for m in modes], dtype=int)
 

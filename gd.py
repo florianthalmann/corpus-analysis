@@ -1,7 +1,7 @@
 import os, json, dateutil, datetime
 from corpus_analysis.features import get_summarized_chords, to_multinomial, extract_essentia,\
     load_leadsheets, get_summarized_chords2, get_beat_summary, get_summarized_chroma,\
-    get_summarized_mfcc, extract_chords, load_essentia
+    get_summarized_mfcc, extract_chords, load_essentia, load_beats
 
 corpus = '../fifteen-songs-dataset2/'
 audio = os.path.join(corpus, 'tuned_audio')
@@ -37,15 +37,18 @@ def get_feature_path(song, version):
     id = version.replace('.mp3','.wav').replace('.','_').replace('/','_')
     return os.path.join(features, id, id)
 
+def get_feature_paths(song):
+    versions = get_versions_by_date(song)[0]
+    return [get_feature_path(song, v) for v in versions]
+
 def get_chroma_sequences(song):
     audio = get_paths(song)[0]
-    versions = get_versions_by_date(song)[0]
-    paths = [get_feature_path(song, v) for v in versions]
     return [get_summarized_chroma(audio[i], p+'_madbars.json')
-        for i,p in enumerate(paths)]
+        for i,p in enumerate(get_feature_paths(song))]
 
 def get_chord_sequences(song):
-    versions = get_versions_by_date(song)[0]
-    paths = [get_feature_path(song, v) for v in versions]
-    return [get_summarized_chords(p+'_madbars.json', p+'_gochords.json', BARS)
-        for p in paths]
+    return [get_summarized_chords(p+'_madbars.json', p+'_gochords.json')
+        for p in get_feature_paths(song)]
+
+def get_beats(song):
+    return [load_beats(p+'_madbars.json') for p in get_feature_paths(song)]
