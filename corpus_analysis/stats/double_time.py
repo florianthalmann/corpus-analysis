@@ -1,4 +1,3 @@
-import tqdm
 from itertools import product
 import numpy as np
 from ..alignment.affinity import get_alignment_segments, get_longest_segment

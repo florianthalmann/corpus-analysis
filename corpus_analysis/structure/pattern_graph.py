@@ -9,10 +9,10 @@ from scipy.sparse import csr_matrix
 from scipy.sparse.csgraph import connected_components
 import graph_tool.all as gt
 from graph_tool.all import Graph, GraphView, graph_draw
-from ..alignment.affinity import segments_to_matrix
+from ..alignment.affinity import segments_to_matrix, get_alignment_segments
 from ..util import plot_sequences, mode, flatten, group_by, plot_matrix,\
     multiprocess, split
-from ..clusters.histograms import freq_hist_clusters, trans_hist_clusters,\
+from ..stats.histograms import freq_hist_clusters, trans_hist_clusters,\
     freq_trans_hist_clusters
 from .graphs import graph_from_matrix
 from .hierarchies import get_hierarchy_labels, get_most_salient_labels,\
@@ -588,7 +588,38 @@ def comps_to_seqs(comps, sequences):
             typeseqs[s[0]][s[1]] = i
     return typeseqs
 
-def smooth_sequences(sequences, min_match=0.8, min_defined=0.6, min_len=10, min_occs=4, count=10000):
+def get_segments(sequences):
+    return get_alignment_segments(sequences[0], sequences[1], 0, 16, 1, 4, .2)
+
+def realign_gaps(sequences, labelseqs, comps):
+    locs = {p:i for i,c in enumerate(comps) for p in c}
+    gaps = [get_gaps(l) for l in labelseqs]
+    gaps = [(i,g[0],len(g)) for i,gs in enumerate(gaps) for g in gs if len(g) > 0]
+    gaps = sorted(gaps, key=lambda g: g[2], reverse=True)#longest first
+    print(gaps[:5])
+    for i,g in enumerate(gaps):
+        seq = sequences[g[0]][g[1]:g[1]+g[2]]
+        segs = multiprocess('', get_segments, [(seq,s) for s in sequences])
+        conns = [[] for p in range(g[2])]
+        [conns[p[0]].append(locs[(i,p[1])])
+            for i,s in enumerate(segs) for a in s for p in a if (i,p[1]) in locs]
+        #conns = [mode(c) if len(c) > 0 else -1 for c in conns]
+        for j,c in enumerate(conns):
+            if len(c) > 0:
+                labelseqs[g[0]][g[1]+j] = mode(c, strict=True)
+        #print(conns)
+        #plot_matrix(segments_to_matrix(segs[1]))
+        #print(np.concatenate(flatten(s, 1))
+    return labelseqs
+
+def get_gaps(sequence):
+    return split_at_jumps(np.where(sequence == -1)[0])
+
+def split_at_jumps(sequence):
+    continuous = np.nonzero(np.diff(sequence) > 1)[0]+1
+    return np.split(sequence, continuous)
+
+def smooth_sequences(sequences, min_match=0.8, min_defined=0.6, min_len=10, min_occs=2, count=10000):
     max_len = math.inf#30
     secs = get_longest_sections(sequences, [-1])
     secs = [s for s in secs if min_len <= len(s[0]) <= max_len
@@ -596,7 +627,7 @@ def smooth_sequences(sequences, min_match=0.8, min_defined=0.6, min_len=10, min_
     #secs = sorted(secs, key=lambda s: len(s[0]), reverse=True)
     print(len(secs))
     smoothed = [t.copy() for t in sequences]
-    smooth_seqs(smoothed, secs, min_match, min_defined)
+    smoothed = smooth_seqs2(smoothed, secs, min_match, min_defined)
     #smooth_seqs(smoothed, secs, min_match, min_defined)
     
     t, s = np.hstack(sequences), np.hstack(smoothed)
@@ -605,6 +636,116 @@ def smooth_sequences(sequences, min_match=0.8, min_defined=0.6, min_len=10, min_
     merged = Counter([tuple(m) for m in np.vstack((t[merged], s[merged])).T])
     print({e:c for e,c in merged.items() if c >= 5})
     return smoothed
+
+def smooth_seqs(sequences, sections, min_match, min_defined):
+    for s in tqdm.tqdm(sequences, desc='smoothing'):
+        matches = []
+        for i,c in enumerate(sections):
+            #print(c)
+            r = range(len(s)-len(c[0]))
+            sims = [sim(c[0], s[j:j+len(c[0])]) for j in r]
+            if len(sims) > 0:
+                matched, blank = zip(*sims)
+                matched, blank = np.array(list(matched)), np.array(list(blank))
+                matched[np.where(np.logical_or(
+                    matched < min_match, (1-blank) < min_defined))] = 0
+                m = len(matched)
+                matched = np.vstack((matched, np.repeat(i, m), np.arange(m))).T
+                matches.append(matched[np.where(matched[:,0] > 0)])
+        #sort by increasing certainty and importance and apply in this order (best have last say)
+        matches = np.concatenate(matches)
+        #matches = matches[np.lexsort((len(sections)-matches[:,1], matches[:,0]))]#longest of best
+        matches = matches[np.lexsort((len(sections)-matches[:,1], len(sections)-matches[:,1]))]#just longest
+        for p,c,j in matches:
+            cc = sections[int(c)][0]
+            s[int(j):int(j)+len(cc)] = cc
+
+def smooth_seqs2(sequences, sections, min_match, min_defined):
+    #sections = sorted(sections, key=lambda s: len(s[0]), reverse=True)
+    smoothlocs = [np.zeros(len(s), dtype=int) for s in sequences]
+    avglen = np.mean([len(s) for s in sequences])
+    for l in [0.75, 0.5, 0.4, 0.3, 0.2]:
+        best = get_best_minlen(sections, l*avglen)
+        print(l, avglen, len(best[0]), best[1])
+        if best and best[1] >= 5:
+            smooth(smoothlocs, sequences, best)
+    return sequences
+
+def get_best_minlen(sections, minlen):
+    sections = [s for s in sections if len(s[0]) >= minlen]
+    if len(sections) > 0:
+        return sections[np.argmax([s[1] for s in sections])]
+
+def smooth(smoothlocs, sequences, section):
+    for k,s in enumerate(tqdm.tqdm(sequences[:], desc='smoothing')):
+        # r = range(len(s)+len(section[0])-1)
+        # b = [section[0][max(len(section[0])-j-1, 0):] for j in r]
+        # m = [s[max(j+1-len(section[0]), 0):] for j in r]
+        r = range(len(s)-1)
+        w = min(round(len(section[0])/2), round(len(s)/2))
+        b = [section[0][max(w-j-1, 0):] for j in r]
+        m = [s[max(j+1-w, 0):] for j in r]
+        # print(b[:2], m[:2])
+        # print(b[-2:], m[-2:])
+        sims = [sim(p[0], p[1]) for p in zip(b, m)]
+        if len(sims) > 0:
+            matched, blank, pos = zip(*sims)
+            matched = np.array(list(matched))
+            matched[:w] *= (w+np.arange(w))/len(section[0])
+            matched[-w:] *= (w+np.flip(np.arange(w)))/len(section[0])
+            maxx = np.argmax(matched)
+            #print(k, matched[maxx])
+            if matched[maxx] >= .95:
+                update_sequence(smoothlocs[k], s, section, w, maxx)
+            else:
+                for i in np.flip(np.argsort(matched))[:50]:
+                    #print(maxx, i)
+                    segs = split_at_jumps(pos[i])
+                    #print(matched[i], blank[i])
+                    #print(pos[i])
+                    #print(len(segs))
+                    #print([(i,j) for i in range(len(segs)) for j in range(i+1, len(segs)+1)])
+                    segs = [np.concatenate(segs[i:j])
+                        for i in range(len(segs)) for j in range(i+1, len(segs)+1)]
+                    #print(len(segs))
+                    segs = [s for s in segs if len(s) > 0 and len(s)/(s[-1]-s[0]+1) >= 0.95]
+                    if len(segs) > 0:
+                        #best = sorted(segs, key=lambda s: len(s), reverse=True)
+                        best = sorted(segs, key=lambda s: len(s)*(len(s)/(s[-1]-s[0]+1)), reverse=True)
+                        #print([len(b)/(b[-1]-b[0]+1) for b in best])
+                        #print(best[0], len(best[0])/(best[0][-1]-best[0][0]+1))
+                        start, end = best[0][0], best[0][-1]
+                        #print(i, i+start, end-start+1, w)
+                        update_sequence(smoothlocs[k], s, section, w, i, start, end-start+1)
+                
+                #NOW SEARCH FOR MATCHES FOR REST OF SEQ...
+            #print(np.flip(np.sort(matched))[:10])
+            #print(np.sum(matched))
+
+def update_sequence(updated, sequence, section, w, offset, start=0, length=None):
+    sec_offset = max(w-offset-1, 0)+start
+    sec_end = sec_offset+length if length else None
+    #print(sec_offset, sec_end)
+    sec = section[0][sec_offset:sec_end]
+    seq_offset = max(offset+1-w, 0)+start
+    seqlen = len(sequence[seq_offset:seq_offset+len(sec)])
+    #print(sec_offset, len(sec), seq_offset, seqlen,
+    #    len(np.nonzero(updated[seq_offset:seq_offset+len(sec)])[0]) == 0)
+    # if len(np.nonzero(updated[seq_offset:seq_offset+len(sec)])[0]) == 0:
+    #     sequence[seq_offset:seq_offset+len(sec)] = sec[:seqlen]
+    #     updated[seq_offset:seq_offset+len(sec)] = np.repeat(1, seqlen)
+    s, e = seq_offset, seq_offset+len(sec)
+    sequence[s:e] = np.where(updated[s:e] == 0, sec[:seqlen], sequence[s:e])
+    updated[s:e] = np.repeat(1, seqlen)
+
+#returns matching proportion (match prop, gap prop)
+def sim(s1, s2):
+    s1 = s1[:min(len(s1), len(s2))]
+    s2 = s2[:min(len(s1), len(s2))]
+    blank = np.logical_or(s1 == -1, s2 == -1)
+    same_or_blank = np.nonzero(np.logical_or(blank, s1 == s2))
+    return len(same_or_blank[0]) / len(s1), len(np.nonzero(blank)[0]) / len(s1),\
+        same_or_blank[0]
 
 #update sequences with mode of values in comps
 def get_mode_sequences(sequences, comps):
@@ -908,18 +1049,18 @@ def cleanup_comps(comps, sequences, path):
     # #print_individual_seqs(seqs)
     # seqs = [flatten(s, 1) for s in seqs]
     
-    #separate sparse segments...
-    for i,s in enumerate(seqs):
-        if len(s) > 0:
-            newc = [[] for x in s[0]]
-            for t in s:
-                defined = [seg for seg in t if seg > ()]
-                if len(defined) <= len(t)/2:#remove ones that are less than half full
-                    for j,seg in enumerate(t):
-                        if seg > ():
-                            scomps[i][j].remove(seg)
-                            newc[j].append(seg)
-            scomps.extend([[c] for c in newc if len(c) > 0])
+    # #separate sparse segments...
+    # for i,s in enumerate(seqs):
+    #     if len(s) > 0:
+    #         newc = [[] for x in s[0]]
+    #         for t in s:
+    #             defined = [seg for seg in t if seg > ()]
+    #             if len(defined) <= len(t)/2:#remove ones that are less than half full
+    #                 for j,seg in enumerate(t):
+    #                     if seg > ():
+    #                         scomps[i][j].remove(seg)
+    #                         newc[j].append(seg)
+    #         scomps.extend([[c] for c in newc if len(c) > 0])
     
     print('bf', len(flatten(scomps)))
     nummoves = Counter(moves)
@@ -1079,35 +1220,6 @@ def plot_seq_x_comps(comps, sequences, path):
     plot_seq(1)
     plot_seq(2)
     plot_seq(3)
-
-#returns matching proportion (need to be same length)
-def sim(s1, s2):
-    blank = np.logical_or(s1 == -1, s2 == -1)
-    same_or_blank = np.nonzero(np.logical_or(blank, s1 == s2))
-    return len(same_or_blank[0]) / len(s1), len(np.nonzero(blank)[0]) / len(s1)
-
-def smooth_seqs(sequences, sections, min_match, min_defined):
-    for s in tqdm.tqdm(sequences, desc='smoothing'):
-        matches = []
-        for i,c in enumerate(sections):
-            #print(c)
-            r = range(len(s)-len(c[0]))
-            sims = [sim(c[0], s[j:j+len(c[0])]) for j in r]
-            if len(sims) > 0:
-                matched, blank = zip(*sims)
-                matched, blank = np.array(list(matched)), np.array(list(blank))
-                matched[np.where(np.logical_or(
-                    matched < min_match, (1-blank) < min_defined))] = 0
-                m = len(matched)
-                matched = np.vstack((matched, np.repeat(i, m), np.arange(m))).T
-                matches.append(matched[np.where(matched[:,0] > 0)])
-        #sort by increasing certainty and importance and apply in this order (best have last say)
-        matches = np.concatenate(matches)
-        #matches = matches[np.lexsort((len(sections)-matches[:,1], matches[:,0]))]#longest of best
-        matches = matches[np.lexsort((len(sections)-matches[:,1], len(sections)-matches[:,1]))]#just longest
-        for p,c,j in matches:
-            cc = sections[int(c)][0]
-            s[int(j):int(j)+len(cc)] = cc
 
 # adjmax = np.array([[0,1,0,0],[0,0,0,1],[0,0,1,0],[0,0,0,1]])
 # comps = [0,1,2,3]

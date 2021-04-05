@@ -19,11 +19,5 @@ def remove_outliers(sequences, stds=5):
     #plot_sequences(sequences, 'results5/-6.png')
     return sequences
 
-def best_with_feature_freq(sequences):
-    doubles = np.array([s[np.arange(round(len(s)/2))*2] for s in sequences])
-    halves = np.array([np.repeat(s, 2) for s in sequences])
-    hists = freq_trans_hists(np.hstack((sequences, doubles, halves)), False, True)
-    return best_sequence_combo(sequences, hists)
-
 def reject_outliers(data, m=2):
     return data[abs(data - np.mean(data)) < m * np.std(data)]

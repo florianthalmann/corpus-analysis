@@ -9,11 +9,10 @@ import seaborn as sns
 from graph_tool.all import graph_draw
 
 def multiprocess(title, func, data, unordered=False):
-    print(title)
     with Pool(processes=cpu_count()-1) as pool:
         if unordered:
-            return list(tqdm.tqdm(pool.imap_unordered(func, data), total=len(data)))
-        return list(tqdm.tqdm(pool.imap(func, data), total=len(data)))
+            return list(tqdm.tqdm(pool.imap_unordered(func, data), total=len(data), desc=title))
+        return list(tqdm.tqdm(pool.imap(func, data), total=len(data), desc=title))
 
 def flatten(array, iterations=math.inf):#iterations inf is deep flatten
     if iterations >= 0 and isinstance(array, list):
@@ -41,9 +40,12 @@ def indices_of_subarray(a, b):
     return np.where(np.all(a == b, axis=1))[0]
     #return [i for i in range(len(a)-len(b)+1) if np.array_equal(a[i:i+len(b)], b)]
 
-def mode(a, axis=0):
+def mode(a, axis=0, strict=False):
     values, counts = np.unique(a, axis=axis, return_counts=True)
-    return values[counts.argmax()]
+    max = counts.argmax()
+    if not strict or np.sum(counts == max) == 1:
+        return values[max]
+    return -1
 
 def ordered_unique(a):
     _, idx = np.unique(a, return_index=True)
