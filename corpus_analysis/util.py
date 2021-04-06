@@ -43,7 +43,7 @@ def indices_of_subarray(a, b):
 def mode(a, axis=0, strict=False):
     values, counts = np.unique(a, axis=axis, return_counts=True)
     max = counts.argmax()
-    if not strict or np.sum(counts == max) == 1:
+    if not strict or np.sum(counts == counts[max]) == 1:
         return values[max]
     return -1
 

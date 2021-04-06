@@ -588,18 +588,16 @@ def comps_to_seqs(comps, sequences):
             typeseqs[s[0]][s[1]] = i
     return typeseqs
 
-def get_segments(sequences):
+def alignment_segs(sequences):
     return get_alignment_segments(sequences[0], sequences[1], 0, 16, 1, 4, .2)
 
 def realign_gaps(sequences, labelseqs, comps):
     locs = {p:i for i,c in enumerate(comps) for p in c}
-    gaps = [get_gaps(l) for l in labelseqs]
-    gaps = [(i,g[0],len(g)) for i,gs in enumerate(gaps) for g in gs if len(g) > 0]
-    gaps = sorted(gaps, key=lambda g: g[2], reverse=True)#longest first
-    print(gaps[:5])
+    gaps = get_gaps_by_length(labelseqs)
+    #print(gaps[:5])
     for i,g in enumerate(gaps):
-        seq = sequences[g[0]][g[1]:g[1]+g[2]]
-        segs = multiprocess('', get_segments, [(seq,s) for s in sequences])
+        gapseq = sequences[g[0]][g[1]:g[1]+g[2]]
+        segs = multiprocess('', alignment_segs, [(gapseq,s) for s in sequences])
         conns = [[] for p in range(g[2])]
         [conns[p[0]].append(locs[(i,p[1])])
             for i,s in enumerate(segs) for a in s for p in a if (i,p[1]) in locs]
@@ -611,6 +609,33 @@ def realign_gaps(sequences, labelseqs, comps):
         #plot_matrix(segments_to_matrix(segs[1]))
         #print(np.concatenate(flatten(s, 1))
     return labelseqs
+
+def realign_gaps_comps(sequences, labelseqs, comps):
+    #comps = flatten(group_by_maxadj(comps, sequences), 1)
+    modeseq = get_comp_modes(sequences, comps)
+    plot_matrix(segments_to_matrix(alignment_segs((sequences[0], modeseq))))
+    gaps = get_gaps_by_length(labelseqs)
+    print(gaps[:5])
+    bestsec = get_best_minlen(get_longest_sections(labelseqs, [-1]), 500)[0]
+    #print(bestsec)
+    modeseq = np.array([mode([sequences[s[0]][s[1]] for s in comps[c]]) for c in bestsec])
+    #print(alignment_segs((sequences[0], modeseq)))
+    #plot_matrix(segments_to_matrix(alignment_segs((sequences[0], modeseq))))
+    for i,g in enumerate(gaps):
+        gapseq = sequences[g[0]][g[1]:g[1]+g[2]]
+        segs = alignment_segs((gapseq, modeseq))
+        conns = [[] for p in range(g[2])]
+        [conns[p[0]].append(bestsec[p[1]]) for s in segs for p in s]
+        for j,c in enumerate(conns):
+            if len(c) > 0:
+                labelseqs[g[0]][g[1]+j] = mode(c, strict=True)
+    return labelseqs
+
+#returns a list of gaps (sequence index, position, length), longest first
+def get_gaps_by_length(sequences):
+    gaps = [get_gaps(l) for l in sequences]
+    gaps = [(i,g[0],len(g)) for i,gs in enumerate(gaps) for g in gs if len(g) > 0]
+    return sorted(gaps, key=lambda g: g[2], reverse=True)#longest first
 
 def get_gaps(sequence):
     return split_at_jumps(np.where(sequence == -1)[0])
@@ -666,8 +691,8 @@ def smooth_seqs2(sequences, sections, min_match, min_defined):
     avglen = np.mean([len(s) for s in sequences])
     for l in [0.75, 0.5, 0.4, 0.3, 0.2]:
         best = get_best_minlen(sections, l*avglen)
-        print(l, avglen, len(best[0]), best[1])
         if best and best[1] >= 5:
+            print(l, avglen, len(best[0]), best[1])
             smooth(smoothlocs, sequences, best)
     return sequences
 
@@ -1092,10 +1117,10 @@ def cleanup_comps(comps, sequences, path):
     # plot_matrix(adjmax, path+'-max3.png')
     # print_offdiasum(adjmax)
 
-def group_by_maxadj(comps, sequences, path):
+def group_by_maxadj(comps, sequences, path=None):
     #sort by adjacency
     adjmax = get_comp_adjacency(comps, True)
-    plot_matrix(adjmax, path+'-max.png')
+    if path: plot_matrix(adjmax, path+'-max.png')
     #print_offdiasum(adjmax)
     # adjmax = get_comp_adjacency(comps, True)
     # plot_matrix(adjmax, 'maxl.png')
@@ -1146,7 +1171,7 @@ def group_by_maxadj(comps, sequences, path):
     
     #print(len(flatten(scomps, 1)), datetime.datetime.now(), [len(c) for c in flatten(scomps, 1)])
     adjmax = get_comp_adjacency(flatten(scomps, 1), True)
-    plot_matrix(adjmax, path+'-max2.png')
+    if path: plot_matrix(adjmax, path+'-max2.png')
     #print_offdiasum(adjmax)
     
     # adjmin = get_comp_adjacency(flatten(scomps, 1), False)
