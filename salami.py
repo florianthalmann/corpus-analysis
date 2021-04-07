@@ -238,7 +238,7 @@ def sweep():
         get_available_songs()[197:222], False)#[197:347])#[6:16])
     #print([mean([ r[0]] for r in result])
 
-def plot():
+def plot(path):
     data = pd.read_csv(RESULTS)
     data = data[1183 <= data['SONG']][data['SONG'] <= 1211]
     #data = data[data['MIN_LEN'] == 24]
@@ -246,7 +246,9 @@ def plot():
     #data.groupby(['METHOD']).mean().T.plot(legend=True)
     data.groupby(['METHOD']).boxplot(column=['P','R','L'])
     #data.boxplot(column=['P','R','L'], by=['METHOD'])
-    plt.show()
+    #plt.show()
+    plt.tight_layout()
+    plt.savefig(path, dpi=1000) if path else plt.show()
 
 def test_eval(index):
     gti, gtl = load_salami_hierarchies(index)[0]
@@ -285,7 +287,7 @@ def test_eval_detail(index):
 #load_fused_matrix(1319)
 #calculate_fused_matrices()
 #test_hierarchy(INDEX)
-plot()
+plot('salami.png')
 #print(beatwise(homogenize_labels(load_salami_hierarchies(957)[0]), get_beats(957)))
 #print(load_salami_hierarchies(972))
 #load_salami_hierarchy(1003, 1)

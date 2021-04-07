@@ -65,12 +65,13 @@ def get_affinity_matrix(a, b, equality, max_gaps, max_gap_ratio, k_factor=10, kn
         thresh = np.partition(matrix.flatten(), -k)[-k]
         matrix = np.where(matrix >= thresh, 1, 0)
         #plot_matrix(matrix, 'est-.png')
-    unsmoothed = matrix
     #only keep upper triangle in symmetric case
     if symmetric: matrix = np.triu(matrix, k=1)
-    #smooth with a median filter
+    unsmoothed = matrix
+    #smooth with a median filter (smoothing sum keeps beginnings followed by gaps)
     if max_gaps > 0:
         matrix = smooth_matrix(matrix, symmetric, max_gaps, max_gap_ratio)
+        matrix = smooth_matrix(matrix+unsmoothed, symmetric, max_gaps, max_gap_ratio)
     #plot_matrix(matrix, 'est-1.png')
     return matrix, unsmoothed
 
@@ -165,7 +166,7 @@ def get_segments_from_matrix(matrix, symmetric, count, min_len, min_dist, max_ga
     segments = matrix_to_segments(matrix)
     #keep only segments longer than min_len and with a gap ratio below max_gap_ratio
     segments = [s for s in segments if len(s) >= min_len]
-    if max_gap_size > 0 and unsmoothed is not None:
+    if max_gap_size > 0 and max_gap_ratio > 0 and unsmoothed is not None:
         segments = [s for s in segments
             if np.sum(unsmoothed[tuple(s.T)]) >= (1-max_gap_ratio)*len(s)]
     return filter_segments(segments, count, min_len, min_dist, symmetric, matrix.shape)
@@ -175,6 +176,13 @@ def get_alignment_segments(a, b, count, min_len, min_dist, max_gap_size, max_gap
     equality = issubclass(a.dtype.type, np.integer)
     matrix, unsmoothed = get_affinity_matrix(a, b, equality, max_gap_size, max_gap_ratio, k_factor)
     return get_segments_from_matrix(matrix, symmetric, count, min_len, min_dist, max_gap_size, max_gap_ratio, unsmoothed)
+
+def get_longest_segment(a, b, count, min_len, min_dist, max_gap_size, max_gap_ratio, k_factor=10):
+    symmetric = np.array_equal(a, b)
+    equality = issubclass(a.dtype.type, np.integer)
+    matrix, unsmoothed = get_affinity_matrix(a, b, equality, max_gap_size, max_gap_ratio, k_factor)
+    segments = matrix_to_segments(matrix)
+    return segments[np.argmax([len(s) for s in segments])]
 
 def segments_to_matrix(segments, shape=None, sum=False):
     if len(segments) > 0:
