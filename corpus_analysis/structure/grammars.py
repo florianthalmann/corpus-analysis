@@ -1,7 +1,9 @@
 from collections import defaultdict
 import numpy as np
-from nltk import CFG, PCFG, induce_pcfg, Nonterminal, Tree
+from nltk import CFG, PCFG, induce_pcfg, Nonterminal, Tree, InsideChartParser
+#from nltk.parse import pchart
 from .hierarchies import to_hierarchy
+from ..util import multiprocess, flatten
 
 def to_grammar(sequences, sections):
     end_state = np.max(np.hstack(sequences))+1
@@ -16,6 +18,12 @@ def to_grammar(sequences, sections):
         grammar_string = grammar_string.replace("'"+str(k)+"'", str(k))
     grammar = PCFG.fromstring(grammar_string)
     print(grammar)
+    parser = InsideChartParser(grammar)
+    #parser.trace(1)
+    sentences = [Tree.fromstring(to_tree(s[:-1], sections)).leaves() for s in sequences]
+    parses = flatten(multiprocess('parsing', parser.parse_all, sentences), 1)
+    probs = mean_probs(parses, grammar)
+    print(probs)
 
 def to_pcfg(sequences, sections):
     sequences = [s[s >= 0] for s in sequences]
@@ -90,3 +98,28 @@ def to_tree(sequence, sections, designator='S'):
     return '('+str(designator)+' '+' '.join([
         to_tree(sections[s], sections, s) if s in sections
         else str(s) for s in sequence])+')'
+
+def mean_probs(parsed, pcfg):
+    prods = [p.productions() for p in parsed]
+    probs = to_prob_map(pcfg.productions())
+    #return [np.mean([probs[str(p)] for p in ps]) for ps in prods]
+    return [np.sum([-np.log2(probs[str(p)]) for p in ps]) for ps in prods]
+
+def to_prob_map(productions):
+    map = {}
+    for p in productions:
+        pstr, prob = str(p).split('[')
+        map[pstr.strip()] = float(prob.split(']')[0])
+    return map
+
+def test_pcfg():
+    trees = ['(S (0 1 2) (0 2 3))', '(S (0 1 2) (0 4 5))', '(S (1 2 3) (0 1 2))']
+    trees = [Tree.fromstring(t) for t in trees]
+    prods = [p for t in trees for p in t.productions()]
+    print(prods)
+    grammar = induce_pcfg(Nonterminal('S'), prods)
+    print(grammar)
+    parsed = InsideChartParser(grammar).parse_all(trees[0].leaves())[0]
+    print(mean_probs([parsed], grammar))
+
+#test_pcfg()
