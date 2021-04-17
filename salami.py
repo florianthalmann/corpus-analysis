@@ -1,4 +1,4 @@
-import os, mir_eval, subprocess
+import os, mir_eval, subprocess, tqdm
 import numpy as np
 import pandas as pd
 import scipy.io as sio
@@ -23,7 +23,8 @@ audio = corpus+'lma-audio/'
 annotations = corpus+'salami-data-public/annotations/'
 features = corpus+'features/'
 output = 'salami/'
-RESULTS = output+'results3.csv'
+DATA = output+'data/'
+RESULTS = output+'results4.csv'
 graphditty = '/Users/flo/Projects/Code/Kyoto/GraphDitty/SongStructure.py'
 
 K_FACTOR = 10
@@ -123,7 +124,7 @@ def load_fused_matrix(index):
     m = np.array(m['Ws']['Fused'][0][0])
     m[m < 0.01] = 0
     m[m != 0] = 1
-    beats = j['times'][:len(m)]
+    beats = np.array(j['times'][:len(m)])
     #plot_matrix(m)
     return m, beats
 
@@ -184,7 +185,7 @@ def eval_transitive(index, groundtruth, matrix, beats, method_name, plot_path=No
         alignment = matrix_to_segments(matrix)
         #plot_matrix(segments_to_matrix(alignment, (len(chroma),len(chroma))), 'est2.png')
         hierarchy = simple_structure(matrix[0], alignment, MIN_LEN2, MIN_DIST2)
-        print(index, len(hierarchy), [len(h) for h in hierarchy])
+        #print(index, len(hierarchy), [len(h) for h in hierarchy])
         maxtime = np.max(np.concatenate(groundtruth[0][0]))
         beat_ints = np.dstack((beats, np.append(beats[1:], maxtime)))[0]
         hi, hl = [beat_ints for h in range(len(hierarchy))], hierarchy.tolist()
@@ -192,8 +193,8 @@ def eval_transitive(index, groundtruth, matrix, beats, method_name, plot_path=No
             plot_hierarchy(plot_path, index, method_name, hi, hl, groundtruth)
         eval_and_add_results(index, method_name, groundtruth, hi, hl)
 
-def eval_hierarchy(index, matrix_method='fused', use_mat_in_lapl=True,
-        plot_path='salami/all/', hom_labels=False):
+def eval_hierarchy(index, matrix_method='own', use_mat_in_lapl=True,
+        plot_path=None, hom_labels=False):
     tname = 't_'+matrix_method
     lname = 'l'+(('_2'+matrix_method) if use_mat_in_lapl else '')
     groundtruth = load_salami_hierarchies(index)
@@ -217,26 +218,69 @@ def eval_hierarchy(index, matrix_method='fused', use_mat_in_lapl=True,
             # plot_matrix(raw, 'est0.png')
             # plot_matrix(matrix, 'est1.png')
             beats = get_beats(index)
-        
+    
         alignment = get_segments_from_matrix(matrix, True, 0, MIN_LEN,
             MIN_DIST, MAX_GAPS, MAX_GAP_RATIO)
-        print(index, len(alignment))
+        #print(index, len(alignment))
         beats = beats[:len(matrix)]
-        
+    
         if not use_mat_in_lapl:
             eval_laplacian(index, groundtruth, lname, plot_path)
         else:
             eval_laplacian(index, groundtruth, lname, plot_path, matrix, beats)
-        
+    
         matrix = segments_to_matrix(alignment, (len(matrix), len(matrix)))
         # plot_matrix(matrix, 'est2.png')
         eval_transitive(index, groundtruth, matrix, beats, tname, plot_path)
 
-def sweep():
-    #print(get_available_songs()[197:222])
-    multiprocess('evaluating hierarchies', eval_hierarchy,
-        get_available_songs()[197:222], False)#[197:347])#[6:16])
-    #print([mean([ r[0]] for r in result])
+def own_chroma_affinity(index):
+    chroma = get_beatwise_chroma(index)#load_beatwise_chords(index)
+    matrix, raw = get_affinity_matrix(chroma, chroma, False, MAX_GAPS,
+        MAX_GAP_RATIO)#, k_factor=K_FACTOR)
+    # plot_matrix(raw, 'est0.png')
+    # plot_matrix(matrix, 'est1.png')
+    beats = get_beats(index)
+    return matrix, beats
+
+def transitive_hierarchy(params):
+    matrix, beats, groundtruth = params
+    alignment = get_segments_from_matrix(matrix, True, 0, MIN_LEN,
+        MIN_DIST, MAX_GAPS, MAX_GAP_RATIO)
+    beats = beats[:len(matrix)]
+    matrix = segments_to_matrix(alignment, (len(matrix), len(matrix)))
+    hierarchy = simple_structure(matrix[0], alignment, MIN_LEN2, MIN_DIST2)
+    maxtime = np.max(np.concatenate(groundtruth[0][0]))
+    beat_ints = np.dstack((beats, np.append(beats[1:], maxtime)))[0]
+    #print('done!')
+    return [beat_ints for h in range(len(hierarchy))], hierarchy.tolist()
+
+def plot_groundtruths(indices, plot_path):
+    gt = load_salami_hierarchies(index)
+    hom_gt = [homogenize_labels(v) for v in gt]
+    for j,v in enumerate(hom_gt):
+        plot_hierarchy(plot_path, i, 'a'+str(i+1), v[0], v[1], hom_gt)
+
+def evaluate(index, hom_labels=False):
+    groundtruth = load_salami_hierarchies(index)
+    if hom_labels: groundtruth = [homogenize_labels(v) for v in groundtruth]
+    chroma = buffered_run(DATA+'chroma'+str(index),
+        lambda: get_beatwise_chroma(index))
+    fused, fbeats = load_fused_matrix(index)
+    # mcfee, mbeats = buffered_run(DATA+'mcfee'+str(index),
+    #     lambda: get_smooth_affinity_matrix(get_audio(index)))
+    own, obeats = buffered_run(DATA+'own'+str(index),
+        lambda: own_chroma_affinity(index))
+    # orig_lapl = buffered_run(DATA+'lapl'+str(index),
+    #     lambda: get_laplacian_struct_from_audio(audio))
+    # own_trans = buffered_run(DATA+'town'+str(index),
+    #     lambda: transitive_hierarchy(own, obeats, groundtruth))
+
+def sweep(multi=True):
+    songs = get_available_songs()[197:222]#[197:347]#[6:16]
+    if multi:
+        multiprocess('evaluating hierarchies', evaluate, songs, False)
+    else:
+        [evaluate(i) for i in tqdm.tqdm(songs)]
 
 def plot(path):
     data = pd.read_csv(RESULTS)
@@ -281,13 +325,13 @@ def test_eval_detail(index):
 #test_hierarchy(get_available_songs()[0])
 #run()
 #print(get_available_songs()[297:])
-#sweep()
+sweep()
 #INDEX = 955
 #eval_hierarchy(1208)#982)
 #load_fused_matrix(1319)
 #calculate_fused_matrices()
 #test_hierarchy(INDEX)
-plot('salami.png')
+#plot('salami.png')
 #print(beatwise(homogenize_labels(load_salami_hierarchies(957)[0]), get_beats(957)))
 #print(load_salami_hierarchies(972))
 #load_salami_hierarchy(1003, 1)
