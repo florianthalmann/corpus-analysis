@@ -10,10 +10,10 @@ def adjust_start_end(hierarchy, target_time):
             ivls[k], labels[k] = np.array([[0, target_time]]), [0]
         elif ivls[k][0][0] > 0:
             ivls[k] = np.insert(ivls[k], 0, [0, ivls[k][0][0]], axis=0)
-            labels[k] = [-1]+labels[k]
+            labels[k] = np.insert(labels[k], 0, -1)
         if ivls[k][-1][1] < target_time:
             ivls[k] = np.append(ivls[k], [[ivls[k][-1][1], target_time]], axis=0)
-            labels[k] = labels[k]+[-1]
+            labels[k] = np.append(labels[k], -1)
         elif ivls[k][-1][1] > target_time:
             ivls[k][-1][-1] = target_time
     return ivls, labels
@@ -32,7 +32,6 @@ def simplify(hierarchy):
 def evaluate_hierarchy(refint, reflab, estint, estlab):
     refmax = np.max(np.concatenate(refint))
     #evaluation algo fails if times/framecount not same
-    #estint, estlab = adjust_start_end((estint, estlab), refmax)
     estint, estlab = simplify(adjust_start_end((estint, estlab), refmax))
     return lmeasure(refint, reflab, estint, estlab)
 
@@ -46,20 +45,35 @@ def evaluate_hierarchy_varlen(reference_n_estimate):
 
 #see if subdivisions affect lmeasure
 def test(frame_size=None):
-    ref_i = [[[0, 30], [30, 60]], [[0, 15], [15, 30], [30, 45], [45, 60]]]
-    ref_l = [['A', 'B'], ['a', 'b', 'a', 'c']]
-    est_i = [[[0, 45], [45, 60]], [[0, 15], [15, 30], [30, 45], [45, 60]]]
-    est_l = [['A', 'B'], ['a', 'a', 'b', 'b']]
-    est2_i = [[[0, 15], [15, 30], [30, 45], [45, 60]], [[0, 5],[5,10],[10,15], [15, 30], [30, 45], [45, 60]]]
-    est2_l = [['A', 'A', 'A', 'B'], ['a', 'a', 'a', 'a', 'b', 'b']]
+    # ref_i = [[[0, 30], [30, 60]], [[0, 15], [15, 30], [30, 45], [45, 60]]]
+    # ref_l = [['A', 'A'], ['a', 'b', 'a', 'c']]
+    # est_i = [[[0, 45], [45, 60]], [[0, 15], [15, 30], [30, 45], [45, 60]]]
+    # est_l = [['A', 'A'], ['a', 'a', 'b', 'b']]
+    # est2_i = [[[0, 15], [15, 30], [30, 45], [45, 60]], [[0, 5],[5,10],[10,15], [15, 30], [30, 45], [45, 60]]]
+    # est2_l = [['A', 'A', 'A', 'A'], ['a', 'a', 'a', 'a', 'b', 'b']]
+    # 
+    # scores = evaluate(ref_i, ref_l, est_i, est_l)
+    # print(scores)
+    # scores = evaluate(ref_i, ref_l, est2_i, est2_l)
+    # print(scores)
+    # 
+    ref_i = [[[0, 30], [30, 40]], [[0, 10], [10, 20], [20, 30], [30, 40]]]
+    ref_l = [['A', 'A'], ['a', 'b', 'c', 'a']]
+    est_i = [[[0, 30], [30, 40]], [[0, 10], [10, 20], [20, 30], [30, 40]]]
+    est_l = [['A', 'A'], ['a', 'b', 'b', 'b']]
+    
+    scores = evaluate(ref_i, ref_l, est_i, est_l)
+    print(scores)
+    
+    print()
+    
+    ref_i = [[[0, 30]], [[0, 10], [10, 20], [20, 30]]]
+    est_i = [[[0, 30]], [[0, 10], [10, 20], [20, 30]]]
+    ref_l = [ ['A'], ['a', 'b', 'a'] ]
+    est_l = [ ['B'], ['a', 'b', 'b'] ]
 
     scores = evaluate(ref_i, ref_l, est_i, est_l)
     print(scores)
-    scores = evaluate(ref_i, ref_l, est2_i, est2_l)
-    print(scores)
 
 #test()
-# test(0.1)
-# test(0.5)
-# test(1)
 #simplify(([np.array([[0,1]]),np.array([[0,0.5],[0.5,0.75],[0.75,1]])], [[0],[0,0,1]]))
