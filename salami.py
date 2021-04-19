@@ -18,7 +18,7 @@ from corpus_analysis.structure.laplacian import get_laplacian_struct_from_affini
 from corpus_analysis.structure.eval import evaluate_hierarchy, simplify
 from corpus_analysis.structure.hcomparison import lmeasure
 
-corpus = '/Users/flo/Projects/Code/FAST/grateful-dead/structure/SALAMI/'
+corpus = '/Users/flo/Projects/Code/Kyoto/SALAMI/'
 audio = corpus+'lma-audio/'
 annotations = corpus+'salami-data-public/annotations/'
 features = corpus+'features/'
@@ -151,90 +151,31 @@ def result_exists(groundtruth, method_name, index):
             MAX_GAPS, MAX_GAP_RATIO, MIN_LEN2, MIN_DIST2, i, method_name])
             for i in range(len(groundtruth))])
 
-def eval_and_add_results(index, method_name, groundtruth, intervals, labels):
-    results = []
-    for i, (refint, reflab) in enumerate(groundtruth):
-        score = evaluate_hierarchy(refint, reflab, intervals, labels)
-        results.append([index,
-            K_FACTOR, MIN_LEN, MIN_DIST, MAX_GAPS, MAX_GAP_RATIO, MIN_LEN2, MIN_DIST2,
-            i, method_name, score[0], score[1], score[2]])
-    print(results)
-    results = pd.DataFrame(np.array(results),
-        columns=['SONG', 'K_FACTOR', 'MIN_LEN', 'MIN_DIST', 'MAX_GAPS',
-            'MAX_GAP_RATIO', 'MIN_LEN2', 'MIN_DIST2',
-            'REF', 'METHOD', 'P', 'R', 'L'])
-    if not os.path.isfile(RESULTS):
-        results.to_csv(RESULTS, index=False)
-    else:
-        data = pd.read_csv(RESULTS)
-        data = data.append(results, ignore_index=True)
-        data.to_csv(RESULTS, index=False)
-
-def eval_laplacian(index, groundtruth, method_name, plot_path=None, matrix=None, beats=None):
-    if not result_exists(groundtruth, method_name, index):
-        if matrix is not None and beats is not None:
-            lpi, lpl = get_laplacian_struct_from_affinity2(matrix, beats)
-        else:
-            lpi, lpl = get_laplacian_struct_from_audio(get_audio(index))
-        if plot_path:
-            plot_hierarchy(plot_path, index, method_name, lpi, lpl, groundtruth)
-        eval_and_add_results(index, method_name, groundtruth, lpi, lpl)
-
-def eval_transitive(index, groundtruth, matrix, beats, method_name, plot_path=None):
-    if not result_exists(groundtruth, method_name, index):
-        alignment = matrix_to_segments(matrix)
-        #plot_matrix(segments_to_matrix(alignment, (len(chroma),len(chroma))), 'est2.png')
-        hierarchy = simple_structure(matrix[0], alignment, MIN_LEN2, MIN_DIST2)
-        #print(index, len(hierarchy), [len(h) for h in hierarchy])
-        maxtime = np.max(np.concatenate(groundtruth[0][0]))
-        beat_ints = np.dstack((beats, np.append(beats[1:], maxtime)))[0]
-        hi, hl = [beat_ints for h in range(len(hierarchy))], hierarchy.tolist()
-        if plot_path:
-            plot_hierarchy(plot_path, index, method_name, hi, hl, groundtruth)
-        eval_and_add_results(index, method_name, groundtruth, hi, hl)
-
-def eval_hierarchy(index, matrix_method='own', use_mat_in_lapl=True,
-        plot_path=None, hom_labels=False):
-    tname = 't_'+matrix_method
-    lname = 'l'+(('_2'+matrix_method) if use_mat_in_lapl else '')
-    groundtruth = load_salami_hierarchies(index)
-    if hom_labels:
-        groundtruth = [homogenize_labels(g) for g in groundtruth]
+def eval_and_add_results(index, method_name, groundtruth, intervals, labels, plot_path=None):
     if plot_path:
-        if not hom_labels:#:D
-            groundtruth = [homogenize_labels(g) for g in groundtruth]
-        for i,g in enumerate(groundtruth):
-            plot_hierarchy(plot_path, index, 'a'+str(i+1), g[0], g[1], groundtruth)
-    if len(groundtruth) > 0 and not (result_exists(groundtruth, tname, index)
-            and result_exists(groundtruth, lname, index)):
-        if matrix_method == 'fused':
-            matrix, beats = load_fused_matrix(index)
-        elif matrix_method == 'mcfee':
-            matrix, beats = get_smooth_affinity_matrix(get_audio(index))
+        plot_hierarchy(plot_path, index, method_name, intervals, labels, groundtruth)
+    if not result_exists(groundtruth, method_name, index):
+        results = []
+        for i, (refint, reflab) in enumerate(groundtruth):
+            score = evaluate_hierarchy(refint, reflab, intervals, labels)
+            results.append([index,
+                K_FACTOR, MIN_LEN, MIN_DIST, MAX_GAPS, MAX_GAP_RATIO, MIN_LEN2, MIN_DIST2,
+                i, method_name, score[0], score[1], score[2]])
+        print(results)
+        results = pd.DataFrame(np.array(results),
+            columns=['SONG', 'K_FACTOR', 'MIN_LEN', 'MIN_DIST', 'MAX_GAPS',
+                'MAX_GAP_RATIO', 'MIN_LEN2', 'MIN_DIST2',
+                'REF', 'METHOD', 'P', 'R', 'L'])
+        if not os.path.isfile(RESULTS):
+            results.to_csv(RESULTS, index=False)
         else:
-            chroma = get_beatwise_chroma(index)#load_beatwise_chords(index)
-            matrix, raw = get_affinity_matrix(chroma, chroma, False, MAX_GAPS,
-                MAX_GAP_RATIO)#, k_factor=K_FACTOR)
-            # plot_matrix(raw, 'est0.png')
-            # plot_matrix(matrix, 'est1.png')
-            beats = get_beats(index)
-    
-        alignment = get_segments_from_matrix(matrix, True, 0, MIN_LEN,
-            MIN_DIST, MAX_GAPS, MAX_GAP_RATIO)
-        #print(index, len(alignment))
-        beats = beats[:len(matrix)]
-    
-        if not use_mat_in_lapl:
-            eval_laplacian(index, groundtruth, lname, plot_path)
-        else:
-            eval_laplacian(index, groundtruth, lname, plot_path, matrix, beats)
-    
-        matrix = segments_to_matrix(alignment, (len(matrix), len(matrix)))
-        # plot_matrix(matrix, 'est2.png')
-        eval_transitive(index, groundtruth, matrix, beats, tname, plot_path)
+            data = pd.read_csv(RESULTS)
+            data = data.append(results, ignore_index=True)
+            data.to_csv(RESULTS, index=False)
 
 def own_chroma_affinity(index):
-    chroma = get_beatwise_chroma(index)#load_beatwise_chords(index)
+    chroma = buffered_run(DATA+'chroma'+str(index),
+        lambda: get_beatwise_chroma(index))#load_beatwise_chords(index)
     matrix, raw = get_affinity_matrix(chroma, chroma, False, MAX_GAPS,
         MAX_GAP_RATIO)#, k_factor=K_FACTOR)
     # plot_matrix(raw, 'est0.png')
@@ -242,16 +183,16 @@ def own_chroma_affinity(index):
     beats = get_beats(index)
     return matrix, beats
 
-def transitive_hierarchy(params):
-    matrix, beats, groundtruth = params
+def transitive_hierarchy(matrix, beats, groundtruth):
     alignment = get_segments_from_matrix(matrix, True, 0, MIN_LEN,
         MIN_DIST, MAX_GAPS, MAX_GAP_RATIO)
     beats = beats[:len(matrix)]
     matrix = segments_to_matrix(alignment, (len(matrix), len(matrix)))
+    print(matrix.shape)
+    #TODO CANT JUST PASS FIRST ROW!! NEED THE SEQUENCE FOR H IMPROVEMENT!!!!!
     hierarchy = simple_structure(matrix[0], alignment, MIN_LEN2, MIN_DIST2)
     maxtime = np.max(np.concatenate(groundtruth[0][0]))
     beat_ints = np.dstack((beats, np.append(beats[1:], maxtime)))[0]
-    #print('done!')
     return [beat_ints for h in range(len(hierarchy))], hierarchy.tolist()
 
 def plot_groundtruths(indices, plot_path):
@@ -263,22 +204,27 @@ def plot_groundtruths(indices, plot_path):
 def evaluate(index, hom_labels=False):
     groundtruth = load_salami_hierarchies(index)
     if hom_labels: groundtruth = [homogenize_labels(v) for v in groundtruth]
-    chroma = buffered_run(DATA+'chroma'+str(index),
-        lambda: get_beatwise_chroma(index))
     fused, fbeats = load_fused_matrix(index)
-    # mcfee, mbeats = buffered_run(DATA+'mcfee'+str(index),
-    #     lambda: get_smooth_affinity_matrix(get_audio(index)))
+    mcfee, mbeats = buffered_run(DATA+'mcfee'+str(index),
+        lambda: get_smooth_affinity_matrix(get_audio(index)))
     own, obeats = buffered_run(DATA+'own'+str(index),
         lambda: own_chroma_affinity(index))
-    # orig_lapl = buffered_run(DATA+'lapl'+str(index),
-    #     lambda: get_laplacian_struct_from_audio(audio))
-    # own_trans = buffered_run(DATA+'town'+str(index),
-    #     lambda: transitive_hierarchy(own, obeats, groundtruth))
+    # beats = beats[:len(matrix)]
+    l = buffered_run(DATA+'lapl'+str(index),
+        lambda: get_laplacian_struct_from_audio(get_audio(index)))
+    # l_own = buffered_run(DATA+'l_own'+str(index),
+    #     lambda: get_laplacian_struct_from_affinity2(own, obeats))
+    t_own = buffered_run(DATA+'t_own'+str(index),
+        lambda: transitive_hierarchy(own, obeats, groundtruth))
+    #evaluate
+    eval_and_add_results(index, 'l', groundtruth, l[0], l[1])
+    #eval_and_add_results(index, 'l_own', groundtruth, l_own[0], l_own[1])
+    eval_and_add_results(index, 't_own', groundtruth, t_own[0], t_own[1])
 
 def sweep(multi=True):
     songs = get_available_songs()[197:222]#[197:347]#[6:16]
     if multi:
-        multiprocess('evaluating hierarchies', evaluate, songs, False)
+        multiprocess('evaluating hierarchies', evaluate, songs, True)
     else:
         [evaluate(i) for i in tqdm.tqdm(songs)]
 
@@ -325,7 +271,8 @@ def test_eval_detail(index):
 #test_hierarchy(get_available_songs()[0])
 #run()
 #print(get_available_songs()[297:])
-sweep()
+if __name__ == "__main__":
+    sweep()
 #INDEX = 955
 #eval_hierarchy(1208)#982)
 #load_fused_matrix(1319)
