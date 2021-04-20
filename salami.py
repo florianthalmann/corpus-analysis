@@ -37,8 +37,12 @@ MIN_DIST2 = 1
 PLOT_FRAMES = 2000
 
 def get_available_songs():
-    return np.unique([int(s.split('.')[0]) for s in os.listdir(audio)
+    audio_files = np.unique([int(s.split('.')[0]) for s in os.listdir(audio)
         if os.path.splitext(s)[1] == '.mp3'])
+    #some annotations are missing!
+    anno_files = np.unique([int(a) for a in os.listdir(annotations)
+        if a != '.DS_Store'])
+    return np.intersect1d(audio_files, anno_files)
 
 def extract_features(audio):
     extract_chords(audio, features)
@@ -186,12 +190,11 @@ def own_chroma_affinity(index):
 def transitive_hierarchy(matrix, beats, groundtruth):
     alignment = get_segments_from_matrix(matrix, True, 0, MIN_LEN,
         MIN_DIST, MAX_GAPS, MAX_GAP_RATIO)
-    beats = beats[:len(matrix)]
     matrix = segments_to_matrix(alignment, (len(matrix), len(matrix)))
-    print(matrix.shape)
-    #TODO CANT JUST PASS FIRST ROW!! NEED THE SEQUENCE FOR H IMPROVEMENT!!!!!
-    hierarchy = simple_structure(matrix[0], alignment, MIN_LEN2, MIN_DIST2)
+    seq = matrix[0] if matrix is not None else []
+    hierarchy = simple_structure(seq, alignment, MIN_LEN2, MIN_DIST2)
     maxtime = np.max(np.concatenate(groundtruth[0][0]))
+    beats = beats[:len(matrix)]#just to make sure
     beat_ints = np.dstack((beats, np.append(beats[1:], maxtime)))[0]
     return [beat_ints for h in range(len(hierarchy))], hierarchy.tolist()
 
@@ -209,7 +212,6 @@ def evaluate(index, hom_labels=False):
         lambda: get_smooth_affinity_matrix(get_audio(index)))
     own, obeats = buffered_run(DATA+'own'+str(index),
         lambda: own_chroma_affinity(index))
-    # beats = beats[:len(matrix)]
     l = buffered_run(DATA+'lapl'+str(index),
         lambda: get_laplacian_struct_from_audio(get_audio(index)))
     # l_own = buffered_run(DATA+'l_own'+str(index),
@@ -222,7 +224,7 @@ def evaluate(index, hom_labels=False):
     eval_and_add_results(index, 't_own', groundtruth, t_own[0], t_own[1])
 
 def sweep(multi=True):
-    songs = get_available_songs()[197:222]#[197:347]#[6:16]
+    songs = get_available_songs()#[197:222]#[197:347]#[6:16]
     if multi:
         multiprocess('evaluating hierarchies', evaluate, songs, True)
     else:
