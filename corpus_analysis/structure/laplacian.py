@@ -46,7 +46,6 @@ def make_beat_sync_features(y, sr):
                                                                 x_min=0,
                                                                 x_max=C.shape[1]),
                                         sr=sr)
-    #print(len(beats), len(beat_times))
     
     #print('\tcomputing MFCCs...')
     mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=13)
@@ -108,8 +107,8 @@ def decompose(A):
     # Now let's compute the normalized Laplacian (Eq. 10)
     L = scipy.sparse.csgraph.laplacian(A, normed=True)
     
-    np.set_printoptions(threshold=sys.maxsize)
-    plt.matshow(L)
+    #np.set_printoptions(threshold=sys.maxsize)
+    #plt.matshow(L)
 
     # and its spectral decomposition
     evals, evecs = scipy.linalg.eigh(L)

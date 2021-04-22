@@ -9,10 +9,9 @@ import seaborn as sns
 from graph_tool.all import graph_draw
 
 def multiprocess(title, func, data, unordered=False):
-    with Pool(processes=cpu_count()-1) as pool:
-        if unordered:
-            return list(tqdm.tqdm(pool.imap_unordered(func, data), total=len(data), desc=title))
-        return list(tqdm.tqdm(pool.imap(func, data), total=len(data), desc=title))
+    with Pool(processes=cpu_count()-2) as pool:
+        pfunc = pool.imap_unordered if unordered else pool.imap
+        return list(tqdm.tqdm(pfunc(func, data), total=len(data), desc=title))
 
 def flatten(array, iterations=math.inf):#iterations inf is deep flatten
     if iterations >= 0 and isinstance(array, list):

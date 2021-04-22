@@ -23,3 +23,5 @@ def traceback(H):
 def smith_waterman(a, b, match_score=3, gap_cost=5, ignore=[]):
     H = matrix(a, b, match_score, gap_cost, ignore)
     return traceback(H), H
+
+#print(smith_waterman([3,4,6,7],[3,4,5,6,7]))
