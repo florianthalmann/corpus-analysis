@@ -5,7 +5,7 @@ import scipy.io as sio
 from datetime import datetime
 from matplotlib import pyplot as plt
 from corpus_analysis.util import multiprocess, plot_matrix, buffered_run,\
-    plot_sequences, save_json, load_json
+    plot_sequences, save_json, load_json, flatten
 from corpus_analysis.features import extract_chords, extract_bars,\
     get_summarized_chords, get_summarized_chroma, load_beats, get_duration
 from corpus_analysis.alignment.affinity import get_alignment_segments,\
@@ -87,13 +87,10 @@ def load_salami(filename):
     "load SALAMI event format as labeled intervals"
     events, labels = mir_eval.io.load_labeled_events(filename)
     #parsed files often have multiple labels at 0 or end, which boundaries_to_intervals can't handle
-    while events[0] == events[1]:
-        events, labels = events[1:], labels[1:]
-    while events[-2] == events[-1]:
-        events, labels = events[:-1], labels[:-1]
-    #print(events, labels)
+    events, indices = np.unique(events, return_index=True)
+    labels = [l for i,l in enumerate(labels) if i in indices][:-1]#end label not needed
     intervals = mir_eval.util.boundaries_to_intervals(events)
-    return intervals, labels[:len(intervals)]
+    return intervals, labels
 
 def load_salami_hierarchy(index, annotation):
     prefix = annotations+str(index)+'/parsed/textfile'+str(annotation)+'_'
@@ -138,6 +135,15 @@ def load_fused_matrix(index):
     beats = np.array(j['times'][:len(m)])
     #plot_matrix(m)
     return m, beats
+
+def monotonic(hierarchy):
+    return set(np.unique(hierarchy[0][0])) <= set(np.unique(hierarchy[0][1]))
+
+def salami_analysis():
+    annos = load_all_salami_hierarchies()
+    all = flatten(list(annos.values()), 1)
+    mono = [a for a in all if monotonic(a)]
+    print(len(annos), len(all), len(mono), len(mono)/len(all))
 
 def test_eval():
     ref_hier, ref_lab = load_salami_hierarchy(10, 1)
@@ -284,5 +290,6 @@ if __name__ == "__main__":
     #extract_all_features()
     #calculate_fused_matrices()
     #sweep()
-    evaluate(1199)#1221)
+    #evaluate(1199)#1221)
+    salami_analysis()
     #plot('salami3.png')
