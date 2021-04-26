@@ -25,13 +25,19 @@ def extract_chords(path, outpath=None):
             +' audiocommons/faas-confident-chord-estimator python3 index.py > "'
             +outFile+'"'], shell=True, stdin=pipe.stdout)
 
-def extract_bars(path, outpath=None):
+def extract_bars(path, outpath=None, use_librosa=False):
     if not outpath: outpath = '/'.join(path.split('/')[:-1])
     audioFile = '/'.join(path.split('/')[-1:])
     outFile = outpath + '.'.join(audioFile.split('.')[:-1])+'_bars.txt'
     if not os.path.isfile(outFile):
-        subprocess.call('DBNDownbeatTracker single -o "'+outFile+'" "'+path+'"',
-            shell=True)
+        if use_librosa:
+            y, sr = librosa.load(path)
+            tempo, beats = librosa.beat.beat_track(y=y, sr=sr, trim=False)
+            with open(outFile, 'w') as f:
+                f.write('\n'.join([str(b) for b in beats]))
+        else:
+            subprocess.call('DBNDownbeatTracker single -o "'
+                +outFile+'" "'+path+'"', shell=True)
 
 def load_beats(path):
     with open(path) as f:

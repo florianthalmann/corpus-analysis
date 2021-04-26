@@ -16,10 +16,10 @@ from corpus_analysis.structure.laplacian import get_laplacian_struct_from_affini
     to_levels, get_laplacian_struct_from_audio, get_laplacian_struct_from_affinity2,\
     get_smooth_affinity_matrix
 from corpus_analysis.structure.eval import evaluate_hierarchy, simplify
-from corpus_analysis.structure.hcomparison import lmeasure
+from corpus_analysis.stats.hierarchies import monotonic2, beatwise
 
 corpus = '/Users/flo/Projects/Code/Kyoto/SALAMI/'
-audio = corpus+'lma-audio/'
+audio = corpus+'all-audio'#'lma-audio/'
 annotations = corpus+'salami-data-public/annotations/'
 features = corpus+'features/'
 output = 'salami/'
@@ -42,18 +42,21 @@ PARAMS = [K_FACTOR, MIN_LEN, MIN_DIST, MAX_GAPS, MAX_GAP_RATIO, MIN_LEN2, MIN_DI
 def get_annotation_ids():
     return np.unique([int(a) for a in os.listdir(annotations) if a != '.DS_Store'])
 
+def get_audio_files():
+    return [os.path.join(audio, a) for a in os.listdir(audio)
+        if os.path.splitext(a)[1] == '.mp3']
+
 def get_available_songs():
-    audio_files = np.unique([int(s.split('.')[0]) for s in os.listdir(audio)
-        if os.path.splitext(s)[1] == '.mp3'])
-    return np.intersect1d(audio_files, get_annotation_ids())
+    audio_ids = np.unique([int(a.split('/')[-1].split('.')[0])
+        for a in get_audio_files()])
+    return np.intersect1d(audio_ids, get_annotation_ids())
 
 def extract_features(audio):
-    extract_chords(audio, features)
-    extract_bars(audio, features)
+    #extract_chords(audio, features)
+    extract_bars(audio, features, True)
 
 def extract_all_features():
-    audio_files = [os.path.join(audio, a) for a in os.listdir(audio)]
-    multiprocess('extracting features', extract_features, audio_files, True)
+    multiprocess('extracting features', extract_features, get_audio_files(), True)
 
 def calculate_fused_matrix(audio):
     filename = audio.split('/')[-1].replace('.mp3', '')
@@ -65,9 +68,7 @@ def calculate_fused_matrix(audio):
             #stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 def calculate_fused_matrices():
-    audio_files = [os.path.join(audio, a) for a in os.listdir(audio)
-        if os.path.splitext(a)[1] == '.mp3']
-    [calculate_fused_matrix(a) for a in tqdm.tqdm(audio_files)]
+    [calculate_fused_matrix(a) for a in tqdm.tqdm(get_audio_files())]
 
 def load_beatwise_chords(index):
     return get_summarized_chords(features+str(index)+'_bars.txt',
@@ -112,20 +113,6 @@ def homogenize_labels(salami_hierarchy):
     return (salami_hierarchy[0],
         [[np.where(uniq_labels == l)[0][0] for l in lev] for lev in labels])
 
-def beatwise(salami_hierarchy, beats):
-    salami_hierarchy = [s for s in salami_hierarchy[0] if len(s) > 0],\
-        [[int(i) for i in s] for s in salami_hierarchy[1] if len(s) > 0]
-    beat_intervals = list(zip(beats[:-1], beats[1:]))
-    values = []
-    for intervals, labels in zip(*salami_hierarchy):
-        values.append([])
-        for b in beat_intervals:
-            indices = np.where(b[0] >= intervals[:,0])[0]
-            values[-1].append(labels[indices[-1]] if len(indices) > 0 else -1)
-    return np.array(values)
-    # return np.array([[labels[np.where(b[0] >= intervals[:,0])[0][-1]]
-    #     for b in beat_intervals])
-
 def load_fused_matrix(index):
     m = sio.loadmat(features+str(index)+'.mat')
     j = load_json(features+str(index)+'.json')
@@ -136,13 +123,12 @@ def load_fused_matrix(index):
     #plot_matrix(m)
     return m, beats
 
-def monotonic(hierarchy):
-    return set(np.unique(hierarchy[0][0])) <= set(np.unique(hierarchy[0][1]))
-
 def salami_analysis():
     annos = load_all_salami_hierarchies()
+    #beats = {i:get_beats(i) for i in annos.keys()}
+    monotonic2(annos[1211][0], get_beats(1211))#beats[1211])
     all = flatten(list(annos.values()), 1)
-    mono = [a for a in all if monotonic(a)]
+    mono = [a for a in all if monotonic2(a)]
     print(len(annos), len(all), len(mono), len(mono)/len(all))
 
 def test_eval():
@@ -224,8 +210,8 @@ def evaluate(index, hom_labels=False, plot_path=output+'all2/'):
     own, obeats = buffered_run(DATA+'own'+str(index),
         lambda: own_chroma_affinity(index), PARAMS)
     
-    # l = buffered_run(DATA+'lapl'+str(index),
-    #     lambda: get_laplacian_struct_from_audio(get_audio(index)))
+    l = buffered_run(DATA+'lapl'+str(index),
+        lambda: get_laplacian_struct_from_audio(get_audio(index)))
     # plot_hierarchy(plot_path, index, 'l', l[0], l[1], groundtruth)
     # eval_and_add_results(index, 'l', groundtruth, l[0], l[1])
     
@@ -280,16 +266,16 @@ def test_eval_detail(index):
 #export LC_ALL="en_US.UTF-8"
 #export LC_CTYPE="en_US.UTF-8"
 def sweep(multi=True):
-    songs = get_available_songs()[197:222]#[197:347]#[6:16]
+    songs = get_available_songs()#[197:222]#[197:347]#[6:16]
     if multi:
         multiprocess('evaluating hierarchies', evaluate, songs, True)
     else:
         [evaluate(i) for i in tqdm.tqdm(songs)]
 
 if __name__ == "__main__":
-    #extract_all_features()
+    extract_all_features()
     #calculate_fused_matrices()
-    #sweep()
+    sweep()
     #evaluate(1199)#1221)
-    salami_analysis()
+    #salami_analysis()
     #plot('salami3.png')
