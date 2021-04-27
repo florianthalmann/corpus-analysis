@@ -194,6 +194,8 @@ def segments_to_matrix(segments, shape=None, sum=False):
         else:
             matrix[points.T[0], points.T[1]] = 1
         return matrix
+    elif shape:
+        return np.zeros(shape)
 
 def get_alignment_matrix(a, b, min_len, min_dist, max_gap_size, max_gap_ratio):
     segments = get_alignment_segments(a, b, min_len, min_dist, max_gap_size, max_gap_ratio)

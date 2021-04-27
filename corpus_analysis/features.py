@@ -32,7 +32,8 @@ def extract_bars(path, outpath=None, use_librosa=False):
     if not os.path.isfile(outFile):
         if use_librosa:
             y, sr = librosa.load(path)
-            tempo, beats = librosa.beat.beat_track(y=y, sr=sr, trim=False)
+            tempo, beats = librosa.beat.beat_track(y=y, sr=sr,
+                trim=False, units='time')
             with open(outFile, 'w') as f:
                 f.write('\n'.join([str(b) for b in beats]))
         else:
@@ -114,9 +115,6 @@ def get_summarized_chords(beatsFile, chordsFile, bars=False):
     time = load_bars(beatsFile) if bars else load_beats(beatsFile)
     chords = load_chords(chordsFile)
     return summarize(chords, time)
-
-def get_duration(chordsFile):
-    return load_json(chordsFile)["duration"]
 
 def get_summarized_chroma(audioFile, beatsFile):
     y, sr = librosa.load(audioFile)

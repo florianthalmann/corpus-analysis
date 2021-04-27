@@ -231,12 +231,12 @@ def evaluate(index, hom_labels=False, plot_path=output+'all2/'):
     # plot_hierarchy(plot_path, index, 'l', l[0], l[1], groundtruth)
     # eval_and_add_results(index, 'l', groundtruth, l[0], l[1])
     
-    # l_own = buffered_run(DATA+'l_own'+str(index),
-    #     lambda: get_laplacian_struct_from_affinity2(own, obeats), PARAMS)
+    l_own = buffered_run(DATA+'l_own'+str(index),
+        lambda: get_laplacian_struct_from_affinity2(own, obeats), PARAMS)
     # eval_and_add_results(index, 'l_own', groundtruth, l_own[0], l_own[1])
     
-    # t_own = buffered_run(DATA+'t_own'+str(index),
-    #     lambda: transitive_hierarchy(own, obeats, groundtruth), PARAMS)
+    t_own = buffered_run(DATA+'t_own'+str(index),
+        lambda: transitive_hierarchy(own, obeats, groundtruth), PARAMS)
     # # plot_hierarchy(plot_path, index, 't_own', t_own[0], t_own[1], groundtruth)
     # eval_and_add_results(index, 't_own', groundtruth, t_own[0], t_own[1])
 
@@ -291,7 +291,7 @@ def sweep(multi=True):
 if __name__ == "__main__":
     #extract_all_features()
     #calculate_fused_matrices()
-    sweep()
+    #sweep()
     #evaluate(1199)#1221)
-    #salami_analysis()
+    salami_analysis()
     #plot('salami3.png')
