@@ -1,13 +1,14 @@
 import os, mir_eval, subprocess, tqdm
+from mutagen.mp3 import MP3
 import numpy as np
 import pandas as pd
 import scipy.io as sio
 from datetime import datetime
 from matplotlib import pyplot as plt
 from corpus_analysis.util import multiprocess, plot_matrix, buffered_run,\
-    plot_sequences, save_json, load_json, flatten
+    plot_sequences, save_json, load_json, flatten, catch
 from corpus_analysis.features import extract_chords, extract_bars,\
-    get_summarized_chords, get_summarized_chroma, load_beats, get_duration
+    get_summarized_chords, get_summarized_chroma, load_beats
 from corpus_analysis.alignment.affinity import get_alignment_segments,\
     segments_to_matrix, get_affinity_matrix, get_segments_from_matrix,\
     matrix_to_segments
@@ -16,7 +17,8 @@ from corpus_analysis.structure.laplacian import get_laplacian_struct_from_affini
     to_levels, get_laplacian_struct_from_audio, get_laplacian_struct_from_affinity2,\
     get_smooth_affinity_matrix
 from corpus_analysis.structure.eval import evaluate_hierarchy, simplify
-from corpus_analysis.stats.hierarchies import monotonic2, beatwise
+from corpus_analysis.stats.hierarchies import monotonicity, monotonicity2,\
+    monotonicity3, beatwise_ints
 
 corpus = '/Users/flo/Projects/Code/Kyoto/SALAMI/'
 audio = corpus+'all-audio'#'lma-audio/'
@@ -46,10 +48,18 @@ def get_audio_files():
     return [os.path.join(audio, a) for a in os.listdir(audio)
         if os.path.splitext(a)[1] == '.mp3']
 
+#get all salami_ids for which there are annotation files and an audio file
+#whose length is longer than 30 seconds and corresponds to the annotation
 def get_available_songs():
-    audio_ids = np.unique([int(a.split('/')[-1].split('.')[0])
-        for a in get_audio_files()])
-    return np.intersect1d(audio_ids, get_annotation_ids())
+    audio_ids = [int(a.split('/')[-1].split('.')[0]) for a in get_audio_files()]
+    durs = [catch(lambda a: MP3(a).info.length, lambda e: 0, a)
+        for a in get_audio_files()]
+    salami_duration = lambda i: load_salami_hierarchies(i)[0][0][-1][-1][-1]
+    sdurs = {i:salami_duration(i) for i in get_annotation_ids()}
+    audio_ids = [a for a,d in zip(audio_ids, durs)
+        if d >= 30 and a in sdurs and abs(d-sdurs[a]) < 1]
+    print('kept', len(audio_ids), 'of', len(durs), 'salami files')
+    return np.unique(audio_ids) #sort and make sure they're unique..
 
 def extract_features(audio):
     #extract_chords(audio, features)
@@ -104,9 +114,6 @@ def load_salami_hierarchies(index):
     hierarchies = [load_salami_hierarchy(index, a) for a in [1,2]]
     return [h for h in hierarchies if h != None]
 
-def load_all_salami_hierarchies():
-    return {i:load_salami_hierarchies(i) for i in get_annotation_ids()}
-
 def homogenize_labels(salami_hierarchy):
     labels = [[l.replace("'", '') for l in lev] for lev in salami_hierarchy[1]]
     uniq_labels = np.unique([l for l in np.concatenate(labels)])
@@ -124,12 +131,21 @@ def load_fused_matrix(index):
     return m, beats
 
 def salami_analysis():
-    annos = load_all_salami_hierarchies()
-    #beats = {i:get_beats(i) for i in annos.keys()}
-    monotonic2(annos[1211][0], get_beats(1211))#beats[1211])
-    all = flatten(list(annos.values()), 1)
-    mono = [a for a in all if monotonic2(a)]
-    print(len(annos), len(all), len(mono), len(mono)/len(all))
+    annos = {i:load_salami_hierarchies(i) for i in get_available_songs()}
+    beats = {i:get_beats(i) for i in annos.keys()}
+    print("num songs", len(annos))
+    hiers = [a for a in flatten(list(annos.values()), 1)]
+    beats = flatten([[beats[i] for v in a] for i,a in annos.items()], 1)
+    #print(annos[3], hiers[0])
+    #check = lambda i,a,b: [print(i), monotonicity2(a,b)]
+    #[[check(i,v,beats[i]) for v in a] for i,a in annos.items()]
+    print("m1", np.mean([monotonicity(h) for h in hiers]))
+    print("m2", np.mean([monotonicity2(h, b) for h,b in zip(hiers, beats)]))
+    print("m3", np.mean([monotonicity3(h, b) for h,b in zip(hiers, beats)]))
+    hiers = [homogenize_labels(h) for h in hiers]
+    print("m1hom", np.mean([monotonicity(h) for h in hiers]))
+    print("m2hom", np.mean([monotonicity2(h, b) for h,b in zip(hiers, beats)]))
+    print("m3hom", np.mean([monotonicity3(h, b) for h,b in zip(hiers, beats)]))
 
 def test_eval():
     ref_hier, ref_lab = load_salami_hierarchy(10, 1)
@@ -142,7 +158,7 @@ def plot_hierarchy(path, index, method_name, intervals, labels, groundtruth):
     if not os.path.isfile(filename):
         maxtime = np.max(np.concatenate(groundtruth[0][0]))
         frames = np.linspace(0, int(maxtime), PLOT_FRAMES, endpoint=False)
-        labelseqs = beatwise((intervals, labels), frames)
+        labelseqs = beatwise_ints((intervals, labels), frames)
         if len(labelseqs) > 0:
             plot_sequences(labelseqs, path+str(index)+method_name+'.png')
 
@@ -219,10 +235,10 @@ def evaluate(index, hom_labels=False, plot_path=output+'all2/'):
     #     lambda: get_laplacian_struct_from_affinity2(own, obeats), PARAMS)
     # eval_and_add_results(index, 'l_own', groundtruth, l_own[0], l_own[1])
     
-    t_own = buffered_run(DATA+'t_own'+str(index),
-        lambda: transitive_hierarchy(own, obeats, groundtruth), PARAMS)
-    # plot_hierarchy(plot_path, index, 't_own', t_own[0], t_own[1], groundtruth)
-    eval_and_add_results(index, 't_own', groundtruth, t_own[0], t_own[1])
+    # t_own = buffered_run(DATA+'t_own'+str(index),
+    #     lambda: transitive_hierarchy(own, obeats, groundtruth), PARAMS)
+    # # plot_hierarchy(plot_path, index, 't_own', t_own[0], t_own[1], groundtruth)
+    # eval_and_add_results(index, 't_own', groundtruth, t_own[0], t_own[1])
 
 def plot(path):
     data = pd.read_csv(RESULTS)
@@ -273,7 +289,7 @@ def sweep(multi=True):
         [evaluate(i) for i in tqdm.tqdm(songs)]
 
 if __name__ == "__main__":
-    extract_all_features()
+    #extract_all_features()
     #calculate_fused_matrices()
     sweep()
     #evaluate(1199)#1221)
