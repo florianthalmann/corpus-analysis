@@ -46,6 +46,7 @@ def mode(a, axis=0, strict=False):
         return values[max]
     return -1
 
+#returns the unique elements in a in their original order
 def ordered_unique(a):
     _, idx = np.unique(a, return_index=True)
     return a[np.sort(idx)]
@@ -124,3 +125,9 @@ def profile(func):
     func()
     pr.disable()
     pr.print_stats()
+
+def catch(func, handle=lambda e : e, *args, **kwargs):
+    try:
+        return func(*args, **kwargs)
+    except Exception as e:
+        return handle(e)

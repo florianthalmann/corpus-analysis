@@ -1,3 +1,4 @@
+from collections import defaultdict, Counter
 import numpy as np
 from ..features import to_multinomial
 
@@ -18,7 +19,18 @@ def monotonicity3(hierarchy, beats):
 
 def transitivity(hierarchy):
     tree = to_tree(hierarchy)
-    print(tree_to_label_array(tree))
+    print(recursive_transitivity(tree))
+
+def recursive_transitivity(tree):
+    child_dict = defaultdict(list)
+    for c in tree[1:]:
+        child_dict[c[0]].append(str([cc[0] for cc in c[1:]]))
+    print(child_dict)
+    return np.mean([largest_prop_same(c) for c in child_dict.values()])
+
+def largest_prop_same(list):
+    print(list, Counter(list).most_common(1)[0][1] / len(list))
+    return Counter(list).most_common(1)[0][1] / len(list)
 
 def pairwise_recalls(labels):
     same = [np.triu(np.equal.outer(l, l), k=1) for l in labels]
@@ -44,10 +56,10 @@ def to_tree(hierarchy):
             #didn't want to work otherwise
             tree = [n for n in tree if not (i[0] <= n[0][0] and n[0][1] <= i[1])]
             tree.append((i,l,children))
-    return tree[0]
+    return to_label_tree(tree[0])
 
-def tree_to_label_array(tree):
-    return [tree[1]] + [tree_to_array(c) for c in tree[2]]
+def to_label_tree(tree):
+    return [tree[1]] + [to_label_tree(c) for c in tree[2]]
 
 def make_monotonic(hierarchy):
     parent_times = ()
