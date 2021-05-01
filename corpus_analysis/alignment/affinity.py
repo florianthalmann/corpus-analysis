@@ -57,7 +57,7 @@ def get_affinity_matrix(a, b, equality, max_gaps, max_gap_ratio, k_factor=10, kn
         for i,k in enumerate(knn):
             conns[i][k] = 1
         matrix = conns
-        #plot_matrix(matrix, 'est-.png')
+        plot_matrix(matrix, 'est-.png')
     else:
         matrix = 1-pairwise_distances(a, b, metric="cosine")
         #plot_hist(np.hstack(matrix), 'est..png', 100)
@@ -71,8 +71,10 @@ def get_affinity_matrix(a, b, equality, max_gaps, max_gap_ratio, k_factor=10, kn
     #smooth with a median filter (smoothing sum keeps beginnings followed by gaps)
     if max_gaps > 0:
         matrix = smooth_matrix(matrix, symmetric, max_gaps, max_gap_ratio)
+        plot_matrix(matrix, 'est-1.png')
+        plot_matrix(matrix+unsmoothed, 'est-2.png')
         matrix = smooth_matrix(matrix+unsmoothed, symmetric, max_gaps, max_gap_ratio)
-    #plot_matrix(matrix, 'est-1.png')
+    plot_matrix(matrix, 'est-3.png')
     return matrix, unsmoothed
 
 #returns a list of arrays of index pairs
@@ -161,9 +163,19 @@ def filter_segments(segments, count, min_len, min_dist, symmetric, shape):
     #print([(len(s), s[0][1]-s[0][0]) for s in selected])
     return selected[1:] if symmetric else selected #remove diagonal if symmetric
 
+def remove_outer_gaps(segment, unsmoothed):
+    true_matches = np.nonzero(unsmoothed[tuple(segment.T)])[0]
+    #print(true_matches, segment)
+    if len(true_matches) > 1:
+        return segment[true_matches[0]:true_matches[-1]]
+    return []
+
 def get_segments_from_matrix(matrix, symmetric, count, min_len, min_dist, max_gap_size, max_gap_ratio, unsmoothed=None):
     if symmetric: matrix = np.triu(matrix)
     segments = matrix_to_segments(matrix)
+    #remove gaps at beginning and end
+    if unsmoothed is not None:
+        segments = [remove_outer_gaps(s, unsmoothed) for s in segments]
     #keep only segments longer than min_len and with a gap ratio below max_gap_ratio
     segments = [s for s in segments if len(s) >= min_len]
     if max_gap_size > 0 and max_gap_ratio > 0 and unsmoothed is not None:

@@ -15,3 +15,6 @@ def median_filter(a, radius):
 
 def symmetric(A):
     return np.all(np.abs(A-A.T) == 0) if A.shape[0] == A.shape[1] else False
+
+# print(np.array([0,0,0,0,1,0,1,1,0,0,1,1,0,0,0]))
+# print(median_filter(np.array([0,0,0,0,1,0,1,1,0,0,1,1,0,0,0]), 2))
