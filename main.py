@@ -23,11 +23,10 @@ from corpus_analysis.structure.graphs import graph_from_matrix, adjacency_matrix
 from corpus_analysis.structure.pattern_graph import PatternGraph, super_alignment_graph
 from corpus_analysis.structure.eval import evaluate_hierarchy_varlen
 from corpus_analysis.structure.hierarchies import get_hierarchy_labels, get_most_salient_labels
-from gd import get_versions_by_date, get_paths, SONGS
+from gd import get_versions_by_date, get_paths, SONGS, get_chord_sequences
 
 DATA = 'data/'
-RESULTS = 'results20pp/'
-BARS = False
+RESULTS = 'resultsNN/'
 SONG_INDEX = 3
 #alignment
 SEG_COUNT = 0 #0 for all segments
@@ -75,33 +74,43 @@ def preprocess_sequences(sequences):
     previous = [np.hstack(sequences)]
     sequences = remove_outliers(check_double_time(sequences))
     while not any([np.array_equal(s, np.hstack(sequences)) for s in previous]):
-        plot_sequences(sequences, str(len(previous))+'.png')
+        #plot_sequences(sequences, str(len(previous))+'.png')
         previous.append(np.hstack(sequences))
         sequences = remove_outliers(check_double_time(sequences, 50), 5)
     return sequences
 
-def get_alignments(song, preprocess=False):
+def get_preprocessed_seqs(song):
     sequences = buffered_run(DATA+song+'-chords',
         lambda: get_chord_sequences(song))
+    sequences = buffered_run(DATA+song+'-pp',
+        lambda: preprocess_sequences(sequences))
+    return sequences
+
+def get_alignments(name, sequences, preprocess=False):
     if preprocess:
-        sequences = buffered_run(DATA+song+'-pp',
+        sequences = buffered_run(DATA+name+'-pp',
             lambda: preprocess_sequences(sequences))
     extension = 'pp' if preprocess else ''
-    selfs = buffered_run(DATA+song+'-salign'+extension,
+    selfs = buffered_run(DATA+name+'-salign'+extension,
         lambda: get_self_alignments(sequences),
         [SEG_COUNT, MAX_GAPS, MAX_GAP_RATIO, MIN_LEN, MIN_DIST])
     if NUM_MUTUAL > 0:
-        pairings = buffered_run(DATA+song+'-pairs'+extension,
+        pairings = buffered_run(DATA+name+'-pairs'+extension,
             lambda: get_pairings(sequences), [NUM_MUTUAL])
-        mutuals = buffered_run(DATA+song+'-malign'+extension,
+        mutuals = buffered_run(DATA+name+'-malign'+extension,
             lambda: get_mutual_alignments(sequences, pairings),
             [SEG_COUNT, MAX_GAPS, MAX_GAP_RATIO, MIN_LEN, MIN_DIST, NUM_MUTUAL])
-    msa = buffered_run(DATA+song+'-msa'+extension,
+    msa = buffered_run(DATA+name+'-msa'+extension,
         lambda: align_sequences(sequences)[0])
     selfp = np.stack((np.arange(len(sequences)), np.arange(len(sequences)))).T
     pairings = np.concatenate((selfp, pairings)) if NUM_MUTUAL > 0 else selfp
     alignments = np.concatenate((selfs, mutuals)) if NUM_MUTUAL > 0 else selfs
     return sequences, pairings, alignments, msa
+
+def get_song_alignments(song, preprocess=False):
+    sequences = buffered_run(DATA+song+'-chords',
+        lambda: get_chord_sequences(song))
+    return get_alignments(song, sequences, preprocess)
 
 def get_simple_structure(sequence_n_alignment):
     sequence, alignment, index = sequence_n_alignment
@@ -221,21 +230,28 @@ def test_chroma_based_structure():
 
 
 def save_msa_eval(song, outfile):
-    method = 'new2'
-    data = pd.read_csv(outfile)
+    method = 'old2'
+    data = pd.read_csv(outfile) if os.path.isfile(outfile) else pd.DataFrame([],
+        columns=['song','method','entropy','partition count','total points'])
     if not ((data['song'] == song) & (data['method'] == method)).any():
-        sequences, pairings, alignments, msa = get_alignments(song)
+        sequences, pairings, alignments, msa = get_song_alignments(song, False)
         # eval = get_msa_eval(RESULTS+song, sequences, msa)
-        # eval = get_old_eval(RESULTS+song, sequences, pairings, alignments,
-        #     msa, MIN_LEN, MIN_DIST)
-        eval = get_new_eval(RESULTS+song, sequences, pairings, alignments)
+        eval = get_old_eval(RESULTS+song, sequences, pairings, alignments,
+            msa, MIN_LEN, MIN_DIST)
+        #eval = get_new_eval(RESULTS+song, sequences, pairings, alignments)
         data = pd.read_csv(outfile)
         data.loc[len(data)] = [song, method]+list(eval)
         data.to_csv(outfile, index=False)
 
+def multisong_set():
+    sequences = flatten([get_chord_sequences(s)[:3] for s in SONGS[:5]], 1)
+    #NUM_MUTUAL = 15
+    sequences, pairings, alignments, msa = get_alignments('mixed', sequences, False)
+    new_shared_structure(RESULTS+'mixed', sequences, pairings, alignments)
+
 def run():
     #plot_date_histogram()
-    # sequences, pairings, alignments, msa = get_alignments(SONGS[2])
+    # sequences, pairings, alignments, msa = get_song_alignments(SONGS[2])
     # plot_sequences(sequences, '0.png')
     # previous = [np.hstack(sequences)]
     # sequences = remove_outliers(check_double_time(sequences))
@@ -244,12 +260,15 @@ def run():
     #     previous.append(np.hstack(sequences))
     #     sequences = remove_outliers(check_double_time(sequences, 50), 5)
     
-    for s in SONGS:
-        sequences, pairings, alignments, msa = get_alignments(s, True)
-        new_shared_structure(RESULTS+s, sequences, pairings, alignments)
-        #save_msa_eval(s, 'eval.csv')
+    # for s in SONGS:
+    #     # sequences, pairings, alignments, msa = get_song_alignments(s, True)
+    #     # new_shared_structure(RESULTS+s, sequences, pairings, alignments)
+    #     save_msa_eval(s, 'eval2.csv')
+    #save_msa_eval(SONGS[SONG_INDEX], 'evallll.csv')
     
-    # sequences, pairings, alignments, msa = get_alignments(SONGS[SONG_INDEX])
+    multisong_set()
+    
+    # sequences, pairings, alignments, msa = get_song_alignments(SONGS[SONG_INDEX], True)
     # new_shared_structure(RESULTS+SONGS[SONG_INDEX], sequences, pairings, alignments)
     
     #save_msa_eval(SONGS[1], 'eval.json')
