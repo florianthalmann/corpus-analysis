@@ -19,17 +19,15 @@ def monotonicity3(hierarchy, beats):
 
 def transitivity(hierarchy):
     tree = to_tree(hierarchy)
-    print(recursive_transitivity(tree))
+    return recursive_transitivity(tree)
 
 def recursive_transitivity(tree):
     child_dict = defaultdict(list)
     for c in tree[1:]:
         child_dict[c[0]].append(str([cc[0] for cc in c[1:]]))
-    print(child_dict)
     return np.mean([largest_prop_same(c) for c in child_dict.values()])
 
 def largest_prop_same(list):
-    print(list, Counter(list).most_common(1)[0][1] / len(list))
     return Counter(list).most_common(1)[0][1] / len(list)
 
 def pairwise_recalls(labels):

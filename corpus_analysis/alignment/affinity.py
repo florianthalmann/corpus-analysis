@@ -41,10 +41,10 @@ def get_equality(a, b):
         return np.all(a[:, None] == b[None, :], axis=2).astype(int)
     return a[:, None] == b[None, :]
 
-def get_affinity_matrix(a, b, equality, max_gaps, max_gap_ratio, k_factor=10, knn=True):
+def get_affinity_matrix(a, b, equality, max_gaps, max_gap_ratio, factor=1, knn=True):
     symmetric = np.array_equal(a, b)
     width = 1
-    k = 2 * ceil(sqrt(((len(a)+len(b))/2) - 2 * width + 1))
+    k = factor * 2 * ceil(sqrt(((len(a)+len(b))/2) - 2 * width + 1))
     #k = 1+k_factor*int(log(len(matrix), 2))
     
     #create affinity or equality matrix
@@ -57,7 +57,7 @@ def get_affinity_matrix(a, b, equality, max_gaps, max_gap_ratio, k_factor=10, kn
         for i,k in enumerate(knn):
             conns[i][k] = 1
         matrix = conns
-        plot_matrix(matrix, 'est-.png')
+        #plot_matrix(matrix, 'est-.png')
     else:
         matrix = 1-pairwise_distances(a, b, metric="cosine")
         #plot_hist(np.hstack(matrix), 'est..png', 100)
@@ -71,10 +71,10 @@ def get_affinity_matrix(a, b, equality, max_gaps, max_gap_ratio, k_factor=10, kn
     #smooth with a median filter (smoothing sum keeps beginnings followed by gaps)
     if max_gaps > 0:
         matrix = smooth_matrix(matrix, symmetric, max_gaps, max_gap_ratio)
-        plot_matrix(matrix, 'est-1.png')
-        plot_matrix(matrix+unsmoothed, 'est-2.png')
+        #plot_matrix(matrix, 'est-1.png')
+        #plot_matrix(matrix+unsmoothed, 'est-2.png')
         matrix = smooth_matrix(matrix+unsmoothed, symmetric, max_gaps, max_gap_ratio)
-    plot_matrix(matrix, 'est-3.png')
+    #plot_matrix(matrix, 'est-3.png')
     return matrix, unsmoothed
 
 #returns a list of arrays of index pairs

@@ -1,3 +1,4 @@
+import tqdm
 from itertools import product, chain, groupby, islice
 from functools import reduce
 from collections import Counter, OrderedDict
@@ -8,6 +9,7 @@ from graph_tool.all import Graph, graph_draw, GraphView, edge_endpoint_property,
 from graph_tool.spectral import adjacency
 from graph_tool.topology import transitive_closure, all_paths, max_cliques, label_components
 from graph_tool.util import find_edge
+from ..alignment.affinity import segments_to_matrix, matrix_to_segments
 from ..util import group_adjacent, plot, plot_matrix
 
 def adjacency_matrix(graph, weight=None):
@@ -231,10 +233,12 @@ def quasi_clique_expansions(quasi_cliques, cliques, incomp):
     #print(len(max_expansions))
     return max_expansions if len(max_expansions) > 1 else []
 
-def valid_combo(c1, c2, incomp):
-    combo = snp.merge(c1, c2, duplicates=snp.DROP)
-    incomps = np.array([incomp[u] for u in combo])
+def valid_clique(c, incomp):
+    incomps = np.array([incomp[u] for u in c])
     return len(np.unique(incomps)) == len(incomps)
+
+def valid_combo(c1, c2, incomp):
+    return valid_clique(snp.merge(c1, c2, duplicates=snp.DROP), incomp)
 
 def quasi_clique_expansions2(quasi_cliques, cliques, incomp):
     array_cliques = [np.array(c) for c in cliques.keys()]
@@ -289,7 +293,7 @@ def maximal_quasi_cliques(cliques, incomp_vertices):
         #append and remove all sub-quasi-cliques
         quasi_cliques.update(new_qcs)
         #keep best rated ones
-        best = sorted(quasi_cliques.items(), key=lambda c: c[1], reverse=True)[:200]
+        best = sorted(quasi_cliques.items(), key=lambda c: c[1], reverse=True)[:10]
         quasi_cliques = {c:r for c,r in best}
         #super = remove_subarrays([np.array(q) for q in quasi_cliques.keys()])
         #super = [tuple(s) for s in super]
@@ -299,7 +303,7 @@ def maximal_quasi_cliques(cliques, incomp_vertices):
 def get_edge_combos2(g):
     edge_combos = []
     #for each vertex find best combinations of neighbors 
-    for v in g.get_vertices()[150:155]:#[49:50]:
+    for v in g.get_vertices()#[150:155]:#[49:50]:
         n = sorted(g.get_out_neighbors(v))
         #split into connected segments
         #print(v, len(n))
@@ -348,11 +352,12 @@ def integrate_subsets(clique_dict):
         if not subset:
             integrated[s[0]] = s[1]
     return integrated
-    
 
 def get_segment_combos(g, seg_index):
+    #print(seg_index.a)
     out_edges = [g.get_out_edges(v, [g.edge_index]) for v in g.get_vertices()]
     incomp_segs = get_incompatible_segments(g, seg_index, out_edges)
+    #print('incomp', len(incomp_segs))
     segment_combos = []
     segment_cliques = dict()
     for v in g.get_vertices():
@@ -365,21 +370,28 @@ def get_segment_combos(g, seg_index):
         cliq_edges = [out_edges[v][np.where(np.isin(out_edges[v][:,1], c))][:,2]
             for c in cliques]
         cliq_segs = [sorted(seg_index.a[e]) for e in cliq_edges]
-        [add_to_counting_dict(tuple(s), segment_cliques) for s in cliq_segs]
+        [add_to_counting_dict(tuple(np.unique(s)), segment_cliques) for s in cliq_segs]
     #print('cliques', len(segment_cliques))
+    #print(segment_cliques)
+    segment_cliques = {c:n for c,n in segment_cliques.items()
+        if valid_clique(c, incomp_segs)}
+    #print('valid cliques', len(segment_cliques))
+    #print(segment_cliques)
     segment_cliques = integrate_subsets(segment_cliques)
     #print('integrated', len(segment_cliques))
+    #print(segment_cliques)
     return maximal_quasi_cliques(segment_cliques, incomp_segs)
 
 #remove all alignments that are not reinforced by others from a simple a-graph
-def clean_up(g, time, seg_index):
+def clean_up(g, seg_index):
     #plot_matrix(np.triu(adjacency_matrix(g)), "results/clean0.png")
     #graph_draw(g, output_size=(1000, 1000), output="results/clean_up0.pdf")
     
     seg_combos = get_segment_combos(g, seg_index)
-    best = sorted(seg_combos.items(), key=lambda c: c[1], reverse=True)[:10]
+    best = sorted(seg_combos.items(), key=lambda c: c[1], reverse=True)#[:200]
     #print(best)
     best = best[0][0]
+    #print(best)
     
     #print(edges[:100])
     reduced = Graph(directed=False)
@@ -392,7 +404,7 @@ def clean_up(g, time, seg_index):
     #graph_draw(reduced, output_size=(1000, 1000), output="results/clean_up1.pdf")
     return reduced
 
-def structure_graph(msa, alignment_graph, mask_threshold=.5):
+def structure_graph(msa, alignment_graph, max_segments=None, mask_threshold=.5):
     msa = [[int(m[1:]) if len(m) > 0 else -1 for m in a] for a in msa]
     matches = alignment_graph.new_vertex_property("int")
     matches.a = np.concatenate(msa)
@@ -408,6 +420,12 @@ def structure_graph(msa, alignment_graph, mask_threshold=.5):
     conn_matrix = np.triu(conn_matrix, k=1)
     max_conn = np.max(conn_matrix)
     conn_matrix[np.where(conn_matrix < mask_threshold*max_conn)] = 0
+    segments = matrix_to_segments(conn_matrix)
+    print(len(segments))
+    avgcounts = [np.mean(conn_matrix[s.T[0], s.T[1]]) for s in segments]
+    segments = sorted(zip(segments, avgcounts), key=lambda s: s[1], reverse=True)
+    if max_segments: segments = [s[0] for s in segments[:max_segments]]
+    conn_matrix = np.triu(segments_to_matrix(segments, conn_matrix.shape), k=1)
     #create graph
     g = graph_from_matrix(conn_matrix)[0]
     #print('created structure graph', g)

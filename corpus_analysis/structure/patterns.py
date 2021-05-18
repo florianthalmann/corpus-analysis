@@ -82,6 +82,10 @@ class Pattern:
         return len(snp.intersect(np.arange(self.p, self.p+self.l),
             np.arange(other.p, other.p+other.l))) > 0
     
+    def first_occ_overlap(self, other):
+        return len(snp.intersect(np.arange(self.p, self.p+self.l),
+            np.arange(other.p, other.p+other.l))) / max(self.l, other.l)
+    
     def first_occ_contained(self, other):
         return len(snp.intersect(np.arange(self.p, self.p+self.l),
             np.arange(other.p, other.p+other.l))) == other.l
