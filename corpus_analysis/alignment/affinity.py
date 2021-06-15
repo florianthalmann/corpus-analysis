@@ -167,7 +167,7 @@ def remove_outer_gaps(segment, unsmoothed):
     true_matches = np.nonzero(unsmoothed[tuple(segment.T)])[0]
     #print(true_matches, segment)
     if len(true_matches) > 1:
-        return segment[true_matches[0]:true_matches[-1]]
+        return segment[true_matches[0]:true_matches[-1]+1]
     return []
 
 def get_segments_from_matrix(matrix, symmetric, count, min_len, min_dist, max_gap_size, max_gap_ratio, unsmoothed=None):

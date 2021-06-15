@@ -40,10 +40,11 @@ def indices_of_subarray(a, b):
     #return [i for i in range(len(a)-len(b)+1) if np.array_equal(a[i:i+len(b)], b)]
 
 def mode(a, axis=0, strict=False):
-    values, counts = np.unique(a, axis=axis, return_counts=True)
-    max = counts.argmax()
-    if not strict or np.sum(counts == counts[max]) == 1:
-        return values[max]
+    if len(a) > 0:
+        values, counts = np.unique(a, axis=axis, return_counts=True)
+        max = counts.argmax()
+        if not strict or np.sum(counts == counts[max]) == 1:
+            return values[max]
     return -1
 
 #returns the unique elements in a in their original order
@@ -72,6 +73,7 @@ def plot_graph(graph, path, edge_weights=None, vertex_weights=None):
         edge_pen_width=edge_weights, vertex_size=vertex_weights)
 
 def plot_sequences(sequences, path=None):
+    sequences = sequences.copy()
     maxlen = max([len(s) for s in sequences])
     minval = np.min(np.hstack(sequences))
     #offset to 1 and pad with 0s
@@ -87,6 +89,12 @@ def plot_sequences(sequences, path=None):
 
 def plot(data, path=None):
     plt.plot(data)
+    plt.savefig(path, dpi=1000) if path else plt.show()
+    plt.close()
+
+def plot_multi(data, path=None):
+    for d in data:
+        plt.plot(d)
     plt.savefig(path, dpi=1000) if path else plt.show()
     plt.close()
 
