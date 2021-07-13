@@ -1,6 +1,7 @@
+from math import log2
 from collections import defaultdict
 import numpy as np
-from nltk import CFG, PCFG, induce_pcfg, Nonterminal, Tree, InsideChartParser
+from nltk import CFG, PCFG, induce_pcfg, Nonterminal, Tree, InsideChartParser, EarleyChartParser
 #from nltk.parse import pchart
 from .hierarchies import to_hierarchy
 from ..util import multiprocess, flatten
@@ -112,14 +113,29 @@ def to_prob_map(productions):
         map[pstr.strip()] = float(prob.split(']')[0])
     return map
 
+def description_length(pcfg, sequences):
+    N = len(np.unique([str(r) for p in pcfg.productions() for r in p.rhs()]))
+    logN = log2(N)
+    pcfg_dl = sum([(1+len(p.rhs()))*logN for p in pcfg.productions()])
+    print(pcfg_dl)
+    #most probable parse for each sequence
+    parses = [InsideChartParser(pcfg).parse_all(s) for s in sequences]
+    parses = [sorted(p, key=lambda t: t.prob(), reverse=True)[0] for p in parses]
+    seq_dl = sum([(1+len(r.rhs()))*logN for p in parses for r in p.productions()])
+    print(seq_dl)
+    return pcfg_dl + seq_dl
+
 def test_pcfg():
-    trees = ['(S (0 1 2) (0 2 3))', '(S (0 1 2) (0 4 5))', '(S (1 2 3) (0 1 2))']
+    #trees = ['(S (0 1 2) (0 2 3))', '(S (0 1 2) (0 4 5))', '(S (1 1 2) (1 2 3))']
+    #trees = ['(S (0 1 2) (3 4 5 6))', '(S (0 1 2) (7 8) (3 4 5 6))', '(S (0 1 2) (9 4) (10 6))']
+    trees = ['(S (0 1 2) (3 4 5 6))', '(S (0 1 2) (7 8) (3 4 5 6))', '(S (0 1 2) (3 4 6))']
     trees = [Tree.fromstring(t) for t in trees]
+    print(trees)
     prods = [p for t in trees for p in t.productions()]
     print(prods)
     grammar = induce_pcfg(Nonterminal('S'), prods)
     print(grammar)
-    parsed = InsideChartParser(grammar).parse_all(trees[0].leaves())[0]
-    print(mean_probs([parsed], grammar))
+    sequences = [t.leaves() for t in trees]
+    description_length(grammar, sequences)
 
-#test_pcfg()
+test_pcfg()
