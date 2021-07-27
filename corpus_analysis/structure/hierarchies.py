@@ -1,4 +1,4 @@
-from math import sqrt
+import math
 from functools import reduce
 from collections import OrderedDict, defaultdict, Counter
 import numpy as np
@@ -25,7 +25,7 @@ def filter_and_sort_patterns(patterns, min_len=0, min_dist=0, refs=[], occs_leng
     secondary = sorted(patterns, key=lambda p: (p.p, min(p.t)))
     #reverse sort by min(dist from refs, length/occs_length)
     return sorted(secondary, key=lambda p:
-        p.l*len(p.t) if occs_length else p.l,#p.l*sqrt(len(p.t)) if occs_length else p.l,
+        p.l*len(p.t) if occs_length else p.l,#p.l*math.sqrt(len(p.t)) if occs_length else p.l,
         #min(min_dists[patterns.index(p)], p.l*len(p.t) if occs_length else p.l),
         reverse=True)
 
@@ -63,35 +63,32 @@ def remove_overlaps(patterns, min_len, min_dist, size, occs_length):
         i += 1
     return result
 
-def make_segments_hierarchical(segments, min_len, min_dist, size, target=None, path=None):
+def make_segments_hierarchical(segments, min_len, min_dist, size, target=None, path=None, verbose=False):
     segments = segments.copy()#since we're removing from it
     if target is None:
         target = segments_to_matrix(segments, (size,size))#replace with raw or intermediary
     target += target.T
     np.fill_diagonal(target, 1)
-    #plot_matrix(target, 'new0.png')
-    #plot_matrix(segments_to_matrix(segments, (size,size)), 'new00.png')
+    if verbose: plot_matrix(target, 'new0.png')
+    if verbose: plot_matrix(segments_to_matrix(segments, (size,size)), 'new00.png')
+    noise_factor = get_noise_factor(segments, target, size)
+    if verbose: print('noise factor', noise_factor)
     improvement = 1
     matrix = np.zeros((size,size))
-    distance = len(np.nonzero(target-matrix > 0)[0])
-    #print(distance)
+    distance = math.inf
     i=1
     while improvement > 0 and len(segments) > 0:
-        # matsegs = matrix_to_segments(np.triu(matrix, k=1))
-        # starts = np.unique([s[0][0] for s in matsegs])
-        # ends = np.unique([s[-1][1] for s in matsegs])
-        # print(starts, ends)
-        #candidates = 
+        
         def best_transitive(matrices, last_best=False):
             matrices = [add_transitivity_to_matrix(m) for m in matrices]
-            dists = [len(np.nonzero(target-m > 0)[0])+(len(np.nonzero(m-target > 0)[0])**1) for m in matrices]
+            dists = [dist_func(m, target, segments) for m in matrices]
             best = len(dists)-np.argmin(dists[::-1])-1 if last_best else np.argmin(dists)
-            #print(dists[best], best, dists)
+            if verbose: print(dists[best], best, np.array(np.round(dists), dtype=int))
             return best, matrices[best], dists[best]
         
         matrices = [(matrix+segments_to_matrix([s], (size,size))) for s in segments]
         best, mat, dist = best_transitive(matrices)
-        #plot_matrix(mat, 'new'+str(i)+'-.png')
+        if verbose: plot_matrix(mat, 'new'+str(i)+'-.png')
         
         def get_start_variations(s, length=10):
             l = min(s[0][0], s[0][1], length)
@@ -117,6 +114,7 @@ def make_segments_hierarchical(segments, min_len, min_dist, size, target=None, p
         
         if dist < distance:
             matrix = mat
+            if verbose: plot_matrix(mat, 'new'+str(i)+'.png')
             #keep only parts of segments not covered by current matrix
             #segments = [s for s in segments if np.sum(matrix[tuple(s.T)]) / len(s) < 1]
             segments = [s[np.nonzero(matrix[tuple(s.T)] == 0)] for s in segments]
@@ -124,13 +122,109 @@ def make_segments_hierarchical(segments, min_len, min_dist, size, target=None, p
             i+=1
         improvement = distance-dist
         distance = dist
-        #print(distance)
+        if verbose: print(distance)
     # unsmoothed = matrix
     # matrix = smooth_matrix(matrix, True, 5, .4)
     # matrix = smooth_matrix(matrix+unsmoothed, True, 5, .4)
+    
+    # if verbose: print(dist_func(matrix, target))
+    # matrix = segments_to_matrix([s for s in matrix_to_segments(matrix) if len(s) > 6], (size,size))
     # matrix = add_transitivity_to_matrix(matrix)
-    # plot_matrix(matrix, 'new'+str(i)+'.png')
-    #print(len(np.nonzero(target-matrix > 0)[0])+(len(np.nonzero(matrix-target > 0)[0])**1))
+    # # if verbose: plot_matrix(matrix, 'new'+str(i)+'.png')
+    # if verbose: print(dist_func(matrix, target, segments))
+    return matrix_to_segments(matrix)
+
+def make_segments_hierarchical2(segments, min_len, min_dist, size, target=None, path=None, verbose=False):
+    BEAMSIZE = 5
+    segments = segments.copy()#since we're removing from it
+    if target is None:
+        target = segments_to_matrix(segments, (size,size))#replace with raw or intermediary
+    target += target.T
+    #np.fill_diagonal(target, 1)
+    if verbose: plot_matrix(target, 'new0.png')
+    if verbose: plot_matrix(segments_to_matrix(segments, (size,size)), 'new00.png')
+    improved = True
+    matrixbeam = [np.zeros((size,size))]
+    distances = [math.inf]
+    i=1
+    while improved:
+        
+        def nmin(a, n, last=False):
+            return (len(a)-np.argsort(a[::-1])-1 if last else np.argsort(a))[:n]
+        
+        def best_matrices(matrices, count=1, last_best=False):
+            dists = [dist_func(m, target, segments) for m in matrices]
+            bestids = nmin(dists, count, last_best)
+            #if verbose: print(bestids)#print(dists[best], best, np.array(np.round(dists), dtype=int))
+            return [(i, dists[i]) for i in bestids]
+        
+        def get_start_variations(s, length=10):
+            l = min(s[0][0], s[0][1], length)
+            r = np.arange(s[0][0]-l, s[0][0])
+            p = np.vstack((r, r+(s[0][1]-s[0][0]))).T
+            return [np.concatenate((p[i:], s)) for i in range(l)] + [s] \
+                + [s[i:] for i in range(1, min(l+1, len(s)))]
+        
+        def get_end_variations(s, length=10):
+            l = min(size-s[-1][0]-1, size-s[-1][1]-1, length)
+            r = np.arange(s[-1][0]+1, s[-1][0]+l+1)
+            p = np.vstack((r, r+(s[0][1]-s[0][0]))).T
+            return [np.concatenate((s, p[:l-i])) for i in range(l)] + [s] \
+                + [s[:l-i] for i in range(1, min(l+1, len(s)))]
+        
+        #transitive matrix for each segment that is not fully part of the matrix yet
+        def get_transitive_matrices(matrix):
+            return [(add_transitivity_to_matrix(matrix
+                +segments_to_matrix([s], (size,size))), s) for s in segments
+                if len(np.nonzero(matrix[tuple(s.T)] == 0)[0]) > 0]
+        
+        def get_unique_matrices(matrices):
+            hashes = np.array([np.hstack(([np.sum(m)], np.sum(m, axis=0))) for (m,s) in matrices])
+            u, indices = np.unique(hashes, axis=0, return_index=True)
+            return [matrices[i] for i in indices]
+        
+        matrices = flatten([get_transitive_matrices(m) for m in matrixbeam])
+        if len(matrices) > 0:
+            matrices = get_unique_matrices(matrices)
+            
+            bests, dists = zip(*best_matrices([m for (m, s) in matrices], BEAMSIZE))
+            matrices = [matrices[i] for i in bests]
+            
+            matrices = [(add_transitivity_to_matrix(m+segments_to_matrix([v], (size,size))), v)
+                for (m, s) in matrices for v in get_start_variations(s)]
+            matrices = get_unique_matrices(matrices)
+            bests, dists = zip(*best_matrices([m for (m, s) in matrices], BEAMSIZE, True))#last min (shortest possible)
+            matrices = [matrices[i] for i in bests]
+            
+            matrices = [(add_transitivity_to_matrix(m+segments_to_matrix([v], (size,size))), v)
+                for (m, s) in matrices for v in get_end_variations(s)]
+            matrices = get_unique_matrices(matrices)
+            bests, dists = zip(*best_matrices([m for (m, s) in matrices], BEAMSIZE, True))#last min (shortest possible)
+            
+            matrices = [(matrices[b][0], dists[i]) for i,b in enumerate(bests)]
+            
+            if min(dists) < max(distances):
+                matrixbeam = sorted(list(zip(matrixbeam, distances))+matrices,
+                    key=lambda md: md[1])[:BEAMSIZE]
+                matrixbeam, distances = zip(*matrixbeam)
+                if verbose: print(distances)
+                if verbose: plot_matrix(matrixbeam[0], 'new'+str(i)+'.png')
+                i+=1
+            else:
+                improved = False
+        else:
+            improved = False
+    matrix = matrixbeam[0]
+    # unsmoothed = matrix
+    # matrix = smooth_matrix(matrix, True, 5, .4)
+    # matrix = smooth_matrix(matrix+unsmoothed, True, 5, .4)
+    
+    # if verbose: print(dist_func(matrix, target))
+    # matrix = segments_to_matrix([s for s in matrix_to_segments(matrix) if len(s) > 6])
+    # matrix = add_transitivity_to_matrix(matrix)
+    # if verbose: plot_matrix(matrix, 'new'+str(i)+'.png')
+    # if verbose: print(dist_func(matrix, target))
+    if verbose: print(distances[0])
     return matrix_to_segments(matrix)
 
 def fully_contained(pattern, matrix):
@@ -314,15 +408,9 @@ def replace_pairs(sequence, indices, replacement):
         return np.delete(sequence, indices+1)
     return sequence
 
-def replace_in_tree(tree, element, replacement):
-    return [replace_in_tree(t, element, replacement) if type(t) == list
-        else replacement if t == element else t for t in tree]
-
 def to_hierarchy(sequence, sections):
-    hierarchy = sequence.tolist()
-    for t in reversed(list(sections.keys())):
-        hierarchy = replace_in_tree(hierarchy, t, sections[t].tolist())
-    return hierarchy
+    sequence = [sections[s].tolist() if s in sections else s for s in sequence]
+    return [to_hierarchy(s, sections) if isinstance(s, list) else s for s in sequence]
 
 def flatten(hierarchy):
     if type(hierarchy) == list:
@@ -365,9 +453,12 @@ def to_labels(sequence, sections, packToBottom=False):
     #back to layers and reindex
     return reindex([labels.T])
 
+def isint(k):
+    return isinstance(k, int) or isinstance(k, np.integer)
+
 def replace_lowest_level(hierarchy, sections):
-    return [h if isinstance(h, int) else
-        sections[tuple(h)] if all([isinstance(e, int) for e in h])
+    return [h if isint(h) else
+        sections[tuple(h)] if all([isint(e) for e in h])
         else replace_lowest_level(h, sections) for h in hierarchy]
 
 def to_labels2(sequences, sections, section_lengths):
@@ -376,7 +467,7 @@ def to_labels2(sequences, sections, section_lengths):
     sections_ids = {tuple(v):k for k,v in sections.items()}
     layers = []
     layers.append(np.array(flatten(hierarchy)))
-    while not all([isinstance(h, int) for h in hierarchy]):
+    while not all([isint(h) for h in hierarchy]):
         hierarchy = replace_lowest_level(hierarchy, sections_ids)
         layers.insert(0, np.concatenate([np.repeat(h, section_lengths[h])
             if h in sections else [h] for h in flatten(hierarchy)]))
@@ -386,6 +477,7 @@ def to_labels2(sequences, sections, section_lengths):
     labels = np.array(layers).T
     #replace sequence-level labels with next higher section
     uniques = [ordered_unique(l) for l in labels]#uniques for each time point
+    #print([len(u) for u in uniques])
     labels = np.array([[uniques[i][-2] if u == uniques[i][-1] else u for u in l]
         for i,l in enumerate(labels)])
     #back to layers and reindex
@@ -437,7 +529,7 @@ def find_sections_bottom_up(sequences, ignore=[]):
         sections[next_index] = np.array(list(pair))
         occurrences[next_index] = [(l[0], seq_indices[l[0]][l[1]]) for l in locs]
         for i,s in enumerate(sequences):
-            slocs = np.array([l[1] for l in locs if l[0] == i])
+            slocs = np.array([l[1] for l in locs if l[0] == i], dtype=int)
             seq_indices[i] = np.delete(seq_indices[i], slocs+1)
             sequences[i] = replace_pairs(s, slocs, next_index)
         pair, locs = get_most_frequent_pair(sequences, ignore)
@@ -461,17 +553,17 @@ def find_sections_bottom_up(sequences, ignore=[]):
         del occurrences[t]
     #print(to_hierarchy(np.array(sequences[0]), sections))
     #add sections for remaining adjacent surface objects
-    for i,s in enumerate(sequences):
-        ungrouped = np.where(np.isin(s, list(sections.keys())+ignore) == False)[0]
-        groups = np.split(ungrouped, np.where(np.diff(ungrouped) != 1)[0]+1)
-        groups = [g for g in groups if len(g) > 1]
-        for g in reversed(groups):
-            sections[next_index] = s[g]
-            occurrences[next_index] = [(i, seq_indices[i][g[0]])]
-            s[g[0]] = next_index
-            s = np.delete(s, g[1:])
-            next_index += 1
-        sequences[i] = s
+    # for i,s in enumerate(sequences):
+    #     ungrouped = np.where(np.isin(s, list(sections.keys())+ignore) == False)[0]
+    #     groups = np.split(ungrouped, np.where(np.diff(ungrouped) != 1)[0]+1)
+    #     groups = [g for g in groups if len(g) > 1]
+    #     for g in reversed(groups):
+    #         sections[next_index] = s[g]
+    #         occurrences[next_index] = [(i, seq_indices[i][g[0]])]
+    #         s[g[0]] = next_index
+    #         s = np.delete(s, g[1:])
+    #         next_index += 1
+    #     sequences[i] = s
     #print(to_hierarchy(np.array(sequences[0]), sections))
     #make hierarchy
     #print(sections)
@@ -482,8 +574,10 @@ def get_hierarchies(sequences):
     sequences, sections, occs = find_sections_bottom_up(sequences)
     return [to_hierarchy(s, sections) for s in sequences]
 
-def get_hierarchy_labels(sequences):
-    sequences, sections, occs = find_sections_bottom_up(sequences)
+def get_hierarchy_labels(sequences, ignore=[]):
+    return to_hierarchy_labels(*find_sections_bottom_up(sequences, ignore))
+
+def to_hierarchy_labels(sequences, sections):
     section_lengths = {k:len(flatten((to_hierarchy(np.array([k]), sections))))
         for k in sections.keys()}
     return to_labels2(sequences, sections, section_lengths)
@@ -562,12 +656,12 @@ def contract_sections(seqs, sections, occs):
             else: i += 1
     return [np.array(c) for c in contracted]
 
-def get_longest_sections(sequences, ignore):
+def get_flat_sections_by_coverage(sequences, ignore):
     seqs, sections, occs = find_sections_bottom_up(sequences, ignore)
     flatsecs = [(flatten(to_hierarchy(np.array([k]), sections)), len(occs[k]))
         for k in sections.keys()]
-    #sort by length * sqrt of occurrences
-    return sorted(flatsecs, key=lambda s: len(s[0])*s[1], reverse=True)
+    #sort by length * math.sqrt of occurrences
+    return sorted(flatsecs, key=lambda s: len(s[0])*s[1], reverse=True)#**0.5, reverse=True)
 
 def get_hierarchy_sections(sequences):
     sequences, sections, occs = find_sections_bottom_up(sequences)

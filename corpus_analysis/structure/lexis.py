@@ -1,4 +1,5 @@
 import os, subprocess, json
+import numpy as np
 from graph_tool.all import graph_draw
 from matplotlib import pyplot as plt
 
@@ -13,8 +14,6 @@ def lexis(sequences):
     os.chdir(wd)
     with open(lexis_path+'output') as f:
         dag = json.load(f)
-    #networkx.draw(nxg)
-    #graph_draw(g, output_size=(1000, 1000), output="results/lexis.png")
     return dag
 
 def lexis_sections(sequences):
