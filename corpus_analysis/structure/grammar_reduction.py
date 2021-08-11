@@ -45,8 +45,10 @@ def subarray(a1, a2):
     if len(a1) >= len(a2): return len(indices_of_subarray(a1, a2)) > 0
 
 def contained(s1, s2):
-    return ((subarray(s1[0], s2[0]) and subarray(s1[1], s2[1]))
-        or (subarray(s1[0], s2[1]) and subarray(s1[1], s2[0])))
+    s11in21, s11in22 = subarray(s1[0], s2[0]), subarray(s1[0], s2[1])
+    s12in21, s12in22 = subarray(s1[1], s2[0]), subarray(s1[1], s2[1])
+    return ((s11in21 and s12in22 and (not s11in22 or not s12in21))
+        or (s11in22 and s12in21 and (not s11in21 or not s12in22)))
 
 def find_dependent(similars, sections):
     flats = [(flat_seq(s[1][0], sections), flat_seq(s[1][1], sections)) for s in similars]
@@ -73,9 +75,9 @@ def rec_find_similars(sequences, sections, min, flat=True):
     best = [s for s in sims if s[0] >= min]
     #filter out direct and indirect containments
     # best = [(p,(i,j)) for (p,(i,j)) in best if len(np.intersect1d(sequences[i], sequences[j])) == 0]
-    # best = [(p,(i,j)) for (p,(i,j)) in best
-    #     if (len(sequences[i]) > 1 or len(np.intersect1d(sequences[i], seqparts[j])) == 0)
-    #     and (len(sequences[j]) > 1 or len(np.intersect1d(sequences[j], seqparts[i])) == 0)]
+    best = [(p,(i,j)) for (p,(i,j)) in best
+        if (len(sequences[i]) > 1 or len(np.intersect1d(sequences[i], seqparts[j])) == 0)
+        and (len(sequences[j]) > 1 or len(np.intersect1d(sequences[j], seqparts[i])) == 0)]
     # best = [(p,(i,j)) for (p,(i,j)) in best
     #     if len(np.intersect1d(sequences[i], seqparts[j])) == 0
     #     and len(np.intersect1d(sequences[j], seqparts[i])) == 0]
