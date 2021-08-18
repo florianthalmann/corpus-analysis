@@ -17,8 +17,17 @@ def sw_similarity(p1, p2, ignore=[], parsim_diff=None):
     sw = smith_waterman(p1, p2, ignore=ignore)[0]
     return similarity(len(sw), p1, p2, parsim_diff)
 
+#p1 and p2 need to be sorted!!
 def isect_similarity(p1, p2, parsim_diff=None):
-    return similarity(len(snp.intersect(p1, p2)), p1, p2, parsim_diff)
+    if len(p1) == 0 or len(p2) == 0: return 0
+    return similarity(len(snp.intersect(p1, p2,
+        duplicates=snp.KEEP_MIN_N)), p1, p2, parsim_diff)
+
+def multi_jaccard(p1, p2):
+    isect = snp.intersect(p1, p2, duplicates=snp.KEEP_MIN_N)
+    #TODO: make KEEP_MAX_N!
+    union = snp.merge(p1, p2, duplicates=snp.KEEP_MAX_N)
+    return len(isect)/len(union)
 
 #finds the longest overlap between any two occurrences of the patterns
 def cooc_similarity(p1, p2, occmat1, occmat2, parsim_diff=None):
