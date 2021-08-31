@@ -1,4 +1,4 @@
-import os, mir_eval, subprocess, tqdm
+import os, mir_eval, subprocess, tqdm, gc
 from mutagen.mp3 import MP3
 import numpy as np
 import pandas as pd
@@ -26,13 +26,13 @@ annotations = corpus+'salami-data-public/annotations/'
 features = corpus+'features/'
 output = 'salami/'
 DATA = output+'data/'
-RESULTS = output+'results4.csv'
+RESULTS = output+'resultsF3.csv'
 graphditty = '/Users/flo/Projects/Code/Kyoto/GraphDitty/SongStructure.py'
 
 K_FACTOR = 10
-MIN_LEN = 16
+MIN_LEN = 12
 MIN_DIST = 1 # >= 1
-MAX_GAPS = 6
+MAX_GAPS = 7
 MAX_GAP_RATIO = .4
 MIN_LEN2 = 8
 MIN_DIST2 = 1
@@ -54,7 +54,9 @@ def get_available_songs():
     audio_ids = [int(a.split('/')[-1].split('.')[0]) for a in get_audio_files()]
     durs = [catch(lambda a: MP3(a).info.length, lambda e: 0, a)
         for a in get_audio_files()]
-    salami_duration = lambda i: load_salami_hierarchies(i)[0][0][-1][-1][-1]
+    #average duration of groudtruths
+    salami_duration = lambda i:\
+        np.mean([a[0][-1][-1][-1] for a in load_salami_hierarchies(i)])
     sdurs = {i:salami_duration(i) for i in get_annotation_ids()}
     audio_ids = [a for a,d in zip(audio_ids, durs)
         if d >= 30 and a in sdurs and abs(d-sdurs[a]) < 1]
@@ -118,8 +120,8 @@ def homogenize_labels(salami_hierarchy):
     return (salami_hierarchy[0],
         [[l.replace("'", '') for l in lev] for lev in salami_hierarchy[1]])
 
-def homogenize_labels_int(salami_hierarchy):
-    labels = homogenize_labels(salami_hierarchy)[0]
+def int_labels(salami_hierarchy):
+    labels = salami_hierarchy[1]
     uniq_labels = np.unique([l for l in np.concatenate(labels)])
     return (salami_hierarchy[0],
         [[np.where(uniq_labels == l)[0][0] for l in lev] for lev in labels])
@@ -134,24 +136,9 @@ def load_fused_matrix(index):
     #plot_matrix(m)
     return m, beats
 
-def salami_analysis():
+def get_monotonic_salami():
     annos = {i:load_salami_hierarchies(i) for i in get_available_songs()}
-    beats = {i:get_beats(i) for i in annos.keys()}
-    print("num songs", len(annos))
-    hiers = [a for a in flatten(list(annos.values()), 1)]
-    beats = flatten([[beats[i] for v in a] for i,a in annos.items()], 1)
-    #print(annos[3], hiers[0])
-    #check = lambda i,a,b: [print(i), monotonicity2(a,b)]
-    #[[check(i,v,beats[i]) for v in a] for i,a in annos.items()]
-    transitivity(annos[960][0])
-    # print("m1", np.mean([monotonicity(h) for h in hiers]))
-    # print("m2", np.mean([monotonicity2(h, b) for h,b in zip(hiers, beats)]))
-    # print("m3", np.mean([monotonicity3(h, b) for h,b in zip(hiers, beats)]))
-    hiers = [homogenize_labels(h) for h in hiers]
-    transitivity(homogenize_labels(annos[960][0]))
-    # print("m1hom", np.mean([monotonicity(h) for h in hiers]))
-    # print("m2hom", np.mean([monotonicity2(h, b) for h,b in zip(hiers, beats)]))
-    # print("m3hom", np.mean([monotonicity3(h, b) for h,b in zip(hiers, beats)]))
+    return [i for i in annos.keys() if all([monotonicity(h) for h in annos[i]])]
 
 def test_eval():
     ref_hier, ref_lab = load_salami_hierarchy(10, 1)
@@ -159,9 +146,9 @@ def test_eval():
     scores = mir_eval.hierarchy.evaluate(ref_hier, ref_lab, est_hier, est_lab)
     print(dict(scores))
 
-def plot_hierarchy(path, index, method_name, intervals, labels, groundtruth):
+def plot_hierarchy(path, index, method_name, intervals, labels, groundtruth, force=False):
     filename = path+str(index)+method_name+'.png'
-    if not os.path.isfile(filename):
+    if force or not os.path.isfile(filename):
         maxtime = np.max(np.concatenate(groundtruth[0][0]))
         frames = np.linspace(0, int(maxtime), PLOT_FRAMES, endpoint=False)
         labelseqs = beatwise_ints((intervals, labels), frames)
@@ -195,72 +182,144 @@ def eval_and_add_results(index, method_name, groundtruth, intervals, labels, plo
             data = data.append(results, ignore_index=True)
             data.to_csv(RESULTS, index=False)
 
-def own_chroma_affinity(index):
+def own_chroma_affinity(index, factor=1, knn=True):
     chroma = buffered_run(DATA+'chroma'+str(index),
         lambda: get_beatwise_chroma(index))#load_beatwise_chords(index)
     matrix, raw = get_affinity_matrix(chroma, chroma, False, MAX_GAPS,
-        MAX_GAP_RATIO)#, k_factor=K_FACTOR)
-    # plot_matrix(raw, 'est0.png')
-    # plot_matrix(matrix, 'est1.png')
+        MAX_GAP_RATIO, factor, knn=knn)#, k_factor=K_FACTOR)
     beats = get_beats(index)
-    return matrix, beats
+    return matrix, raw, beats
 
-def transitive_hierarchy(matrix, beats, groundtruth):
-    alignment = get_segments_from_matrix(matrix, True, 0, MIN_LEN,
-        MIN_DIST, MAX_GAPS, MAX_GAP_RATIO)
+def transitive_hierarchy(matrix, unsmoothed, beats, groundtruth, index):
+    alignment = get_segments_from_matrix(matrix, True, 100, MIN_LEN,
+        MIN_DIST, MAX_GAPS, MAX_GAP_RATIO, unsmoothed)
+    if len(alignment) < 10:
+        print('alternative matrix!')
+        matrix,  unsmoothed, beats = own_chroma_affinity(index, 2, knn=True)
+        alignment = get_segments_from_matrix(matrix, True, 100, int(MIN_LEN/2),
+            MIN_DIST, MAX_GAPS, MAX_GAP_RATIO, unsmoothed)
     matrix = segments_to_matrix(alignment, (len(matrix), len(matrix)))
     seq = matrix[0] if matrix is not None else []
-    hierarchy = simple_structure(seq, alignment, MIN_LEN2, MIN_DIST2)
+    target = unsmoothed#np.where(matrix+unsmoothed > 0, 1, 0)
+    hierarchy = simple_structure(seq, alignment, MIN_LEN2, MIN_DIST2, target)
     maxtime = np.max(np.concatenate(groundtruth[0][0]))
     beats = beats[:len(matrix)]#just to make sure
     beat_ints = np.dstack((beats, np.append(beats[1:], maxtime)))[0]
     return [beat_ints for h in range(len(hierarchy))], hierarchy.tolist()
 
-def plot_groundtruths(index, plot_path):
-    gt = load_salami_hierarchies(index)
-    hom_gt = [homogenize_labels_int(v) for v in gt]
-    for j,v in enumerate(hom_gt):
-        plot_hierarchy(plot_path, index, 'a'+str(j+1), v[0], v[1], hom_gt)
+def plot_groundtruths(groundtruth, index, plot_path):
+    groundtruth = [int_labels(v) for v in groundtruth]
+    for j,v in enumerate(groundtruth):
+        plot_hierarchy(plot_path, index, 'a'+str(j+1)+'h', v[0], v[1], groundtruth)
 
-def evaluate(index, hom_labels=False, plot_path=output+'all2/'):
+def evaluate(index, hom_labels=False, plot_path=output+'all3/'):
     groundtruth = load_salami_hierarchies(index)
-    #plot_groundtruths(index, plot_path)
-    if hom_labels: groundtruth = [homogenize_labels_int(v) for v in groundtruth]
+    if hom_labels: groundtruth = [homogenize_labels(v) for v in groundtruth]
+    #plot_groundtruths(groundtruth, index, plot_path)
     # fused, fbeats = load_fused_matrix(index)
     mcfee, mbeats = buffered_run(DATA+'mcfee'+str(index),
         lambda: get_smooth_affinity_matrix(get_audio(index)))
-    own, obeats = buffered_run(DATA+'own'+str(index),
+    own, raw, obeats = buffered_run(DATA+'ownN'+str(index),
         lambda: own_chroma_affinity(index), PARAMS)
     
     l = buffered_run(DATA+'lapl'+str(index),
         lambda: get_laplacian_struct_from_audio(get_audio(index)))
-    plot_hierarchy(plot_path, index, 'l', l[0], l[1], groundtruth)
+    
+    #plot_hierarchy(plot_path, index, 'l', l[0], l[1], groundtruth)
     eval_and_add_results(index, 'l', groundtruth, l[0], l[1])
     
-    l_own = buffered_run(DATA+'l_own'+str(index),
-        lambda: get_laplacian_struct_from_affinity2(own, obeats), PARAMS)
-    eval_and_add_results(index, 'l_own', groundtruth, l_own[0], l_own[1])
+    # l_own = buffered_run(DATA+'l_own'+str(index),
+    #     lambda: get_laplacian_struct_from_affinity2(own, obeats), PARAMS)
+    # eval_and_add_results(index, 'l_own', groundtruth, l_own[0], l_own[1])
     
-    t_own = buffered_run(DATA+'t_own20'+str(index),
-        lambda: transitive_hierarchy(own, obeats, groundtruth), PARAMS)
-    plot_hierarchy(plot_path, index, 't_own20', t_own[0], t_own[1], groundtruth)
-    eval_and_add_results(index, 't_own20', groundtruth, t_own[0], t_own[1])
+    t_own = buffered_run(DATA+'trans.7'+str(index),
+        lambda: transitive_hierarchy(own, raw, obeats, groundtruth, index), PARAMS)
+    #plot_hierarchy(plot_path, index, 't_own10nn', t_own[0], t_own[1], groundtruth)
+    eval_and_add_results(index, 'trans.7', groundtruth, t_own[0], t_own[1])
+    gc.collect()
+
+#24 31 32 37 47 56   5,14
+def test_own_eval(index=22):#32#38):
+    groundtruth = load_salami_hierarchies(index)
+    # l = buffered_run(DATA+'lapl'+str(index),
+    #     lambda: get_laplacian_struct_from_audio(get_audio(index)))
+    print('affinity')
+    aff, unsmoo, beats = own_chroma_affinity(index)
+    # aff, beats = buffered_run(DATA+'mcfee'+str(index),
+    #     lambda: get_smooth_affinity_matrix(get_audio(index)))
+    print('hierarchy')
+    intervals, labels = transitive_hierarchy(aff, unsmoo, beats, groundtruth, index)
+    #plot_hierarchy(output+'all2/', index, 't_own200', intervals, labels, groundtruth)
+    #print(l[0][:4])
+    plot_hierarchy(output+'all3/', index, 't_ownf', intervals, labels, groundtruth, True)
+    print('eval')
+    if len(groundtruth) > 1:
+        print(evaluate_hierarchy(*groundtruth[0], *groundtruth[1]))
+    # for i in intervals:
+    #     print(i[i == 162.74866213])
+    #     i[np.round(i) == 14] = 13.44435374
+    #     i[np.round(i) == 163] = 166.51029478
+    # for i, (refint, reflab) in enumerate(groundtruth):
+    #     score = evaluate_hierarchy(refint, reflab, l[0], l[1])
+    #     print([index]+PARAMS+[i, score[0], score[1], score[2]])
+    for i, (refint, reflab) in enumerate(groundtruth):
+        score = evaluate_hierarchy(refint, reflab, intervals, labels)
+        print([index]+PARAMS+[i, score[0], score[1], score[2]])
 
 def plot(path):
     data = pd.read_csv(RESULTS)
-    data = data[1183 <= data['SONG']][data['SONG'] <= 1211]
+    #data = data[1183 <= data['SONG']][data['SONG'] <= 1211]
+    #data = data[data['SONG'] <= 333]
     #data = data[data['MIN_LEN'] == 24]
     #data = data[(data['K_FACTOR'] == 5) | (data['K_FACTOR'] == 10)]
     #data.groupby(['METHOD']).mean().T.plot(legend=True)
-    data.groupby(['METHOD']).boxplot(column=['P','R','L'])
+    #data.groupby(['METHOD']).boxplot(column=['P','R','L'])
+    print(data.groupby(['METHOD']).mean())
+    print(data[data['METHOD'] != 'l'].groupby(['SONG']).max().groupby(['SONG']).mean())
+    #print(data[(data['METHOD'] == 't_ownNY') | (data['METHOD'] == 'l')].sort_values(['SONG', 'METHOD']).to_string())
+    #print(data.groupby(['SONG', 'METHOD']).mean().sort_values(['SONG', 'METHOD']).to_string())
+    #print(data[data['METHOD'] != 'l'].groupby(['SONG']).mean())
     #data.boxplot(column=['P','R','L'], by=['METHOD'])
     #plt.show()
     plt.tight_layout()
     plt.savefig(path, dpi=1000) if path else plt.show()
 
+def salami_analysis(path='salami_analysis.pdf'):
+    annos = {i:load_salami_hierarchies(i) for i in get_available_songs()}
+    beats = {i:get_beats(i) for i in annos.keys()}
+    print("num songs", len(annos))
+    hiers = [a for a in flatten(list(annos.values()), 1)]
+    beats = flatten([[beats[i] for v in a] for i,a in annos.items()], 1)
+    #print(annos[3], hiers[0])
+    #check = lambda i,a,b: [print(i), monotonicity2(a,b)]
+    #[[check(i,v,beats[i]) for v in a] for i,a in annos.items()]
+    #hiers = hiers[:40]
+    #m1 = [monotonicity(h) for h in tqdm.tqdm(hiers, desc='m1')]
+    mi = [monotonicity3(h, b) for h,b in tqdm.tqdm(list(zip(hiers, beats)), desc='m3')]
+    ml = [monotonicity2(h, b) for h,b in tqdm.tqdm(list(zip(hiers, beats)), desc='m2')]
+    tf = [transitivity(h) for h in tqdm.tqdm(hiers, desc='t')]
+    hiers = [homogenize_labels(h) for h in hiers]
+    mlh = [monotonicity2(h, b) for h,b in tqdm.tqdm(list(zip(hiers, beats)), desc='m2')]
+    tfh = [transitivity(h) for h in tqdm.tqdm(hiers, desc='th')]
+    
+    print('mi', sum([p for p in mi if p == 1]))
+    print('ml', sum([p for p in ml if p == 1]))
+    print('tf', sum([p for p in tf if p == 1]))
+    print('mlh', sum([p for p in mlh if p == 1]))
+    print('tfh', sum([p for p in tfh if p == 1]))
+    
+    data = np.vstack((mi, ml, tfh, tf)).T#, tfh, mlh)).T
+    pd.DataFrame(np.array(data), columns=['M_I', 'M_L', 'T_O', 'T_F']).boxplot()
+    #transitivity(homogenize_labels(annos[960][0]))
+    # print("m1hom", np.mean([monotonicity(h) for h in hiers]))
+    # print("m2hom", np.mean([monotonicity2(h, b) for h,b in zip(hiers, beats)]))
+    # print("m3hom", np.mean([monotonicity3(h, b) for h,b in zip(hiers, beats)]))
+    plt.tight_layout()
+    plt.savefig(path, dpi=1000) if path else plt.show()
+
 def test_eval(index):
     gti, gtl = load_salami_hierarchies(index)[0]
-    hgti, hgtl = homogenize_labels_int((gti, gtl))
+    hgti, hgtl = int_labels(homogenize_labels((gti, gtl)))
     lpi, lpl = get_laplacian_struct_from_audio(get_audio(index))
     print(evaluate_hierarchy(gti, gtl, lpi, lpl))
     print(evaluate_hierarchy(hgti, hgtl, lpi, lpl))
@@ -284,11 +343,15 @@ def test_eval_detail(index):
     print(evaluate_hierarchy(refint, reflab, ints, lapstruct2))
     print(datetime.now().strftime("%H:%M:%S"))
 
-#conda activate p38
-#export LC_ALL="en_US.UTF-8"
-#export LC_CTYPE="en_US.UTF-8"
+# conda activate p38
+# export LC_ALL="en_US.UTF-8"
+# export LC_CTYPE="en_US.UTF-8"
+
 def sweep(multi=True):
-    songs = get_available_songs()[:100]#[197:222]#[197:347]#[6:16]
+    #songs = [37,95,107,108,139,148,166,170,192,200]
+    songs = [37,95,107,108,139,148,166,170,192,200]+get_monotonic_salami()[90:100]#[5:30]#get_available_songs()[:100]#[197:222]#[197:347]#[6:16]
+    #songs = get_monotonic_salami()#[5:30]#get_available_songs()[:100]#[197:222]#[197:347]#[6:16]
+    print(len(songs))
     if multi:
         multiprocess('evaluating hierarchies', evaluate, songs, True)
     else:
@@ -297,7 +360,8 @@ def sweep(multi=True):
 if __name__ == "__main__":
     #extract_all_features()
     #calculate_fused_matrices()
-    sweep()
+    #sweep()
+    test_own_eval()
     #evaluate(1199)#1221)
     #salami_analysis()
-    #plot('salami3.png')
+    #plot('salamiF.png')
