@@ -19,6 +19,7 @@ from corpus_analysis.structure.laplacian import get_laplacian_struct_from_affini
 from corpus_analysis.structure.eval import evaluate_hierarchy, simplify
 from corpus_analysis.stats.hierarchies import monotonicity, monotonicity2,\
     monotonicity3, beatwise_ints, transitivity
+from corpus_analysis.data import Data
 
 corpus = '/Users/flo/Projects/Code/Kyoto/SALAMI/'
 audio = corpus+'all-audio'#'lma-audio/'
@@ -26,7 +27,10 @@ annotations = corpus+'salami-data-public/annotations/'
 features = corpus+'features/'
 output = 'salami/'
 DATA = output+'data/'
-RESULTS = output+'resultsF3.csv'
+RESULTS = Data(output+'resultsF3.csv',
+    columns=['SONG', 'K_FACTOR', 'MIN_LEN', 'MIN_DIST', 'MAX_GAPS',
+    'MAX_GAP_RATIO', 'MIN_LEN2', 'MIN_DIST2',
+    'REF', 'METHOD', 'P', 'R', 'L'])
 graphditty = '/Users/flo/Projects/Code/Kyoto/GraphDitty/SongStructure.py'
 
 K_FACTOR = 10
@@ -155,32 +159,22 @@ def plot_hierarchy(path, index, method_name, intervals, labels, groundtruth, for
         if len(labelseqs) > 0:
             plot_sequences(labelseqs, path+str(index)+method_name+'.png')
 
-def result_exists(groundtruth, method_name, index):
-    exists = lambda data, col: (data[data.columns[:len(col)]] == col).all(1).any()
-    if os.path.isfile(RESULTS):
-        data = pd.read_csv(RESULTS)
-        return all([exists(data, [index]+PARAMS+[i, method_name])
-            for i in range(len(groundtruth))])
+
+
+def eval_to_rows(index, method_name, groundtruth, intervals, labels):
+    results = []
+    for i, (refint, reflab) in enumerate(groundtruth):
+        score = evaluate_hierarchy(refint, reflab, intervals, labels)
+        results.append([index]+PARAMS+[i, method_name, score[0], score[1], score[2]])
+    print(results)
+    return results
 
 def eval_and_add_results(index, method_name, groundtruth, intervals, labels, plot_path=None):
     if plot_path:
         plot_hierarchy(plot_path, index, method_name, intervals, labels, groundtruth)
-    if not result_exists(groundtruth, method_name, index):
-        results = []
-        for i, (refint, reflab) in enumerate(groundtruth):
-            score = evaluate_hierarchy(refint, reflab, intervals, labels)
-            results.append([index]+PARAMS+[i, method_name, score[0], score[1], score[2]])
-        print(results)
-        results = pd.DataFrame(np.array(results),
-            columns=['SONG', 'K_FACTOR', 'MIN_LEN', 'MIN_DIST', 'MAX_GAPS',
-                'MAX_GAP_RATIO', 'MIN_LEN2', 'MIN_DIST2',
-                'REF', 'METHOD', 'P', 'R', 'L'])
-        if not os.path.isfile(RESULTS):
-            results.to_csv(RESULTS, index=False)
-        else:
-            data = pd.read_csv(RESULTS)
-            data = data.append(results, ignore_index=True)
-            data.to_csv(RESULTS, index=False)
+    ref_rows = [[index]+PARAMS+[i, method_name] for i in range(len(groundtruth))]
+    rows_func = lambda: eval_to_rows(index, method_name, groundtruth, intervals, labels)
+    RESULTS.add_rows(ref_rows, rows_func)
 
 def own_chroma_affinity(index, factor=1, knn=True):
     chroma = buffered_run(DATA+'chroma'+str(index),
@@ -267,7 +261,7 @@ def test_own_eval(index=22):#32#38):
         print([index]+PARAMS+[i, score[0], score[1], score[2]])
 
 def plot(path):
-    data = pd.read_csv(RESULTS)
+    data = RESULTS.get_rows()
     #data = data[1183 <= data['SONG']][data['SONG'] <= 1211]
     #data = data[data['SONG'] <= 333]
     #data = data[data['MIN_LEN'] == 24]
@@ -360,8 +354,8 @@ def sweep(multi=True):
 if __name__ == "__main__":
     #extract_all_features()
     #calculate_fused_matrices()
-    #sweep()
-    test_own_eval()
+    sweep()
+    #test_own_eval()
     #evaluate(1199)#1221)
     #salami_analysis()
     #plot('salamiF.png')
