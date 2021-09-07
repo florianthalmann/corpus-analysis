@@ -63,6 +63,45 @@ def remove_overlaps(patterns, min_len, min_dist, size, occs_length):
         i += 1
     return result
 
+def matrix_f_measure(matrix, target):
+    target_total = len(np.nonzero(target > 0)[0])+1
+    matrix_total = len(np.nonzero(matrix > 0)[0])+1
+    intersection = len(np.nonzero(matrix-target == 0))
+    precision = intersection / matrix_total
+    recall = intersection / target_total
+    return 2*precision*recall / (precision+recall)
+
+def dist_func(matrix, target, segments):
+    target_total = len(np.nonzero(target > 0)[0])+1
+    matrix_total = len(np.nonzero(matrix > 0)[0])+1
+    segmatrix = segments_to_matrix(segments, matrix.shape)
+    segments_total = len(np.nonzero(segmatrix > 0)[0])+1
+    average_quality = (len(np.nonzero(segmatrix-target > 0)[0])+1)/segments_total#1 is bad quality
+    matrix_quality = (len(np.nonzero(matrix-target > 0)[0])+1)/matrix_total
+    #recall = 1-(len(np.nonzero(target-matrix > 0)[0])/target_total) #part of target still unmatched
+    # precision = 1-(len(np.nonzero(matrix-target > 0)[0])/target_total)
+    return (
+        #1-((2*precision*recall)/(precision+recall))
+        # ((len(np.nonzero(target-matrix > 0)[0])/target_total)**1 #punish part of target still unmatched
+        # * (matrix_quality/average_quality)**1) #punish irrelevant parts of matrix
+        #len(np.nonzero(target-matrix)[0])/target_total
+        ((len(np.nonzero(target-matrix > 0)[0]+1)/target_total)**1 #punish part of target still unmatched
+        + ((len(np.nonzero(matrix-target > 0)[0]+1)/target_total)**.9)) #punish irrelevant parts of matrix
+        #+ ((len(matrix_to_segments(matrix))+1)/len(segments))
+        #* (len(matrix_to_segments(matrix))+1)**0.1 #keep simple (punish num segments)
+        #* ((len(np.nonzero(matrix > 0)[0]))**(0.01))) #not fill too quickly (punish total length)
+    )
+    
+#returns the proportion of segments not visible in the target
+def get_noise_factor(segments, target, size):
+    segmat = segments_to_matrix(segments, (size,size))
+    segmat += segmat.T
+    target_total = len(np.nonzero(target > 0)[0])+1
+    segmat_total = len(np.nonzero(segmat > 0)[0])+1
+    #print(segmat_total, target_total, segmat_total/target_total, size**2, len(segments))
+    return (len(np.nonzero(segmat-target > 0)[0])/len(np.nonzero(segmat > 0)[0])
+        * (1-len(np.nonzero(target-segmat > 0)[0])/len(np.nonzero(target > 0)[0])))
+
 def make_segments_hierarchical(segments, min_len, min_dist, size, target=None, path=None, verbose=False):
     segments = segments.copy()#since we're removing from it
     if target is None:
@@ -575,7 +614,8 @@ def get_hierarchies(sequences):
     return [to_hierarchy(s, sections) for s in sequences]
 
 def get_hierarchy_labels(sequences, ignore=[]):
-    return to_hierarchy_labels(*find_sections_bottom_up(sequences, ignore))
+    seqs, secs, occs =  find_sections_bottom_up(sequences, ignore)
+    return to_hierarchy_labels(seqs, secs)
 
 def to_hierarchy_labels(sequences, sections):
     section_lengths = {k:len(flatten((to_hierarchy(np.array([k]), sections))))
