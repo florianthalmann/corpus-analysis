@@ -63,13 +63,16 @@ def remove_overlaps(patterns, min_len, min_dist, size, occs_length):
         i += 1
     return result
 
-def matrix_f_measure(matrix, target):
-    target_total = len(np.nonzero(target > 0)[0])+1
-    matrix_total = len(np.nonzero(matrix > 0)[0])+1
-    intersection = len(np.nonzero(matrix-target == 0))
+def matrix_f_measure(matrix, target, beta=1, verbose=False):
+    target_total = len(np.nonzero(target > 0)[0])
+    matrix_total = len(np.nonzero(matrix > 0)[0])
+    if matrix_total == 0: return 0
+    intersection = len(np.nonzero(matrix+target > 1)[0])
     precision = intersection / matrix_total
     recall = intersection / target_total
-    return 2*precision*recall / (precision+recall)
+    if verbose: print(target_total, matrix_total, intersection, precision, recall, 2*precision*recall / (precision+recall))
+    #return 2*(precision**2)*recall / (precision+recall)
+    return (1+beta**2)*precision*recall / ((beta**2*precision)+recall)
 
 def dist_func(matrix, target, segments):
     target_total = len(np.nonzero(target > 0)[0])+1
@@ -120,8 +123,10 @@ def make_segments_hierarchical(segments, min_len, min_dist, size, target=None, p
         
         def best_transitive(matrices, last_best=False):
             matrices = [add_transitivity_to_matrix(m) for m in matrices]
-            dists = [dist_func(m, target, segments) for m in matrices]
+            #dists = [dist_func(m, target, segments) for m in matrices]
+            dists = [1-matrix_f_measure(m, target, 0.125) for m in matrices]
             best = len(dists)-np.argmin(dists[::-1])-1 if last_best else np.argmin(dists)
+            if verbose: matrix_f_measure(matrices[best], target, 0.125, True)
             if verbose: print(dists[best], best, np.array(np.round(dists), dtype=int))
             return best, matrices[best], dists[best]
         
@@ -173,6 +178,7 @@ def make_segments_hierarchical(segments, min_len, min_dist, size, target=None, p
     # if verbose: print(dist_func(matrix, target, segments))
     return matrix_to_segments(matrix)
 
+#with beam search
 def make_segments_hierarchical2(segments, min_len, min_dist, size, target=None, path=None, verbose=False):
     BEAMSIZE = 5
     segments = segments.copy()#since we're removing from it
