@@ -30,6 +30,7 @@ RESULTS = Data(output+'resultsF5.csv',
     columns=['SONG', 'K_FACTOR', 'MIN_LEN', 'MIN_DIST', 'MAX_GAPS',
     'MAX_GAP_RATIO', 'MIN_LEN2', 'MIN_DIST2',
     'REF', 'METHOD', 'P', 'R', 'L'])
+PLOT_PATH=output+'all3/'
 graphditty = '/Users/flo/Projects/Code/Kyoto/GraphDitty/SongStructure.py'
 
 K_FACTOR = 10
@@ -42,6 +43,10 @@ MIN_DIST2 = 1
 PLOT_FRAMES = 2000
 
 PARAMS = [K_FACTOR, MIN_LEN, MIN_DIST, MAX_GAPS, MAX_GAP_RATIO, MIN_LEN2, MIN_DIST2]
+
+HOM_LABELS=False
+MATRIX_TYPE='fused' #'fused', 'mcfee', 'own'
+METHOD_NAME='transf.25fu'
 
 #some annotations are missing!
 def get_annotation_ids():
@@ -83,7 +88,8 @@ def calculate_fused_matrix(audio):
             #stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 def calculate_fused_matrices():
-    [calculate_fused_matrix(a) for a in tqdm.tqdm(get_audio_files())]
+    multiprocess('fusing matrices', calculate_fused_matrix, get_audio_files(), True)
+    #[calculate_fused_matrix(a) for a in tqdm.tqdm(get_audio_files())]
 
 def load_beatwise_chords(index):
     return get_summarized_chords(features+str(index)+'_bars.txt',
@@ -157,7 +163,7 @@ def plot_groundtruths(groundtruth, index, plot_path):
     for j,v in enumerate(groundtruth):
         plot_hierarchy(plot_path, index, 'a'+str(j+1)+'h', v[0], v[1], groundtruth)
 
-def eval_to_rows(index, method_name, groundtruth, intervals, labels):
+def evaluate(index, method_name, groundtruth, intervals, labels):
     results = []
     for i, (refint, reflab) in enumerate(groundtruth):
         score = evaluate_hierarchy(refint, reflab, intervals, labels)
@@ -165,11 +171,11 @@ def eval_to_rows(index, method_name, groundtruth, intervals, labels):
     print(results)
     return results
 
-def eval_and_add_results(index, method_name, groundtruth, intervals, labels, plot_path=None):
-    if plot_path:
-        plot_hierarchy(plot_path, index, method_name, intervals, labels, groundtruth)
+def eval_and_add_results(index, method_name, groundtruth, intervals, labels):
+    if PLOT_PATH:
+        plot_hierarchy(PLOT_PATH, index, method_name, intervals, labels, groundtruth)
     ref_rows = [[index]+PARAMS+[i, method_name] for i in range(len(groundtruth))]
-    rows_func = lambda: eval_to_rows(index, method_name, groundtruth, intervals, labels)
+    rows_func = lambda: evaluate(index, method_name, groundtruth, intervals, labels)
     RESULTS.add_rows(ref_rows, rows_func)
 
 def own_chroma_affinity(index, factor=1, knn=True):
@@ -185,6 +191,7 @@ def own_chroma_affinity(index, factor=1, knn=True):
 def transitive_hierarchy(matrix, unsmoothed, beats, groundtruth, index):
     alignment = get_segments_from_matrix(matrix, True, 100, MIN_LEN,
         MIN_DIST, MAX_GAPS, MAX_GAP_RATIO, unsmoothed)
+    #TODO STANDARDIZE THIS!!
     if len(alignment) < 10:
         print('alternative matrix!')
         matrix, unsmoothed, beats = own_chroma_affinity(index, 2, knn=True)
@@ -199,62 +206,48 @@ def transitive_hierarchy(matrix, unsmoothed, beats, groundtruth, index):
     beat_ints = np.dstack((beats, np.append(beats[1:], maxtime)))[0]
     return [beat_ints for h in range(len(hierarchy))], hierarchy.tolist()
 
-def evaluate(index, hom_labels=False, plot_path=output+'all3/'):
+def get_hierarchies(index):
     groundtruth = load_salami_hierarchies(index)
-    if hom_labels: groundtruth = [homogenize_labels(v) for v in groundtruth]
-    #plot_groundtruths(groundtruth, index, plot_path)
-    fused, fbeats = load_fused_matrix(index)
-    mcfee, mbeats = buffered_run(DATA+'mcfee'+str(index),
-        lambda: get_smooth_affinity_matrix(get_audio(index)))
-    own, raw, obeats = buffered_run(DATA+'ownN'+str(index),
-        lambda: own_chroma_affinity(index), PARAMS)
-    
+    if HOM_LABELS: groundtruth = [homogenize_labels(v) for v in groundtruth]
+    if PLOT_PATH: plot_groundtruths(groundtruth, index, PLOT_PATH)
+    if MATRIX_TYPE is 'fused':
+        matrix, beats = load_fused_matrix(index)
+    elif MATRIX_TYPE is 'mcfee':
+        matrix, beats = buffered_run(DATA+'mcfee'+str(index),
+            lambda: get_smooth_affinity_matrix(get_audio(index)))
+    else:
+        matrix, raw, beats = buffered_run(DATA+'ownN'+str(index),
+            lambda: own_chroma_affinity(index), PARAMS)
     l = buffered_run(DATA+'lapl'+str(index),
         lambda: get_laplacian_struct_from_audio(get_audio(index)))
+    if PLOT_PATH: plot_hierarchy(PLOT_PATH, index, 'l', l[0], l[1], groundtruth)
     
-    #plot_hierarchy(plot_path, index, 'l', l[0], l[1], groundtruth)
-    eval_and_add_results(index, 'l', groundtruth, l[0], l[1])
-    
+    if METHOD_NAME is not None:
+        own = buffered_run(DATA+METHOD_NAME+str(index),
+            lambda: transitive_hierarchy(matrix, None, beats, groundtruth, index), PARAMS)
+    else:
+        own = transitive_hierarchy(matrix, None, beats, groundtruth, index)
+    if PLOT_PATH: plot_hierarchy(PLOT_PATH, index, 'own', own[0], own[1], groundtruth)
+    return l, own, groundtruth
+
+def evaluate_to_table(index):
+    l, own, gt = get_hierarchies(index)
+    eval_and_add_results(index, 'l', gt, l[0], l[1])
+    eval_and_add_results(index, METHOD_NAME, gt, own[0], own[1])
     # l_own = buffered_run(DATA+'l_own'+str(index),
     #     lambda: get_laplacian_struct_from_affinity2(own, obeats), PARAMS)
-    # eval_and_add_results(index, 'l_own', groundtruth, l_own[0], l_own[1])
-    
-    t_own = buffered_run(DATA+'transf.25fu'+str(index),
-        lambda: transitive_hierarchy(fused, None, fbeats, groundtruth, index), PARAMS)
-    #plot_hierarchy(plot_path, index, 't_own10nn', t_own[0], t_own[1], groundtruth)
-    eval_and_add_results(index, 'transf.25fu', groundtruth, t_own[0], t_own[1])
+    # eval_and_add_results(index, 'l_own', gt, l_own[0], l_own[1])
     gc.collect()
 
 #24 31 32 37 47 56   5,14   95
-def test_own_eval(index=135, plot_path=output+'all3/'):#22):#32#38):
-    groundtruth = load_salami_hierarchies(index)
-    plot_groundtruths(groundtruth, index, plot_path)
-    l = buffered_run(DATA+'lapl'+str(index),
-        lambda: get_laplacian_struct_from_audio(get_audio(index)))
-    plot_hierarchy(plot_path, index, 'l', l[0], l[1], groundtruth)
-    print('affinity')
-    aff, unsmoo, beats = own_chroma_affinity(index)
-    aff2, beats = buffered_run(DATA+'mcfee'+str(index),
-        lambda: get_smooth_affinity_matrix(get_audio(index)))
-    #plot_matrix(aff2, 'm3.png')
-    print('hierarchy')
-    intervals, labels = transitive_hierarchy(aff, unsmoo, beats, groundtruth, index)
-    #plot_hierarchy(output+'all2/', index, 't_own200', intervals, labels, groundtruth)
-    #print(l[0][:4])
-    plot_hierarchy(plot_path, index, 't_ownf', intervals, labels, groundtruth, True)
-    print('eval')
-    if len(groundtruth) > 1:
-        print(evaluate_hierarchy(*groundtruth[0], *groundtruth[1]))
-    # for i in intervals:
-    #     print(i[i == 162.74866213])
-    #     i[np.round(i) == 14] = 13.44435374
-    #     i[np.round(i) == 163] = 166.51029478
-    for i, (refint, reflab) in enumerate(groundtruth):
-        score = evaluate_hierarchy(refint, reflab, l[0], l[1])
-        print([index]+PARAMS+[i, score[0], score[1], score[2]])
-    for i, (refint, reflab) in enumerate(groundtruth):
-        score = evaluate_hierarchy(refint, reflab, intervals, labels)
-        print([index]+PARAMS+[i, score[0], score[1], score[2]])
+def indie_eval(index=135):#22):#32#38):
+    l, own, gt = get_hierarchies(index)
+    #compare groundtruths with each other
+    if len(gt) > 1:
+        print(evaluate_hierarchy(*gt[0], *gt[1]))
+    #compare laplacian and own to groundtruth
+    evaluate(index, 'l', gt, l[0], l[1])
+    evaluate(index, 't', gt, own[0], own[1])
 
 def plot(path=None):
     data = RESULTS.get_rows()
@@ -327,7 +320,6 @@ if __name__ == "__main__":
     #extract_all_features()
     #calculate_fused_matrices()
     #sweep()
-    #test_own_eval()
-    #evaluate(1199)#1221)
+    indie_eval()
     #salami_analysis()
     #plot('salamiF2.png')
