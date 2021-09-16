@@ -41,7 +41,18 @@ def get_equality(a, b):
         return np.all(a[:, None] == b[None, :], axis=2).astype(int)
     return a[:, None] == b[None, :]
 
-def get_affinity_matrix(a, b, equality, max_gaps, max_gap_ratio, factor=1, knn=True):
+def k_factor(shape, strength=1, width=1):
+    return strength * 2 * ceil(sqrt(((shape[0]+shape[1])/2) - 2 * width + 1))
+
+def knn_threshold(matrix):
+    k = k_factor(matrix.shape)
+    conns = np.zeros(matrix.shape)
+    knn = [np.argpartition(m, -k)[-k:] for m in matrix]
+    for i,k in enumerate(knn):
+        conns[i][k] = 1
+    return conns
+
+def get_affinity_matrix(a, b, equality, max_gaps, max_gap_ratio, knn=True):
     symmetric = np.array_equal(a, b)
     width = 1
     k = factor * 2 * ceil(sqrt(((len(a)+len(b))/2) - 2 * width + 1))
@@ -52,16 +63,12 @@ def get_affinity_matrix(a, b, equality, max_gaps, max_gap_ratio, factor=1, knn=T
         matrix = get_equality(a, b)
     elif knn:
         matrix = 1-pairwise_distances(a, b, metric="cosine")
-        conns = np.zeros(matrix.shape)
-        knn = [np.argpartition(m, -k)[-k:] for m in matrix]
-        for i,k in enumerate(knn):
-            conns[i][k] = 1
-        matrix = conns
+        matrix = knn_threshold(matrix)
         #plot_matrix(matrix, 'est-.png')
     else:
         matrix = 1-pairwise_distances(a, b, metric="cosine")
         #plot_hist(np.hstack(matrix), 'est..png', 100)
-        k *= len(matrix)
+        k = k_factor(matrix.shape) * len(matrix) #really??
         thresh = np.partition(matrix.flatten(), -k)[-k]
         matrix = np.where(matrix >= thresh, 1, 0)
         #plot_matrix(matrix, 'est-.png')
@@ -209,6 +216,6 @@ def segments_to_matrix(segments, shape=None, sum=False):
     elif shape:
         return np.zeros(shape)
 
-def get_alignment_matrix(a, b, min_len, min_dist, max_gap_size, max_gap_ratio):
-    segments = get_alignment_segments(a, b, min_len, min_dist, max_gap_size, max_gap_ratio)
+def get_alignment_matrix(a, b, count, min_len, min_dist, max_gap_size, max_gap_ratio):
+    segments = get_alignment_segments(a, b, count, min_len, min_dist, max_gap_size, max_gap_ratio)
     return segments_to_matrix(segments, (len(a), len(b)))
