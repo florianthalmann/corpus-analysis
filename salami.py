@@ -45,8 +45,8 @@ PLOT_FRAMES = 2000
 PARAMS = [K_FACTOR, MIN_LEN, MIN_DIST, MAX_GAPS, MAX_GAP_RATIO, MIN_LEN2, MIN_DIST2]
 
 HOM_LABELS=False
-MATRIX_TYPE='fused' #'fused', 'mcfee', 'own'
-METHOD_NAME='transf.25fu2'
+MATRIX_TYPE='own' #'fused', 'mcfee', 'own'
+METHOD_NAME='transf.25o2'
 
 #some annotations are missing!
 def get_annotation_ids():
@@ -180,25 +180,26 @@ def eval_and_add_results(index, method_name, groundtruth, intervals, labels):
     rows_func = lambda: evaluate(index, method_name, groundtruth, intervals, labels)
     RESULTS.add_rows(ref_rows, rows_func)
 
-def own_chroma_affinity(index, factor=1, knn=True):
+def own_chroma_affinity(index, factor=2, knn=True):
     chroma = buffered_run(DATA+'chroma'+str(index),
         lambda: get_beatwise_chroma(index))#load_beatwise_chords(index)
     matrix, raw = get_affinity_matrix(chroma, chroma, False, MAX_GAPS,
-        MAX_GAP_RATIO, factor, knn=knn)#, k_factor=K_FACTOR)
+        MAX_GAP_RATIO, factor, knn)#, k_factor=K_FACTOR)
     beats = get_beats(index)
-    # plot_matrix(raw, 'm0.png')
-    # plot_matrix(matrix, 'm1.png')
     return matrix, raw, beats
 
 def transitive_hierarchy(matrix, unsmoothed, beats, groundtruth, index):
-    alignment = get_segments_from_matrix(matrix, True, 100, MIN_LEN,
+    alignment = get_segments_from_matrix(matrix, True, 100, 0,
         MIN_DIST, MAX_GAPS, MAX_GAP_RATIO, unsmoothed)
-    #TODO STANDARDIZE THIS!!
+    # #TODO STANDARDIZE THIS!!
     # if len(alignment) < 10:
     #     print('alternative matrix!')
-    #     matrix, unsmoothed, beats = own_chroma_affinity(index, 2, knn=True)
+    #     matrix, raw, beats = own_chroma_affinity(index, 2, knn=True)
     #     alignment = get_segments_from_matrix(matrix, True, 100, int(MIN_LEN/2),
-    #         MIN_DIST, MAX_GAPS, MAX_GAP_RATIO, unsmoothed)
+    #         MIN_DIST, MAX_GAPS, MAX_GAP_RATIO, raw)
+    #     # print(len(alignment))
+    #     # plot_matrix(raw, 'm0.png')
+    #     # plot_matrix(matrix, 'm1.png')
     matrix = segments_to_matrix(alignment, (len(matrix), len(matrix)))
     seq = matrix[0] if matrix is not None else []
     target = unsmoothed#np.where(matrix+unsmoothed > 0, 1, 0)
@@ -222,6 +223,8 @@ def get_hierarchies(index, hierarchy_buffer=None):
     else:
         matrix, raw, beats = buffered_run(DATA+'own'+str(index),
             lambda: own_chroma_affinity(index), PARAMS)
+        # plot_matrix(raw, 'm0.png')
+        # plot_matrix(matrix, 'm1.png')
     l = buffered_run(DATA+'lapl'+str(index),
         lambda: get_laplacian_struct_from_audio(get_audio(index)))
     if PLOT_PATH: plot_hierarchy(PLOT_PATH, index, 'l', l[0], l[1], groundtruth)
@@ -242,8 +245,8 @@ def evaluate_to_table(index):
     # eval_and_add_results(index, 'l_own', gt, l_own[0], l_own[1])
     gc.collect()
 
-#24 31 32 37 47 56   5,14   95
-def indie_eval(index=135):#22):#32#38):
+#24 31 32 37 47 56   5,14   95  135 148
+def indie_eval(index=166):#22):#32#38):
     l, own, gt = get_hierarchies(index)
     #compare groundtruths with each other
     if len(gt) > 1:
@@ -322,7 +325,7 @@ def sweep(multi=True):
 if __name__ == "__main__":
     #extract_all_features()
     #calculate_fused_matrices()
-    sweep()
+    #sweep()
     #indie_eval()
     #salami_analysis()
-    #plot('salamiF2.png')
+    plot('salamiF2.png')

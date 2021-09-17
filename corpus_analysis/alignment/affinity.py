@@ -41,34 +41,32 @@ def get_equality(a, b):
         return np.all(a[:, None] == b[None, :], axis=2).astype(int)
     return a[:, None] == b[None, :]
 
-def k_factor(shape, strength=1, width=1):
-    return strength * 2 * ceil(sqrt(((shape[0]+shape[1])/2) - 2 * width + 1))
+def k_factor(shape, emphasis, width=1):#used strength 10 before....
+    #k = 1+k_factor*int(log(len(matrix), 2))
+    return emphasis * 2 * ceil(sqrt(((shape[0]+shape[1])/2) - 2 * width + 1))
 
-def knn_threshold(matrix):
-    k = k_factor(matrix.shape)
+def knn_threshold(matrix, emphasis):
+    k = k_factor(matrix.shape, emphasis)
     conns = np.zeros(matrix.shape)
     knn = [np.argpartition(m, -k)[-k:] for m in matrix]
     for i,k in enumerate(knn):
         conns[i][k] = 1
     return conns
 
-def get_affinity_matrix(a, b, equality, max_gaps, max_gap_ratio, knn=True):
+def get_affinity_matrix(a, b, equality, max_gaps, max_gap_ratio, emphasis=1, knn=True):
     symmetric = np.array_equal(a, b)
-    width = 1
-    k = factor * 2 * ceil(sqrt(((len(a)+len(b))/2) - 2 * width + 1))
-    #k = 1+k_factor*int(log(len(matrix), 2))
     
     #create affinity or equality matrix
     if equality:
         matrix = get_equality(a, b)
     elif knn:
         matrix = 1-pairwise_distances(a, b, metric="cosine")
-        matrix = knn_threshold(matrix)
+        matrix = knn_threshold(matrix, emphasis)
         #plot_matrix(matrix, 'est-.png')
     else:
         matrix = 1-pairwise_distances(a, b, metric="cosine")
         #plot_hist(np.hstack(matrix), 'est..png', 100)
-        k = k_factor(matrix.shape) * len(matrix) #really??
+        k = k_factor(matrix.shape, emphasis) * len(matrix) #really??
         thresh = np.partition(matrix.flatten(), -k)[-k]
         matrix = np.where(matrix >= thresh, 1, 0)
         #plot_matrix(matrix, 'est-.png')
@@ -190,16 +188,16 @@ def get_segments_from_matrix(matrix, symmetric, count, min_len, min_dist, max_ga
             if np.sum(unsmoothed[tuple(s.T)]) >= (1-max_gap_ratio)*len(s)]
     return filter_segments(segments, count, min_len, min_dist, symmetric, matrix.shape)
 
-def get_alignment_segments(a, b, count, min_len, min_dist, max_gap_size, max_gap_ratio, k_factor=10):
+def get_alignment_segments(a, b, count, min_len, min_dist, max_gap_size, max_gap_ratio):#, k_factor=10):
     symmetric = np.array_equal(a, b)
     equality = issubclass(a.dtype.type, np.integer)
-    matrix, unsmoothed = get_affinity_matrix(a, b, equality, max_gap_size, max_gap_ratio, k_factor)
+    matrix, unsmoothed = get_affinity_matrix(a, b, equality, max_gap_size, max_gap_ratio)
     return get_segments_from_matrix(matrix, symmetric, count, min_len, min_dist, max_gap_size, max_gap_ratio, unsmoothed)
 
-def get_longest_segment(a, b, count, min_len, min_dist, max_gap_size, max_gap_ratio, k_factor=10):
+def get_longest_segment(a, b, count, min_len, min_dist, max_gap_size, max_gap_ratio):#, k_factor=10):
     symmetric = np.array_equal(a, b)
     equality = issubclass(a.dtype.type, np.integer)
-    matrix, unsmoothed = get_affinity_matrix(a, b, equality, max_gap_size, max_gap_ratio, k_factor)
+    matrix, unsmoothed = get_affinity_matrix(a, b, equality, max_gap_size, max_gap_ratio)
     segments = matrix_to_segments(matrix)
     return segments[np.argmax([len(s) for s in segments])]
 
