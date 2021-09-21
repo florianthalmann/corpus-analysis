@@ -1,4 +1,4 @@
-import os, mir_eval, subprocess, tqdm, gc
+import os, mir_eval, subprocess, tqdm, gc, optuna
 from mutagen.mp3 import MP3
 import numpy as np
 import pandas as pd
@@ -6,7 +6,7 @@ import scipy.io as sio
 from datetime import datetime
 from matplotlib import pyplot as plt
 from corpus_analysis.util import multiprocess, plot_matrix, buffered_run,\
-    plot_sequences, save_json, load_json, flatten, catch
+    plot_sequences, save_json, load_json, flatten, catch, RepeatPruner
 from corpus_analysis.features import extract_chords, extract_bars,\
     get_summarized_chords, get_summarized_chroma, load_beats
 from corpus_analysis.alignment.affinity import get_alignment_segments,\
@@ -46,7 +46,7 @@ PARAMS = [K_FACTOR, MIN_LEN, MIN_DIST, MAX_GAPS, MAX_GAP_RATIO, MIN_LEN2, MIN_DI
 
 HOM_LABELS=False
 MATRIX_TYPE='own' #'fused', 'mcfee', 'own'
-METHOD_NAME='transf.25o2'
+METHOD_NAME='transf.25oL'
 
 #some annotations are missing!
 def get_annotation_ids():
@@ -189,12 +189,12 @@ def own_chroma_affinity(index, factor=2, knn=True):
     return matrix, raw, beats
 
 def transitive_hierarchy(matrix, unsmoothed, beats, groundtruth, index):
-    alignment = get_segments_from_matrix(matrix, True, 100, 0,
+    alignment = get_segments_from_matrix(matrix, True, 100, MIN_LEN,
         MIN_DIST, MAX_GAPS, MAX_GAP_RATIO, unsmoothed)
     # #TODO STANDARDIZE THIS!!
     # if len(alignment) < 10:
     #     print('alternative matrix!')
-    #     matrix, raw, beats = own_chroma_affinity(index, 2, knn=True)
+    #     matrix, raw, beats = own_chroma_affinity(index, 3, knn=True)
     #     alignment = get_segments_from_matrix(matrix, True, 100, int(MIN_LEN/2),
     #         MIN_DIST, MAX_GAPS, MAX_GAP_RATIO, raw)
     #     # print(len(alignment))
@@ -203,7 +203,7 @@ def transitive_hierarchy(matrix, unsmoothed, beats, groundtruth, index):
     matrix = segments_to_matrix(alignment, (len(matrix), len(matrix)))
     seq = matrix[0] if matrix is not None else []
     target = unsmoothed#np.where(matrix+unsmoothed > 0, 1, 0)
-    hierarchy = simple_structure(seq, alignment, MIN_LEN2, MIN_DIST2, target)
+    hierarchy = simple_structure(seq, alignment, MIN_LEN2, MIN_DIST2, target, lexis=True)
     maxtime = np.max(np.concatenate(groundtruth[0][0]))
     beats = beats[:len(matrix)]#just to make sure
     beat_ints = np.dstack((beats, np.append(beats[1:], maxtime)))[0]
@@ -245,15 +245,25 @@ def evaluate_to_table(index):
     # eval_and_add_results(index, 'l_own', gt, l_own[0], l_own[1])
     gc.collect()
 
-#24 31 32 37 47 56   5,14   95  135 148
-def indie_eval(index=166):#22):#32#38):
+#24 31 32 37 47 56   5,14   95  135 148 166
+def indie_eval(params=[95, [10, 12, 1, 7, .4, 8, 1]]):#index=95):#22):#32#38):
+    global PARAMS, K_FACTOR, MIN_LEN, MIN_DIST, MAX_GAPS, MAX_GAP_RATIO, MIN_LEN2, MIN_DIST2
+    index, PARAMS = params
+    K_FACTOR, MIN_LEN, MIN_DIST, MAX_GAPS, MAX_GAP_RATIO, MIN_LEN2, MIN_DIST2 = PARAMS
     l, own, gt = get_hierarchies(index)
-    #compare groundtruths with each other
-    if len(gt) > 1:
-        print(evaluate_hierarchy(*gt[0], *gt[1]))
+    # #compare groundtruths with each other
+    # if len(gt) > 1:
+    #     print(evaluate_hierarchy(*gt[0], *gt[1]))
     #compare laplacian and own to groundtruth
-    evaluate(index, 'l', gt, l[0], l[1])
-    evaluate(index, 't', gt, own[0], own[1])
+    evl = evaluate(index, 'l', gt, l[0], l[1])
+    evt = evaluate(index, 't', gt, own[0], own[1])
+    return np.mean([e[-1] for e in evl]), np.mean([e[-1] for e in evt])
+
+def multi_eval(indices, params):
+    indices = [[i, params] for i in indices]
+    results = multiprocess('multi eval', indie_eval, indices, True)
+    print(results, np.mean([r[1]-r[0] for r in results]))
+    return np.mean([r[1]-r[0] for r in results])
 
 def plot(path=None):
     data = RESULTS.get_rows()
@@ -308,24 +318,50 @@ def salami_analysis(path='salami_analysis.pdf'):
     plt.tight_layout()
     plt.savefig(path, dpi=1000) if path else plt.show()
 
+def objective(trial):
+    k = trial.suggest_int('k', 1, 3, step=1)
+    ml = trial.suggest_int('ml', 8, 24, step=4)
+    md = trial.suggest_int('md', 1, 1, step=1)
+    mg = trial.suggest_int('mg', 5, 11, step=2)
+    mgr = trial.suggest_float('mgr', .2, .6, step=.2)
+    ml2 = trial.suggest_int('ml2', 8, 8, step=1)
+    md2 = trial.suggest_int('md2', 1, 1, step=1)
+    # K_FACTOR = 10
+    # MIN_LEN = 12
+    # MIN_DIST = 1 # >= 1
+    # MAX_GAPS = 7
+    # MAX_GAP_RATIO = .4
+    # MIN_LEN2 = 8
+    # MIN_DIST2 = 1
+    if trial.should_prune():
+        raise optuna.TrialPruned()
+    return multi_eval([229, 79, 231, 315, 198], [k, ml, md, mg, mgr, ml2, md2])
+
 # conda activate p38
 # export LC_ALL="en_US.UTF-8"
 # export LC_CTYPE="en_US.UTF-8"
 
+def study():
+    study = optuna.create_study(direction='maximize', load_if_exists=True, pruner=RepeatPruner())#, sampler=optuna.samplers.GridSampler())
+    study.optimize(objective, n_trials=10)
+    print(study.best_params)
+
 def sweep(multi=True):
     #songs = [37,95,107,108,139,148,166,170,192,200]
     songs = [37,95,107,108,139,148,166,170,192,200]+get_monotonic_salami()[90:100]#[5:30]#get_available_songs()[:100]#[197:222]#[197:347]#[6:16]
-    #songs = get_monotonic_salami()[0:100]#get_available_songs()[:100]#[197:222]#[197:347]#[6:16]
-    print(len(songs))
+    #songs = get_monotonic_salami()[6:100]#get_available_songs()[:100]#[197:222]#[197:347]#[6:16]
     if multi:
         multiprocess('evaluating hierarchies', evaluate_to_table, songs, True)
     else:
         [evaluate_to_table(i) for i in tqdm.tqdm(songs)]
 
 if __name__ == "__main__":
+    #print(np.random.choice(get_monotonic_salami()[6:100], 5))
+    study()
     #extract_all_features()
     #calculate_fused_matrices()
     #sweep()
     #indie_eval()
+    #multi_eval([229, 79, 231, 315, 198], [10, 12, 1, 7, .4, 8, 1])#[408, 822, 722, 637, 527])
     #salami_analysis()
-    plot('salamiF2.png')
+    #plot('salamiF2.png')

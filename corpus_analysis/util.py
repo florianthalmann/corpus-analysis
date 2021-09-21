@@ -1,4 +1,4 @@
-import os, json, cProfile, math, tqdm
+import os, json, cProfile, math, tqdm, optuna
 from functools import reduce
 from collections import defaultdict
 from multiprocessing import Pool, cpu_count
@@ -139,3 +139,11 @@ def catch(func, handle=lambda e : e, *args, **kwargs):
         return func(*args, **kwargs)
     except Exception as e:
         return handle(e)
+
+class RepeatPruner(optuna.pruners.BasePruner):
+    def prune(self, study, trial):
+        # type: (Study, FrozenTrial) -> bool
+        trials = study.get_trials(deepcopy=False)
+        completed_trials = [t.params for t in trials
+            if t.state == optuna.trial.TrialState.COMPLETE]
+        return trial.params in completed_trials
