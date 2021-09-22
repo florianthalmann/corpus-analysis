@@ -1,12 +1,7 @@
-import numpy as np
+from ..stats.util import entropy
 
 def get_msa_entropy(msa):
-    return sum([get_column_entropy(c) for c in msa])
-
-def get_column_entropy(col):
-    p = np.bincount(col)/len(col)
-    p = p[np.nonzero(p)]
-    return -np.sum(np.log2(p)*p)
+    return sum([entropy(c) for c in msa])
 
 # print(get_msa_entropy([[0,1,2,3]]))
 # print(get_msa_entropy([[0,0,0,0],[0,0,0,1],[0,0,1,2]]))

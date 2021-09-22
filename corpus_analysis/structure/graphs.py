@@ -303,7 +303,7 @@ def maximal_quasi_cliques(cliques, incomp_vertices):
 def get_edge_combos2(g):
     edge_combos = []
     #for each vertex find best combinations of neighbors 
-    for v in g.get_vertices()#[150:155]:#[49:50]:
+    for v in g.get_vertices():#[150:155]:#[49:50]:
         n = sorted(g.get_out_neighbors(v))
         #split into connected segments
         #print(v, len(n))

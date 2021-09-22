@@ -8,6 +8,7 @@ from .patterns import Pattern, segments_to_patterns, patterns_to_segments
 from .sections import segments_to_sections, remove_contained, merge_overlapping
 from .graphs import graph_from_matrix, segments_to_matrix, matrix_to_segments,\
     adjacency_matrix
+from .lexis import lexis_sections
 from ..alignment.affinity import segments_to_matrix, smooth_matrix
 from ..util import argmax, ordered_unique, plot_matrix, group_adjacent,\
     indices_of_subarray, plot
@@ -72,7 +73,7 @@ def matrix_f_measure(matrix, target, beta=1, verbose=False):
     recall = intersection / target_total
     if verbose: print(target_total, matrix_total, intersection, precision, recall, 2*precision*recall / (precision+recall))
     #return 2*(precision**2)*recall / (precision+recall)
-    return (1+beta**2)*precision*recall / ((beta**2*precision)+recall)
+    return (1+beta**2) * precision*recall / ((beta**2*precision)+recall)
 
 def dist_func(matrix, target, segments):
     target_total = len(np.nonzero(target > 0)[0])+1
@@ -105,7 +106,7 @@ def get_noise_factor(segments, target, size):
     return (len(np.nonzero(segmat-target > 0)[0])/len(np.nonzero(segmat > 0)[0])
         * (1-len(np.nonzero(target-segmat > 0)[0])/len(np.nonzero(target > 0)[0])))
 
-def make_segments_hierarchical(segments, min_len, min_dist, size, target=None, path=None, verbose=False):
+def make_segments_hierarchical(segments, min_len, min_dist, size, target=None, beta=.25, path=None, verbose=False):
     segments = segments.copy()#since we're removing from it
     if target is None:
         target = segments_to_matrix(segments, (size,size))#replace with raw or intermediary
@@ -124,9 +125,9 @@ def make_segments_hierarchical(segments, min_len, min_dist, size, target=None, p
         def best_transitive(matrices, last_best=False):
             matrices = [add_transitivity_to_matrix(m) for m in matrices]
             #dists = [dist_func(m, target, segments) for m in matrices]
-            dists = [1-matrix_f_measure(m, target, 0.125) for m in matrices]
+            dists = [1-matrix_f_measure(m, target, beta) for m in matrices]
             best = len(dists)-np.argmin(dists[::-1])-1 if last_best else np.argmin(dists)
-            if verbose: matrix_f_measure(matrices[best], target, 0.125, True)
+            if verbose: matrix_f_measure(matrices[best], target, beta, True)
             if verbose: print(dists[best], best, np.array(np.round(dists), dtype=int))
             return best, matrices[best], dists[best]
         
@@ -167,13 +168,16 @@ def make_segments_hierarchical(segments, min_len, min_dist, size, target=None, p
         improvement = distance-dist
         distance = dist
         if verbose: print(distance)
+    #smooth final matrix
     # unsmoothed = matrix
     # matrix = smooth_matrix(matrix, True, 5, .4)
     # matrix = smooth_matrix(matrix+unsmoothed, True, 5, .4)
     
+    #keep only longer segments
     # if verbose: print(dist_func(matrix, target))
     # matrix = segments_to_matrix([s for s in matrix_to_segments(matrix) if len(s) > 6], (size,size))
     # matrix = add_transitivity_to_matrix(matrix)
+    
     # # if verbose: plot_matrix(matrix, 'new'+str(i)+'.png')
     # if verbose: print(dist_func(matrix, target, segments))
     return matrix_to_segments(matrix)
@@ -619,8 +623,11 @@ def get_hierarchies(sequences):
     sequences, sections, occs = find_sections_bottom_up(sequences)
     return [to_hierarchy(s, sections) for s in sequences]
 
-def get_hierarchy_labels(sequences, ignore=[]):
-    seqs, secs, occs =  find_sections_bottom_up(sequences, ignore)
+def get_hierarchy_labels(sequences, ignore=[], lexis=False):
+    if lexis:
+        seqs, secs, occs, core = lexis_sections(sequences)
+    else:
+        seqs, secs, occs = find_sections_bottom_up(sequences, ignore)
     return to_hierarchy_labels(seqs, secs)
 
 def to_hierarchy_labels(sequences, sections):

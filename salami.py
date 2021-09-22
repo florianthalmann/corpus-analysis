@@ -20,6 +20,19 @@ from corpus_analysis.stats.hierarchies import monotonicity, monotonicity2,\
     monotonicity3, beatwise_ints, transitivity
 from corpus_analysis.data import Data
 
+PARAMS = dict([
+    ['K_FACTOR', 10],
+    ['NUM_SEGS', 0],
+    ['MIN_LEN', 12],
+    ['MIN_DIST', 1],
+    ['MAX_GAPS', 7],
+    ['MAX_GAP_RATIO', .4],
+    ['MIN_LEN2', 8],
+    ['MIN_DIST2', 1],
+    ['LEXIS', 1],
+    ['BETA', .25]
+])
+
 corpus = '/Users/flo/Projects/Code/Kyoto/SALAMI/'
 audio = corpus+'all-audio'#'lma-audio/'
 annotations = corpus+'salami-data-public/annotations/'
@@ -27,22 +40,11 @@ features = corpus+'features/'
 output = 'salami/'
 DATA = output+'data/'
 RESULTS = Data(output+'resultsF5.csv',
-    columns=['SONG', 'K_FACTOR', 'MIN_LEN', 'MIN_DIST', 'MAX_GAPS',
-    'MAX_GAP_RATIO', 'MIN_LEN2', 'MIN_DIST2',
-    'REF', 'METHOD', 'P', 'R', 'L'])
+    columns=['SONG']+list(PARAMS.keys())+['REF', 'METHOD', 'P', 'R', 'L'])
 PLOT_PATH=output+'all3/'
 graphditty = '/Users/flo/Projects/Code/Kyoto/GraphDitty/SongStructure.py'
 
-K_FACTOR = 10
-MIN_LEN = 12
-MIN_DIST = 1 # >= 1
-MAX_GAPS = 7
-MAX_GAP_RATIO = .4
-MIN_LEN2 = 8
-MIN_DIST2 = 1
 PLOT_FRAMES = 2000
-
-PARAMS = [K_FACTOR, MIN_LEN, MIN_DIST, MAX_GAPS, MAX_GAP_RATIO, MIN_LEN2, MIN_DIST2]
 
 HOM_LABELS=False
 MATRIX_TYPE='own' #'fused', 'mcfee', 'own'
@@ -169,28 +171,29 @@ def evaluate(index, method_name, groundtruth, intervals, labels):
     results = []
     for i, (refint, reflab) in enumerate(groundtruth):
         score = evaluate_hierarchy(refint, reflab, intervals, labels)
-        results.append([index]+PARAMS+[i, method_name, score[0], score[1], score[2]])
+        results.append([index]+list(PARAMS.values())+[i, method_name, score[0], score[1], score[2]])
     print(results)
     return results
 
 def eval_and_add_results(index, method_name, groundtruth, intervals, labels):
     if PLOT_PATH:
         plot_hierarchy(PLOT_PATH, index, method_name, intervals, labels, groundtruth)
-    ref_rows = [[index]+PARAMS+[i, method_name] for i in range(len(groundtruth))]
+    ref_rows = [[index]+list(PARAMS.values())+[i, method_name] for i in range(len(groundtruth))]
     rows_func = lambda: evaluate(index, method_name, groundtruth, intervals, labels)
     RESULTS.add_rows(ref_rows, rows_func)
 
 def own_chroma_affinity(index, factor=2, knn=True):
     chroma = buffered_run(DATA+'chroma'+str(index),
         lambda: get_beatwise_chroma(index))#load_beatwise_chords(index)
-    matrix, raw = get_affinity_matrix(chroma, chroma, False, MAX_GAPS,
-        MAX_GAP_RATIO, factor, knn)#, k_factor=K_FACTOR)
+    matrix, raw = get_affinity_matrix(chroma, chroma, False, PARAMS['MAX_GAPS'],
+        PARAMS['MAX_GAP_RATIO'], factor, knn)
     beats = get_beats(index)
     return matrix, raw, beats
 
 def transitive_hierarchy(matrix, unsmoothed, beats, groundtruth, index):
-    alignment = get_segments_from_matrix(matrix, True, 100, MIN_LEN,
-        MIN_DIST, MAX_GAPS, MAX_GAP_RATIO, unsmoothed)
+    alignment = get_segments_from_matrix(matrix, True, PARAMS['NUM_SEGS'],
+        PARAMS['MIN_LEN'], PARAMS['MIN_DIST'], PARAMS['MAX_GAPS'],
+        PARAMS['MAX_GAP_RATIO'], unsmoothed)
     # #TODO STANDARDIZE THIS!!
     # if len(alignment) < 10:
     #     print('alternative matrix!')
@@ -203,7 +206,8 @@ def transitive_hierarchy(matrix, unsmoothed, beats, groundtruth, index):
     matrix = segments_to_matrix(alignment, (len(matrix), len(matrix)))
     seq = matrix[0] if matrix is not None else []
     target = unsmoothed#np.where(matrix+unsmoothed > 0, 1, 0)
-    hierarchy = simple_structure(seq, alignment, MIN_LEN2, MIN_DIST2, target, lexis=True)
+    hierarchy = simple_structure(seq, alignment, PARAMS['MIN_LEN2'],
+        PARAMS['MIN_DIST2'], PARAMS['BETA'], target, lexis=PARAMS['LEXIS'] == 1)
     maxtime = np.max(np.concatenate(groundtruth[0][0]))
     beats = beats[:len(matrix)]#just to make sure
     beat_ints = np.dstack((beats, np.append(beats[1:], maxtime)))[0]
@@ -222,7 +226,7 @@ def get_hierarchies(index, hierarchy_buffer=None):
         plot_matrix(matrix, 'm1m.png')
     else:
         matrix, raw, beats = buffered_run(DATA+'own'+str(index),
-            lambda: own_chroma_affinity(index), PARAMS)
+            lambda: own_chroma_affinity(index), PARAMS.values())
         # plot_matrix(raw, 'm0.png')
         # plot_matrix(matrix, 'm1.png')
     l = buffered_run(DATA+'lapl'+str(index),
@@ -230,7 +234,7 @@ def get_hierarchies(index, hierarchy_buffer=None):
     if PLOT_PATH: plot_hierarchy(PLOT_PATH, index, 'l', l[0], l[1], groundtruth)
     if hierarchy_buffer is not None:
         own = buffered_run(DATA+hierarchy_buffer+str(index),
-            lambda: transitive_hierarchy(matrix, None, beats, groundtruth, index), PARAMS)
+            lambda: transitive_hierarchy(matrix, None, beats, groundtruth, index), PARAMS.values())
     else:
         own = transitive_hierarchy(matrix, None, beats, groundtruth, index)
     if PLOT_PATH: plot_hierarchy(PLOT_PATH, index, 'o', own[0], own[1], groundtruth, force=True)
@@ -246,10 +250,9 @@ def evaluate_to_table(index):
     gc.collect()
 
 #24 31 32 37 47 56   5,14   95  135 148 166
-def indie_eval(params=[95, [10, 12, 1, 7, .4, 8, 1]]):#index=95):#22):#32#38):
-    global PARAMS, K_FACTOR, MIN_LEN, MIN_DIST, MAX_GAPS, MAX_GAP_RATIO, MIN_LEN2, MIN_DIST2
+def indie_eval(params=[95, PARAMS]):#index=95):#22):#32#38):
+    global PARAMS
     index, PARAMS = params
-    K_FACTOR, MIN_LEN, MIN_DIST, MAX_GAPS, MAX_GAP_RATIO, MIN_LEN2, MIN_DIST2 = PARAMS
     l, own, gt = get_hierarchies(index)
     # #compare groundtruths with each other
     # if len(gt) > 1:
@@ -319,13 +322,16 @@ def salami_analysis(path='salami_analysis.pdf'):
     plt.savefig(path, dpi=1000) if path else plt.show()
 
 def objective(trial):
-    k = trial.suggest_int('k', 1, 3, step=1)
+    k = trial.suggest_int('k', 1, 5, step=1)
+    n = trial.suggest_int('n', 50, 200, step=50)
     ml = trial.suggest_int('ml', 8, 24, step=4)
     md = trial.suggest_int('md', 1, 1, step=1)
     mg = trial.suggest_int('mg', 5, 11, step=2)
-    mgr = trial.suggest_float('mgr', .2, .6, step=.2)
+    mgr = trial.suggest_float('mgr', .2, .6, step=.1)
     ml2 = trial.suggest_int('ml2', 8, 8, step=1)
     md2 = trial.suggest_int('md2', 1, 1, step=1)
+    lex = trial.suggest_int('lex', 0, 1)
+    beta = trial.suggest_float('beta', .1, 1, step=.1)
     # K_FACTOR = 10
     # MIN_LEN = 12
     # MIN_DIST = 1 # >= 1
@@ -335,7 +341,9 @@ def objective(trial):
     # MIN_DIST2 = 1
     if trial.should_prune():
         raise optuna.TrialPruned()
-    return multi_eval([229, 79, 231, 315, 198], [k, ml, md, mg, mgr, ml2, md2])
+    return multi_eval([229, 79, 231, 315, 198], {'K_FACTOR': k, 'NUM_SEGS': n,
+        'MIN_LEN': ml, 'MIN_DIST': md, 'MAX_GAPS': mg, 'MAX_GAP_RATIO': mgr,
+        'MIN_LEN2': ml2, 'MIN_DIST2': md2, 'LEXIS': lex, 'BETA': beta})
 
 # conda activate p38
 # export LC_ALL="en_US.UTF-8"
@@ -343,7 +351,7 @@ def objective(trial):
 
 def study():
     study = optuna.create_study(direction='maximize', load_if_exists=True, pruner=RepeatPruner())#, sampler=optuna.samplers.GridSampler())
-    study.optimize(objective, n_trials=10)
+    study.optimize(objective, n_trials=100)
     print(study.best_params)
 
 def sweep(multi=True):

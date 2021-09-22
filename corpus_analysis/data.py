@@ -3,7 +3,6 @@ import numpy as np
 import pandas as pd
 
 class Data:
-    #init file
     def __init__(self, path, columns):
         self.path = path
         self.columns = columns
