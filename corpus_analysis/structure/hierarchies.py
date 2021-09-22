@@ -437,7 +437,7 @@ def get_most_frequent_pair(sequences, ignore=[], overlapping=False):
     counts = Counter(valid.view(dtype=np.dtype([('x',valid.dtype),('y',valid.dtype)]))[:,0].tolist())
     #print(counts)
     counts = sorted(counts.items(), key=lambda c: c[1], reverse=True)
-    if counts[0][1] > 1:
+    if len(counts) > 0 and counts[0][1] > 1:
         locs = [get_locs_of_pair(s, counts[0][0], overlapping) for s in sequences]
         return counts[0][0], [(i,j) for i,l in enumerate(locs) for j in l]
     return None, None

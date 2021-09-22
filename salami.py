@@ -21,7 +21,8 @@ from corpus_analysis.stats.hierarchies import monotonicity, monotonicity2,\
 from corpus_analysis.data import Data
 
 PARAMS = dict([
-    ['K_FACTOR', 10],
+    ['MATRIX_TYPE', 0],#0=own, 1=mcfee, 2=fused
+    ['K_FACTOR', 1],
     ['NUM_SEGS', 0],
     ['MIN_LEN', 12],
     ['MIN_DIST', 1],
@@ -47,7 +48,7 @@ graphditty = '/Users/flo/Projects/Code/Kyoto/GraphDitty/SongStructure.py'
 PLOT_FRAMES = 2000
 
 HOM_LABELS=False
-MATRIX_TYPE='own' #'fused', 'mcfee', 'own'
+#MATRIX_TYPE='own' #'fused', 'mcfee', 'own'
 METHOD_NAME='transf.25oL'
 
 #some annotations are missing!
@@ -144,7 +145,7 @@ def load_fused_matrix(index):
     # m[m < 0.01] = 0
     # m[m != 0] = 1
     #m[m >= 0.5] = 0
-    m = knn_threshold(m)
+    m = knn_threshold(m, PARAMS['K_FACTOR'])
     beats = np.array(j['times'][:len(m)])
     #plot_matrix(m)
     return m, beats
@@ -217,10 +218,10 @@ def get_hierarchies(index, hierarchy_buffer=None):
     groundtruth = load_salami_hierarchies(index)
     if HOM_LABELS: groundtruth = [homogenize_labels(v) for v in groundtruth]
     if PLOT_PATH: plot_groundtruths(groundtruth, index, PLOT_PATH)
-    if MATRIX_TYPE is 'fused':
+    if PARAMS['MATRIX_TYPE'] is 2:
         matrix, beats = load_fused_matrix(index)
         plot_matrix(matrix, 'm1f.png')
-    elif MATRIX_TYPE is 'mcfee':
+    elif PARAMS['MATRIX_TYPE'] is 1:
         matrix, beats = buffered_run(DATA+'mcfee'+str(index),
             lambda: get_smooth_affinity_matrix(get_audio(index)))
         plot_matrix(matrix, 'm1m.png')
@@ -263,8 +264,8 @@ def indie_eval(params=[95, PARAMS]):#index=95):#22):#32#38):
     return np.mean([e[-1] for e in evl]), np.mean([e[-1] for e in evt])
 
 def multi_eval(indices, params):
-    indices = [[i, params] for i in indices]
-    results = multiprocess('multi eval', indie_eval, indices, True)
+    params = [[i, params] for i in indices]
+    results = multiprocess('multi eval', indie_eval, params, True)
     print(results, np.mean([r[1]-r[0] for r in results]))
     return np.mean([r[1]-r[0] for r in results])
 
@@ -322,28 +323,24 @@ def salami_analysis(path='salami_analysis.pdf'):
     plt.savefig(path, dpi=1000) if path else plt.show()
 
 def objective(trial):
+    t = trial.suggest_int('t', 0, 2, step=1)
     k = trial.suggest_int('k', 1, 5, step=1)
-    n = trial.suggest_int('n', 50, 200, step=50)
-    ml = trial.suggest_int('ml', 8, 24, step=4)
+    n = trial.suggest_int('n', 100, 100, step=50)
+    ml = trial.suggest_int('ml', 12, 12, step=4)
     md = trial.suggest_int('md', 1, 1, step=1)
-    mg = trial.suggest_int('mg', 5, 11, step=2)
-    mgr = trial.suggest_float('mgr', .2, .6, step=.1)
+    mg = trial.suggest_int('mg', 7, 7, step=2)
+    mgr = trial.suggest_float('mgr', .4, .4, step=.1)
     ml2 = trial.suggest_int('ml2', 8, 8, step=1)
     md2 = trial.suggest_int('md2', 1, 1, step=1)
     lex = trial.suggest_int('lex', 0, 1)
-    beta = trial.suggest_float('beta', .1, 1, step=.1)
-    # K_FACTOR = 10
-    # MIN_LEN = 12
-    # MIN_DIST = 1 # >= 1
-    # MAX_GAPS = 7
-    # MAX_GAP_RATIO = .4
-    # MIN_LEN2 = 8
-    # MIN_DIST2 = 1
+    beta = trial.suggest_float('beta', .25, 1, step=.25)
     if trial.should_prune():
         raise optuna.TrialPruned()
-    return multi_eval([229, 79, 231, 315, 198], {'K_FACTOR': k, 'NUM_SEGS': n,
-        'MIN_LEN': ml, 'MIN_DIST': md, 'MAX_GAPS': mg, 'MAX_GAP_RATIO': mgr,
-        'MIN_LEN2': ml2, 'MIN_DIST2': md2, 'LEXIS': lex, 'BETA': beta})
+    #[229, 79, 231, 315, 198] [75, 22, 183, 294, 111]
+    return multi_eval([75, 22, 183, 294, 111], {'MATRIX_TYPE': t, 'K_FACTOR': k,
+        'NUM_SEGS': n, 'MIN_LEN': ml, 'MIN_DIST': md, 'MAX_GAPS': mg,
+        'MAX_GAP_RATIO': mgr, 'MIN_LEN2': ml2, 'MIN_DIST2': md2, 'LEXIS': lex,
+        'BETA': beta})
 
 # conda activate p38
 # export LC_ALL="en_US.UTF-8"
@@ -353,6 +350,8 @@ def study():
     study = optuna.create_study(direction='maximize', load_if_exists=True, pruner=RepeatPruner())#, sampler=optuna.samplers.GridSampler())
     study.optimize(objective, n_trials=100)
     print(study.best_params)
+    #{'k': 3, 'n': 100, 'ml': 20, 'md': 1, 'mg': 5, 'mgr': 0.2, 'ml2': 8, 'md2': 1, 'lex': 0, 'beta': 0.7}
+    #{'k': 3, 'n': 200, 'ml': 20, 'md': 1, 'mg': 7, 'mgr': 0.6, 'ml2': 8, 'md2': 1, 'lex': 1, 'beta': 0.4}
 
 def sweep(multi=True):
     #songs = [37,95,107,108,139,148,166,170,192,200]
