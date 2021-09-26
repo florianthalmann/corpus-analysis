@@ -54,6 +54,14 @@ def plot_msa_eval(path):
         ax=axes, positions=[0,2,3,1])
     save_current_pandas_plot('gd3.pdf')
 
+def plot_num_mutuals_eval(path):
+    data = pd.read_csv(path)
+    fig, axes = plt.subplots(1,3, figsize=(7, 5.25))
+    data.boxplot(by='num_mutual', column=['entropy','partition count','total points'],
+        ax=axes)
+    #data.groupby(['num_mutual']).plot(x='num_mutual')
+    save_current_pandas_plot('gd-mutuals.pdf')
+
 def plot_features(raw=False):
     chord_func = get_chord_sequences if raw else get_preprocessed_seqs
     data = pd.DataFrame([], columns=['song','duration','tempo','chord count'])
@@ -88,4 +96,5 @@ def plot_evolution(song):
     plt.show()
 
 #plot_msa_eval('eval.csv')
-plot_features()
+plot_num_mutuals_eval('mutuals.csv')
+#plot_features()
