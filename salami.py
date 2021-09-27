@@ -21,18 +21,22 @@ from corpus_analysis.stats.hierarchies import monotonicity, monotonicity2,\
 from corpus_analysis.data import Data
 
 PARAMS = dict([
-    ['MATRIX_TYPE', 0],#0=own, 1=mcfee, 2=fused
-    ['K_FACTOR', 1],
-    ['NUM_SEGS', 0],
+    ['MATRIX_TYPE', 2],#0=own, 1=mcfee, 2=fused
+    ['K_FACTOR', 2],
+    ['NUM_SEGS', 100],
     ['MIN_LEN', 12],
     ['MIN_DIST', 1],
-    ['MAX_GAPS', 7],
+    ['MAX_GAPS', 5],
     ['MAX_GAP_RATIO', .4],
     ['MIN_LEN2', 8],
     ['MIN_DIST2', 1],
     ['LEXIS', 1],
-    ['BETA', .25]
+    ['BETA', 1]
 ])
+
+def matrix_type():
+    index = PARAMS['MATRIX_TYPE']
+    return 'own' if index == 0 else 'mcfee' if index == 1 else 'fused'
 
 corpus = '/Users/flo/Projects/Code/Kyoto/SALAMI/'
 audio = corpus+'all-audio'#'lma-audio/'
@@ -40,15 +44,14 @@ annotations = corpus+'salami-data-public/annotations/'
 features = corpus+'features/'
 output = 'salami/'
 DATA = output+'data/'
-RESULTS = Data(output+'resultsF5.csv',
+RESULTS = Data(output+'resultsF6.csv',
     columns=['SONG']+list(PARAMS.keys())+['REF', 'METHOD', 'P', 'R', 'L'])
-PLOT_PATH=output+'all3/'
+PLOT_PATH=output+'all4/'
 graphditty = '/Users/flo/Projects/Code/Kyoto/GraphDitty/SongStructure.py'
 
 PLOT_FRAMES = 2000
 
 HOM_LABELS=False
-#MATRIX_TYPE='own' #'fused', 'mcfee', 'own'
 METHOD_NAME='transf.25oL'
 
 #some annotations are missing!
@@ -176,9 +179,9 @@ def evaluate(index, method_name, groundtruth, intervals, labels):
     print(results)
     return results
 
-def eval_and_add_results(index, method_name, groundtruth, intervals, labels):
-    if PLOT_PATH:
-        plot_hierarchy(PLOT_PATH, index, method_name, intervals, labels, groundtruth)
+def eval_and_add_results(index, method_name, groundtruth, intervals, labels, plot_path=None):
+    if plot_path:
+        plot_hierarchy(plot_path, index, method_name, intervals, labels, groundtruth)
     ref_rows = [[index]+list(PARAMS.values())+[i, method_name] for i in range(len(groundtruth))]
     rows_func = lambda: evaluate(index, method_name, groundtruth, intervals, labels)
     RESULTS.add_rows(ref_rows, rows_func)
@@ -191,7 +194,7 @@ def own_chroma_affinity(index, factor=2, knn=True):
     beats = get_beats(index)
     return matrix, raw, beats
 
-def transitive_hierarchy(matrix, unsmoothed, beats, groundtruth, index):
+def transitive_hierarchy(matrix, unsmoothed, beats, groundtruth, index, plot_file):
     alignment = get_segments_from_matrix(matrix, True, PARAMS['NUM_SEGS'],
         PARAMS['MIN_LEN'], PARAMS['MIN_DIST'], PARAMS['MAX_GAPS'],
         PARAMS['MAX_GAP_RATIO'], unsmoothed)
@@ -208,53 +211,56 @@ def transitive_hierarchy(matrix, unsmoothed, beats, groundtruth, index):
     seq = matrix[0] if matrix is not None else []
     target = unsmoothed#np.where(matrix+unsmoothed > 0, 1, 0)
     hierarchy = simple_structure(seq, alignment, PARAMS['MIN_LEN2'],
-        PARAMS['MIN_DIST2'], PARAMS['BETA'], target, lexis=PARAMS['LEXIS'] == 1)
+        PARAMS['MIN_DIST2'], PARAMS['BETA'], target, lexis=PARAMS['LEXIS'] == 1,
+        plot_file=plot_file)
     maxtime = np.max(np.concatenate(groundtruth[0][0]))
     beats = beats[:len(matrix)]#just to make sure
     beat_ints = np.dstack((beats, np.append(beats[1:], maxtime)))[0]
     return [beat_ints for h in range(len(hierarchy))], hierarchy.tolist()
 
-def get_hierarchies(index, hierarchy_buffer=None):
+def get_hierarchies(index, hierarchy_buffer=None, plot_path=None):
     groundtruth = load_salami_hierarchies(index)
     if HOM_LABELS: groundtruth = [homogenize_labels(v) for v in groundtruth]
-    if PLOT_PATH: plot_groundtruths(groundtruth, index, PLOT_PATH)
+    if plot_path: plot_groundtruths(groundtruth, index, plot_path)
     if PARAMS['MATRIX_TYPE'] is 2:
         matrix, beats = load_fused_matrix(index)
-        plot_matrix(matrix, 'm1f.png')
+        if plot_path: plot_matrix(matrix, plot_path+str(index)+'-m1f.png')
     elif PARAMS['MATRIX_TYPE'] is 1:
         matrix, beats = buffered_run(DATA+'mcfee'+str(index),
             lambda: get_smooth_affinity_matrix(get_audio(index)))
-        plot_matrix(matrix, 'm1m.png')
+        if plot_path: plot_matrix(matrix, plot_path+str(index)+'-m1m.png')
     else:
         matrix, raw, beats = buffered_run(DATA+'own'+str(index),
             lambda: own_chroma_affinity(index), PARAMS.values())
-        # plot_matrix(raw, 'm0.png')
-        # plot_matrix(matrix, 'm1.png')
+        if plot_path: plot_matrix(raw, plot_path+str(index)+'-m0o.png')
+        if plot_path: plot_matrix(matrix, plot_path+str(index)+'-m1o.png')
     l = buffered_run(DATA+'lapl'+str(index),
         lambda: get_laplacian_struct_from_audio(get_audio(index)))
-    if PLOT_PATH: plot_hierarchy(PLOT_PATH, index, 'l', l[0], l[1], groundtruth)
+    if plot_path: plot_hierarchy(plot_path, index, 'l', l[0], l[1], groundtruth)
+    plot_file = plot_path+str(index)+'-m2'+matrix_type()[0]+'.png' if plot_path else None
     if hierarchy_buffer is not None:
         own = buffered_run(DATA+hierarchy_buffer+str(index),
-            lambda: transitive_hierarchy(matrix, None, beats, groundtruth, index), PARAMS.values())
+            lambda: transitive_hierarchy(matrix, None, beats, groundtruth, index, plot_file), PARAMS.values())
     else:
-        own = transitive_hierarchy(matrix, None, beats, groundtruth, index)
-    if PLOT_PATH: plot_hierarchy(PLOT_PATH, index, 'o', own[0], own[1], groundtruth, force=True)
+        own = transitive_hierarchy(matrix, None, beats, groundtruth, index, plot_file)
+    if plot_path: plot_hierarchy(plot_path, index, 'o'+matrix_type()[0],
+        own[0], own[1], groundtruth, force=True)
     return l, own, groundtruth
 
 def evaluate_to_table(index):
     l, own, gt = get_hierarchies(index, METHOD_NAME)
-    eval_and_add_results(index, 'l', gt, l[0], l[1])
-    eval_and_add_results(index, METHOD_NAME, gt, own[0], own[1])
+    eval_and_add_results(index, 'l', gt, l[0], l[1], PLOT_PATH)
+    eval_and_add_results(index, METHOD_NAME, gt, own[0], own[1], PLOT_PATH)
     # l_own = buffered_run(DATA+'l_own'+str(index),
     #     lambda: get_laplacian_struct_from_affinity2(own, obeats), PARAMS)
-    # eval_and_add_results(index, 'l_own', gt, l_own[0], l_own[1])
+    # eval_and_add_results(index, 'l_own', gt, l_own[0], l_own[1], PLOT_PATH)
     gc.collect()
 
 #24 31 32 37 47 56   5,14   95  135 148 166
-def indie_eval(params=[95, PARAMS]):#index=95):#22):#32#38):
+def indie_eval(params=[133, PARAMS]):#index=95):#22):#32#38):
     global PARAMS
     index, PARAMS = params
-    l, own, gt = get_hierarchies(index)
+    l, own, gt = get_hierarchies(index, plot_path=PLOT_PATH)
     # #compare groundtruths with each other
     # if len(gt) > 1:
     #     print(evaluate_hierarchy(*gt[0], *gt[1]))
@@ -263,7 +269,7 @@ def indie_eval(params=[95, PARAMS]):#index=95):#22):#32#38):
     evt = evaluate(index, 't', gt, own[0], own[1])
     return np.mean([e[-1] for e in evl]), np.mean([e[-1] for e in evt])
 
-def multi_eval(indices, params):
+def multi_eval(indices, params=PARAMS):
     params = [[i, params] for i in indices]
     results = multiprocess('multi eval', indie_eval, params, True)
     print(results, np.mean([r[1]-r[0] for r in results]))
@@ -323,21 +329,23 @@ def salami_analysis(path='salami_analysis.pdf'):
     plt.savefig(path, dpi=1000) if path else plt.show()
 
 def objective(trial):
-    t = trial.suggest_int('t', 0, 2, step=1)
-    k = trial.suggest_int('k', 1, 5, step=1)
+    t = trial.suggest_int('t', 2, 2, step=1)
+    k = trial.suggest_int('k', 1, 3, step=1)
     n = trial.suggest_int('n', 100, 100, step=50)
-    ml = trial.suggest_int('ml', 12, 12, step=4)
+    ml = trial.suggest_int('ml', 12, 20, step=4)
     md = trial.suggest_int('md', 1, 1, step=1)
-    mg = trial.suggest_int('mg', 7, 7, step=2)
-    mgr = trial.suggest_float('mgr', .4, .4, step=.1)
+    mg = trial.suggest_int('mg', 5, 9, step=2)
+    mgr = trial.suggest_float('mgr', .2, .6, step=.1)
     ml2 = trial.suggest_int('ml2', 8, 8, step=1)
     md2 = trial.suggest_int('md2', 1, 1, step=1)
-    lex = trial.suggest_int('lex', 0, 1)
+    lex = trial.suggest_int('lex', 1, 1)
     beta = trial.suggest_float('beta', .25, 1, step=.25)
     if trial.should_prune():
         raise optuna.TrialPruned()
     #[229, 79, 231, 315, 198] [75, 22, 183, 294, 111]
-    return multi_eval([75, 22, 183, 294, 111], {'MATRIX_TYPE': t, 'K_FACTOR': k,
+    #[1270,1461,1375,340,1627,584,1196,443,23,1434]
+    return multi_eval(get_monotonic_salami()[6:100],
+        {'MATRIX_TYPE': t, 'K_FACTOR': k,
         'NUM_SEGS': n, 'MIN_LEN': ml, 'MIN_DIST': md, 'MAX_GAPS': mg,
         'MAX_GAP_RATIO': mgr, 'MIN_LEN2': ml2, 'MIN_DIST2': md2, 'LEXIS': lex,
         'BETA': beta})
@@ -350,8 +358,11 @@ def study():
     study = optuna.create_study(direction='maximize', load_if_exists=True, pruner=RepeatPruner())#, sampler=optuna.samplers.GridSampler())
     study.optimize(objective, n_trials=100)
     print(study.best_params)
-    #{'k': 3, 'n': 100, 'ml': 20, 'md': 1, 'mg': 5, 'mgr': 0.2, 'ml2': 8, 'md2': 1, 'lex': 0, 'beta': 0.7}
-    #{'k': 3, 'n': 200, 'ml': 20, 'md': 1, 'mg': 7, 'mgr': 0.6, 'ml2': 8, 'md2': 1, 'lex': 1, 'beta': 0.4}
+    #{'t': 2, 'k': 2, 'n': 100, 'ml': 12, 'md': 1, 'mg': 7, 'mgr': 0.4, 'ml2': 8, 'md2': 1, 'lex': 1, 'beta': 0.25} 0.005633960560746798
+    #{'t': 2, 'k': 2, 'n': 100, 'ml': 12, 'md': 1, 'mg': 7, 'mgr': 0.4, 'ml2': 8, 'md2': 1, 'lex': 1, 'beta': 1.0} 0.011687901941789158
+    #{'t': 2, 'k': 2, 'n': 100, 'ml': 12, 'md': 1, 'mg': 5, 'mgr': 0.4, 'ml2': 8, 'md2': 1, 'lex': 1, 'beta': 1.0} 0.011687901941789158
+    #{'t': 2, 'k': 2, 'n': 100, 'ml': 20, 'md': 1, 'mg': 5, 'mgr': 0.4, 'ml2': 8, 'md2': 1, 'lex': 1, 'beta': 0.75} -0.052697247997233757
+    #{'t': 0, 'k': 3, 'n': 100, 'ml': 20, 'md': 1, 'mg': 9, 'mgr': 0.4, 'ml2': 8, 'md2': 1, 'lex': 1, 'beta': 0.75} -0.10814750620346555
 
 def sweep(multi=True):
     #songs = [37,95,107,108,139,148,166,170,192,200]
@@ -363,12 +374,13 @@ def sweep(multi=True):
         [evaluate_to_table(i) for i in tqdm.tqdm(songs)]
 
 if __name__ == "__main__":
-    #print(np.random.choice(get_monotonic_salami()[6:100], 5))
-    study()
+    #print(np.random.choice(get_monotonic_salami(), 20))#[6:100], 5))
+    #study()
+    #[133, 2, 1, 100, 16, 1, 7, 0.6, 8, 1, 1, 0.75, 0, 'l', 0.594276852421428, 0.9558344214839857, 0.7328896718548997]
     #extract_all_features()
     #calculate_fused_matrices()
     #sweep()
-    #indie_eval()
-    #multi_eval([229, 79, 231, 315, 198], [10, 12, 1, 7, .4, 8, 1])#[408, 822, 722, 637, 527])
+    indie_eval()
+    #multi_eval([229, 79, 231, 315, 198])#[408, 822, 722, 637, 527])
     #salami_analysis()
     #plot('salamiF2.png')
