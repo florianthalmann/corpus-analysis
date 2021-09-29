@@ -149,6 +149,9 @@ def cluster(evecs, Cnorm, k):
     # Compute the segment label for each boundary
     bound_segs = list(seg_ids[bound_beats])
 
+    #add last beat as boundary (missing in original mcfee code)
+    bound_beats = np.hstack((bound_beats, [len(seg_ids)]))
+
     ivals, labs = [], []
     for interval, label in zip(zip(bound_beats, bound_beats[1:]), bound_segs):
         ivals.append(interval)
@@ -235,10 +238,11 @@ def segment_file(filename):
     for k in range(1, MAX_TYPES):
         #print('\tk={}'.format(k))
         segmentations.append(cluster(embedding, Cnorm, k))
-
+    
+    segmentations = reindex(segmentations)
     #print('done.')
     #return to_levels(reindex(segmentations), len(beat_times)), beat_times
-    return tuple(zip(*add_beat_times(reindex(segmentations), beat_times)))
+    return tuple(zip(*add_beat_times(segmentations, beat_times)))
 
 def laplacian_segmentation(matrix):#pass in an affinity matrix
     matrix = np.matrix(matrix, dtype=int)
