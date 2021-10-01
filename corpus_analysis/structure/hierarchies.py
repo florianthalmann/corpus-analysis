@@ -168,14 +168,15 @@ def make_segments_hierarchical(segments, min_len, min_dist, size, target=None, b
         improvement = distance-dist
         distance = dist
         if verbose: print(distance)
-    #smooth final matrix
+    
+    # #smooth final matrix
     # unsmoothed = matrix
     # matrix = smooth_matrix(matrix, True, 5, .4)
     # matrix = smooth_matrix(matrix+unsmoothed, True, 5, .4)
     
-    #keep only longer segments
+    # #keep only longer segments
     # if verbose: print(dist_func(matrix, target))
-    # matrix = segments_to_matrix([s for s in matrix_to_segments(matrix) if len(s) > 6], (size,size))
+    # matrix = segments_to_matrix([s for s in matrix_to_segments(matrix) if len(s) > 20], (size,size))
     # matrix = add_transitivity_to_matrix(matrix)
     
     # # if verbose: plot_matrix(matrix, 'new'+str(i)+'.png')
@@ -524,13 +525,13 @@ def to_labels2(sequences, sections, section_lengths):
     layers.insert(0, np.repeat(max(list(sections.keys()))+1, len(layers[0])))
     #print(np.array(layers).shape)
     labels = np.array(layers).T
-    #replace sequence-level labels with next higher section
-    uniques = [ordered_unique(l) for l in labels]#uniques for each time point
-    #print([len(u) for u in uniques])
-    labels = np.array([[uniques[i][-2] if u == uniques[i][-1] else u for u in l]
-        for i,l in enumerate(labels)])
+    # #replace sequence-level labels with next higher section
+    # uniques = [ordered_unique(l) for l in labels]#uniques for each time point
+    # #print([len(u) for u in uniques])
+    # labels = np.array([[uniques[i][-2] if u == uniques[i][-1] else u for u in l]
+    #     for i,l in enumerate(labels)])
     #back to layers and reindex
-    reindexed = reindex2(labels.T[:])
+    reindexed = reindex2(labels.T[:])#[:-1]
     #now cut at sequence boundaries to get original sequence lengths
     seqlens = [sum([section_lengths[c] if c in section_lengths else 1 for c in s])
         for s in sequences]
@@ -602,21 +603,26 @@ def find_sections_bottom_up(sequences, ignore=[]):
         del occurrences[t]
     #print(to_hierarchy(np.array(sequences[0]), sections))
     #add sections for remaining adjacent surface objects
-    # for i,s in enumerate(sequences):
-    #     ungrouped = np.where(np.isin(s, list(sections.keys())+ignore) == False)[0]
-    #     groups = np.split(ungrouped, np.where(np.diff(ungrouped) != 1)[0]+1)
-    #     groups = [g for g in groups if len(g) > 1]
-    #     for g in reversed(groups):
-    #         sections[next_index] = s[g]
-    #         occurrences[next_index] = [(i, seq_indices[i][g[0]])]
-    #         s[g[0]] = next_index
-    #         s = np.delete(s, g[1:])
-    #         next_index += 1
-    #     sequences[i] = s
-    #print(to_hierarchy(np.array(sequences[0]), sections))
-    #make hierarchy
-    #print(sections)
-    #print(to_hierarchy(sequence, sections))
+    return group_ungrouped_surface_elements(sequences, sections, occurrences, ignore)
+    #return sequences, sections, occurrences
+
+#add sections for loose adjacent surface objects (ALSO IN SECTIONS!)
+def group_ungrouped_surface_elements(sequences, sections, occurrences, ignore):
+    next_index = np.max(list(sections.keys()))+1
+    seq_indices = [np.arange(len(s)) for s in sequences]
+    print(sequences, sections, next_index)
+    for i,s in enumerate(sequences):
+        ungrouped = np.where(np.isin(s, list(sections.keys())+ignore) == False)[0]
+        groups = np.split(ungrouped, np.where(np.diff(ungrouped) != 1)[0]+1)
+        groups = [g for g in groups if len(g) > 1]
+        for g in reversed(groups):
+            sections[next_index] = s[g]
+            occurrences[next_index] = [(i, seq_indices[i][g[0]])]
+            s[g[0]] = next_index
+            s = np.delete(s, g[1:])
+            next_index += 1
+        sequences[i] = s
+    print(sequences, sections, next_index)
     return sequences, sections, occurrences
 
 def get_hierarchies(sequences):
@@ -626,6 +632,7 @@ def get_hierarchies(sequences):
 def get_hierarchy_labels(sequences, ignore=[], lexis=False):
     if lexis:
         seqs, secs, occs, core = lexis_sections(sequences)
+        #seqs, secs, occs = group_ungrouped_surface_elements(seqs, secs, occs, ignore)
     else:
         seqs, secs, occs = find_sections_bottom_up(sequences, ignore)
     return to_hierarchy_labels(seqs, secs)
