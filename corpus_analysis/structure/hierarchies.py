@@ -514,6 +514,7 @@ def replace_lowest_level(hierarchy, sections):
 def to_labels2(sequences, sections, section_lengths):
     #merge sequences and treat together
     hierarchy = to_hierarchy(np.hstack(sequences), sections)
+    #print(hierarchy)
     sections_ids = {tuple(v):k for k,v in sections.items()}
     layers = []
     layers.append(np.array(flatten(hierarchy)))
@@ -608,22 +609,28 @@ def find_sections_bottom_up(sequences, ignore=[]):
 
 #add sections for loose adjacent surface objects (ALSO IN SECTIONS!)
 def group_ungrouped_surface_elements(sequences, sections, occurrences, ignore):
-    next_index = np.max(list(sections.keys()))+1
     seq_indices = [np.arange(len(s)) for s in sequences]
-    print(sequences, sections, next_index)
-    for i,s in enumerate(sequences):
-        ungrouped = np.where(np.isin(s, list(sections.keys())+ignore) == False)[0]
-        groups = np.split(ungrouped, np.where(np.diff(ungrouped) != 1)[0]+1)
-        groups = [g for g in groups if len(g) > 1]
-        for g in reversed(groups):
-            sections[next_index] = s[g]
-            occurrences[next_index] = [(i, seq_indices[i][g[0]])]
-            s[g[0]] = next_index
-            s = np.delete(s, g[1:])
-            next_index += 1
-        sequences[i] = s
-    print(sequences, sections, next_index)
+    for i,s in enumerate(sequences):#surface elements in main sequences
+        sequences[i] = group_ungrouped_elements(s, sections, occurrences, ignore)
+    for k,s in list(sections.items()):#surface elements in sections
+        sections[k] = group_ungrouped_elements(s, sections, occurrences, ignore)
     return sequences, sections, occurrences
+
+def group_ungrouped_elements(sequence, sections, occurrences, ignore):
+    next_index = np.max(np.hstack(list(sections.values())+[list(sections.keys())]))+1
+    #positions of elements that are not groups themselves
+    ungrouped = np.where(np.isin(sequence, list(sections.keys())+ignore) == False)[0]
+    #positions of adjacent surface elements
+    new_groups = np.split(ungrouped, np.where(np.diff(ungrouped) != 1)[0]+1)
+    new_groups = [g for g in new_groups if len(g) > 1 and len(g) < len(sequence)]
+    for g in reversed(new_groups):
+        sections[next_index] = sequence[g]
+        #TODO fix occurrences, or maybe drop altogether (lexis doesn't have any)
+        #occurrences[next_index] = [(i, seq_indices[i][g[0]])]
+        sequence[g[0]] = next_index
+        sequence = np.delete(sequence, g[1:])
+        next_index += 1
+    return sequence
 
 def get_hierarchies(sequences):
     sequences, sections, occs = find_sections_bottom_up(sequences)
@@ -632,7 +639,7 @@ def get_hierarchies(sequences):
 def get_hierarchy_labels(sequences, ignore=[], lexis=False):
     if lexis:
         seqs, secs, occs, core = lexis_sections(sequences)
-        #seqs, secs, occs = group_ungrouped_surface_elements(seqs, secs, occs, ignore)
+        seqs, secs, occs = group_ungrouped_surface_elements(seqs, secs, occs, ignore)
     else:
         seqs, secs, occs = find_sections_bottom_up(sequences, ignore)
     return to_hierarchy_labels(seqs, secs)
