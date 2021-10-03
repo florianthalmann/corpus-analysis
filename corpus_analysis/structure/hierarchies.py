@@ -532,7 +532,7 @@ def to_labels2(sequences, sections, section_lengths):
     # labels = np.array([[uniques[i][-2] if u == uniques[i][-1] else u for u in l]
     #     for i,l in enumerate(labels)])
     #back to layers and reindex
-    reindexed = reindex2(labels.T[:])#[:-1]
+    reindexed = reindex2(labels.T[:-1])#[:-1]
     #now cut at sequence boundaries to get original sequence lengths
     seqlens = [sum([section_lengths[c] if c in section_lengths else 1 for c in s])
         for s in sequences]
@@ -541,7 +541,7 @@ def to_labels2(sequences, sections, section_lengths):
 
 #fancy reindexing based on section contents (similar contents = similar label)
 def reindex2(labels):
-    newlabels = np.zeros(np.max(labels)+1).astype(float)
+    newlabels = np.repeat(-1, np.max(labels)+1).astype(float)
     #map bottom level to integers
     uniq = np.unique(labels[-1]) #ordered by original values
     uniq = labels[-1][ #order of appearance
@@ -553,6 +553,8 @@ def reindex2(labels):
         for u in np.unique(l):
             newlabels[u] = np.mean(bottom[np.where(l == u)])
     #map new labels to integers
+    n = np.where(newlabels >= 0)
+    newlabels[n] = np.argsort(np.argsort(newlabels[n]))
     uniq = np.unique(newlabels)
     newlabels = np.array([np.argmax(uniq == l) for l in newlabels])
     return newlabels[labels]
@@ -617,7 +619,7 @@ def group_ungrouped_surface_elements(sequences, sections, occurrences, ignore):
     return sequences, sections, occurrences
 
 def group_ungrouped_elements(sequence, sections, occurrences, ignore):
-    next_index = np.max(np.hstack(list(sections.values())+[list(sections.keys())]))+1
+    next_index = max_index(sections)+1
     #positions of elements that are not groups themselves
     ungrouped = np.where(np.isin(sequence, list(sections.keys())+ignore) == False)[0]
     #positions of adjacent surface elements
@@ -631,6 +633,9 @@ def group_ungrouped_elements(sequence, sections, occurrences, ignore):
         sequence = np.delete(sequence, g[1:])
         next_index += 1
     return sequence
+
+def max_index(sections):
+    return np.max(np.hstack(list(sections.values())+[list(sections.keys())]))
 
 def get_hierarchies(sequences):
     sequences, sections, occs = find_sections_bottom_up(sequences)
