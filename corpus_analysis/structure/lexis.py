@@ -1,4 +1,4 @@
-import os, subprocess, json
+import os, subprocess, json, uuid
 import numpy as np
 from graph_tool.all import graph_draw
 from matplotlib import pyplot as plt
@@ -6,16 +6,24 @@ from matplotlib import pyplot as plt
 lexis_path = './corpus_analysis/Lexis/'
 
 def lexis(sequences):
-    with open(lexis_path+'sequences', 'w') as tf:
+    #generate id and write sequences to file
+    id = str(uuid.uuid1())
+    with open(lexis_path+id, 'w') as tf:
         tf.write('\n'.join([' '.join([str(i) for i in t]) for t in sequences]))
+    #run lexis
     wd = os.getcwd()
     os.chdir(lexis_path)
-    subprocess.call('python Lexis.py -t i -q sequences', shell=True)
+    subprocess.call('python Lexis.py -t i -r r -q '+id, shell=True)
+    #load result
     os.chdir(wd)
-    with open(lexis_path+'output-dag') as f:
+    with open(lexis_path+id+'-dag') as f:
         dag = json.load(f)
-    with open(lexis_path+'output-core') as f:
+    with open(lexis_path+id+'-core') as f:
         core = json.load(f)
+    #delete files
+    os.remove(lexis_path+id)
+    os.remove(lexis_path+id+'-dag')
+    os.remove(lexis_path+id+'-core')
     return dag, core
 
 def lexis_sections(sequences):
