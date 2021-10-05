@@ -123,8 +123,8 @@ def get_summarized_chroma(audioFile, beatsFile):
 
 def get_summarized_mfcc(audioFile, beatsFile):
     y, sr = librosa.load(audioFile)
-    mfcc = librosa.feature.mfcc(librosa.load(audioFile))
-    return get_beat_summary(chroma, beatsFile, sr).T
+    mfcc = librosa.feature.mfcc(y, sr)
+    return get_beat_summary(mfcc, beatsFile, sr).T
 
 def to_multinomial(sequences):
     unique = np.unique(np.concatenate(sequences), axis=0)

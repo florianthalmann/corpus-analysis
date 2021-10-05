@@ -3,12 +3,13 @@ from mutagen.mp3 import MP3
 import numpy as np
 import pandas as pd
 import scipy.io as sio
+from sklearn.preprocessing import MinMaxScaler
 from datetime import datetime
 from matplotlib import pyplot as plt
 from corpus_analysis.util import multiprocess, plot_matrix, buffered_run,\
     plot_sequences, save_json, load_json, flatten, catch, RepeatPruner
 from corpus_analysis.features import extract_chords, extract_bars,\
-    get_summarized_chords, get_summarized_chroma, load_beats
+    get_summarized_chords, get_summarized_chroma, load_beats, get_summarized_mfcc
 from corpus_analysis.alignment.affinity import get_alignment_segments,\
     segments_to_matrix, get_affinity_matrix, get_segments_from_matrix,\
     matrix_to_segments, knn_threshold
@@ -24,14 +25,14 @@ PARAMS = dict([
     ['MATRIX_TYPE', 2],#0=own, 1=mcfee, 2=fused
     ['K_FACTOR', 2],
     ['NUM_SEGS', 100],
-    ['MIN_LEN', 12],
+    ['MIN_LEN', 16],
     ['MIN_DIST', 1],
-    ['MAX_GAPS', 5],
+    ['MAX_GAPS', 7],
     ['MAX_GAP_RATIO', .4],
     ['MIN_LEN2', 8],
     ['MIN_DIST2', 1],
     ['LEXIS', 1],
-    ['BETA', 1]
+    ['BETA', 0.75]
 ])
 
 def matrix_type():
@@ -46,7 +47,7 @@ output = 'salami/'
 DATA = output+'data/'
 RESULTS = Data(output+'resultsF6.csv',
     columns=['SONG']+list(PARAMS.keys())+['REF', 'METHOD', 'P', 'R', 'L'])
-PLOT_PATH=output+'all4/'
+PLOT_PATH=output+'all5/'
 graphditty = '/Users/flo/Projects/Code/Kyoto/GraphDitty/SongStructure.py'
 
 PLOT_FRAMES = 2000
@@ -108,6 +109,10 @@ def get_beatwise_chroma(index):
     return get_summarized_chroma(get_audio(index),
         features+str(index)+'_bars.txt')
 
+def get_beatwise_mfcc(index):
+    return get_summarized_mfcc(get_audio(index),
+        features+str(index)+'_bars.txt')
+
 def get_beats(index):
     return load_beats(features+str(index)+'_bars.txt')
 
@@ -145,19 +150,21 @@ def load_fused_matrix(index):
     m = sio.loadmat(features+str(index)+'.mat')
     j = load_json(features+str(index)+'.json')
     m = np.array(m['Ws']['Fused'][0][0])
-    # m[m < 0.01] = 0
-    # m[m != 0] = 1
-    #m[m >= 0.5] = 0
-    m = knn_threshold(m, PARAMS['K_FACTOR'])
+    #print(np.min(m), np.max(m), np.mean(m), np.median(m))
+    m = MinMaxScaler().fit_transform(m)
+    #print(np.min(m), np.max(m), np.mean(m), np.median(m))
+    #print(np.percentile(m, 80), np.percentile(m, 90), np.percentile(m, 93))
+    m[m < np.percentile(m, 93)] = 0
+    m[m != 0] = 1
+    #m = knn_threshold(m, PARAMS['K_FACTOR'])
     beats = np.array(j['times'][:len(m)])
-    #plot_matrix(m)
     return m, beats
 
 def get_monotonic_salami():
     annos = {i:load_salami_hierarchies(i) for i in get_available_songs()}
     return [i for i in annos.keys() if all([monotonicity(h) for h in annos[i]])]
 
-def plot_hierarchy(path, index, method_name, intervals, labels, groundtruth, force=False):
+def plot_hierarchy(path, index, method_name, intervals, labels, groundtruth, force=True):
     filename = path+str(index)+method_name+'.png'
     if force or not os.path.isfile(filename):
         maxtime = np.max(np.concatenate(groundtruth[0][0]))
@@ -186,10 +193,24 @@ def eval_and_add_results(index, method_name, groundtruth, intervals, labels, plo
     rows_func = lambda: evaluate(index, method_name, groundtruth, intervals, labels)
     RESULTS.add_rows(ref_rows, rows_func)
 
-def own_chroma_affinity(index, factor=2, knn=True):
+def own_chroma_affinity(index, knn=True):
     chroma = buffered_run(DATA+'chroma'+str(index),
         lambda: get_beatwise_chroma(index))#load_beatwise_chords(index)
+    #chroma = MinMaxScaler().fit_transform(chroma)
     matrix, raw = get_affinity_matrix(chroma, chroma, False, PARAMS['MAX_GAPS'],
+        PARAMS['MAX_GAP_RATIO'], PARAMS['K_FACTOR'], knn)
+    beats = get_beats(index)
+    return matrix, raw, beats
+
+def own_chroma_mfcc_affinity(index, factor=2, knn=True):
+    chroma = buffered_run(DATA+'chroma'+str(index),
+        lambda: get_beatwise_chroma(index))#load_beatwise_chords(index)
+    mfcc = buffered_run(DATA+'mfcc'+str(index),
+        lambda: get_beatwise_mfcc(index))#load_beatwise_chords(index)
+    chroma = MinMaxScaler().fit_transform(chroma)
+    mfcc = MinMaxScaler().fit_transform(mfcc)
+    mix = np.hstack((chroma, mfcc))
+    matrix, raw = get_affinity_matrix(mix, mix, False, PARAMS['MAX_GAPS'],
         PARAMS['MAX_GAP_RATIO'], factor, knn)
     beats = get_beats(index)
     return matrix, raw, beats
@@ -235,7 +256,7 @@ def get_hierarchies(index, hierarchy_buffer=None, plot_path=None):
         if plot_path: plot_matrix(raw, plot_path+str(index)+'-m0o.png')
         if plot_path: plot_matrix(matrix, plot_path+str(index)+'-m1o.png')
     l = buffered_run(DATA+'lapl'+str(index),
-        lambda: get_laplacian_struct_from_audio(get_audio(index)))
+            lambda: get_laplacian_struct_from_audio(get_audio(index)))
     if plot_path: plot_hierarchy(plot_path, index, 'l', l[0], l[1], groundtruth)
     plot_file = plot_path+str(index)+'-m2'+matrix_type()[0]+'.png' if plot_path else None
     if hierarchy_buffer is not None:
@@ -256,8 +277,8 @@ def evaluate_to_table(index):
     # eval_and_add_results(index, 'l_own', gt, l_own[0], l_own[1], PLOT_PATH)
     gc.collect()
 
-#24 31 32 37 47 56   5,14   95  135 148 166
-def indie_eval(params=[133, PARAMS]):#index=95):#22):#32#38):
+#24 31 32 37 47 56   5,14   95  135 148 166     133
+def indie_eval(params=[1434, PARAMS]):#index=95):#22):#32#38):
     global PARAMS
     index, PARAMS = params
     l, own, gt = get_hierarchies(index, plot_path=PLOT_PATH)
@@ -331,12 +352,12 @@ def salami_analysis(path='salami_analysis.pdf'):
 def objective(trial):
     t = trial.suggest_int('t', 2, 2, step=1)
     k = trial.suggest_int('k', 1, 3, step=1)
-    n = trial.suggest_int('n', 100, 100, step=50)
+    n = trial.suggest_int('n', 50, 150, step=50)
     ml = trial.suggest_int('ml', 12, 20, step=4)
     md = trial.suggest_int('md', 1, 1, step=1)
     mg = trial.suggest_int('mg', 5, 9, step=2)
-    mgr = trial.suggest_float('mgr', .2, .6, step=.1)
-    ml2 = trial.suggest_int('ml2', 8, 8, step=1)
+    mgr = trial.suggest_float('mgr', .2, .6, step=.2)
+    ml2 = trial.suggest_int('ml2', 6, 10, step=2)
     md2 = trial.suggest_int('md2', 1, 1, step=1)
     lex = trial.suggest_int('lex', 1, 1)
     beta = trial.suggest_float('beta', .25, 1, step=.25)
@@ -344,7 +365,7 @@ def objective(trial):
         raise optuna.TrialPruned()
     #[229, 79, 231, 315, 198] [75, 22, 183, 294, 111]
     #[1270,1461,1375,340,1627,584,1196,443,23,1434]
-    return multi_eval(get_monotonic_salami()[6:100],
+    return multi_eval([1270,1461,1375,340,1627,584,1196,443,23,1434],#get_monotonic_salami()[6:100],
         {'MATRIX_TYPE': t, 'K_FACTOR': k,
         'NUM_SEGS': n, 'MIN_LEN': ml, 'MIN_DIST': md, 'MAX_GAPS': mg,
         'MAX_GAP_RATIO': mgr, 'MIN_LEN2': ml2, 'MIN_DIST2': md2, 'LEXIS': lex,
@@ -374,13 +395,15 @@ def sweep(multi=True):
         [evaluate_to_table(i) for i in tqdm.tqdm(songs)]
 
 if __name__ == "__main__":
+    # 1627, 0, 3, 50, 12, 1, 9, 0.6, 8, 1, 1, 0.25, 0, 't'
+    # 1270, 0, 1, 100, 12, 1, 7, 0.4, 8, 1, 1, 0.75, 0, 't'   1270, 0, 3, 50, 12, 1, 9, 0.6, 8, 1, 1, 0.25, 0, 't'
     #print(np.random.choice(get_monotonic_salami(), 20))#[6:100], 5))
-    #study()
+    study()
     #[133, 2, 1, 100, 16, 1, 7, 0.6, 8, 1, 1, 0.75, 0, 'l', 0.594276852421428, 0.9558344214839857, 0.7328896718548997]
     #extract_all_features()
     #calculate_fused_matrices()
     #sweep()
-    indie_eval()
-    #multi_eval([229, 79, 231, 315, 198])#[408, 822, 722, 637, 527])
+    #indie_eval()
+    #multi_eval([1270,1461,1375,340,1627,584,1196,443,23,1434])#[408, 822, 722, 637, 527])
     #salami_analysis()
     #plot('salamiF2.png')
