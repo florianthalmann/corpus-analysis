@@ -1,6 +1,7 @@
 from math import ceil, sqrt, log
 import numpy as np
 from sklearn.metrics import pairwise_distances
+from sklearn.preprocessing import MinMaxScaler
 from .util import median_filter, symmetric
 from ..util import plot_matrix, plot_hist
 
@@ -53,23 +54,31 @@ def knn_threshold(matrix, emphasis):
         conns[i][k] = 1
     return conns
 
-def get_affinity_matrix(a, b, equality, max_gaps, max_gap_ratio, emphasis=1, knn=True):
+#if factor <= 10, use knn, otherwise percentile
+def threshold_matrix(matrix, threshold):
+    knn = threshold <= 10
+    if knn:
+        matrix = knn_threshold(matrix, threshold)
+        #plot_matrix(matrix, 'est-.png')
+    else:
+        print(threshold)
+        matrix = MinMaxScaler().fit_transform(matrix)
+        matrix[matrix < np.percentile(matrix, threshold)] = 0
+        matrix[matrix != 0] = 1
+        # k = k_factor(matrix.shape, emphasis) * len(matrix) #really??
+        # thresh = np.partition(matrix.flatten(), -k)[-k]
+        # matrix = np.where(matrix >= thresh, 1, 0)
+        #plot_matrix(matrix, 'est-.png')
+    return matrix
+
+def get_affinity_matrix(a, b, equality, max_gaps, max_gap_ratio, threshold=1):
     symmetric = np.array_equal(a, b)
-    
     #create affinity or equality matrix
     if equality:
         matrix = get_equality(a, b)
-    elif knn:
-        matrix = 1-pairwise_distances(a, b, metric="cosine")
-        matrix = knn_threshold(matrix, emphasis)
-        #plot_matrix(matrix, 'est-.png')
     else:
         matrix = 1-pairwise_distances(a, b, metric="cosine")
-        #plot_hist(np.hstack(matrix), 'est..png', 100)
-        k = k_factor(matrix.shape, emphasis) * len(matrix) #really??
-        thresh = np.partition(matrix.flatten(), -k)[-k]
-        matrix = np.where(matrix >= thresh, 1, 0)
-        #plot_matrix(matrix, 'est-.png')
+        matrix = threshold_matrix(matrix, threshold)
     #only keep upper triangle in symmetric case
     if symmetric: matrix = np.triu(matrix, k=1)
     unsmoothed = matrix

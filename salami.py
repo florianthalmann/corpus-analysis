@@ -3,7 +3,6 @@ from mutagen.mp3 import MP3
 import numpy as np
 import pandas as pd
 import scipy.io as sio
-from sklearn.preprocessing import MinMaxScaler
 from datetime import datetime
 from matplotlib import pyplot as plt
 from corpus_analysis.util import multiprocess, plot_matrix, buffered_run,\
@@ -12,7 +11,7 @@ from corpus_analysis.features import extract_chords, extract_bars,\
     get_summarized_chords, get_summarized_chroma, load_beats, get_summarized_mfcc
 from corpus_analysis.alignment.affinity import get_alignment_segments,\
     segments_to_matrix, get_affinity_matrix, get_segments_from_matrix,\
-    matrix_to_segments, knn_threshold
+    matrix_to_segments, threshold_matrix
 from corpus_analysis.structure.structure import simple_structure
 from corpus_analysis.structure.laplacian import get_laplacian_struct_from_affinity2,\
     to_levels, get_laplacian_struct_from_audio, get_smooth_affinity_matrix
@@ -22,8 +21,8 @@ from corpus_analysis.stats.hierarchies import monotonicity, monotonicity2,\
 from corpus_analysis.data import Data
 
 PARAMS = dict([
-    ['MATRIX_TYPE', 2],#0=own, 1=mcfee, 2=fused
-    ['K_FACTOR', 2],
+    ['MATRIX_TYPE', 0],#0=own, 1=mcfee, 2=fused
+    ['THRESHOLD', 80],
     ['NUM_SEGS', 100],
     ['MIN_LEN', 16],
     ['MIN_DIST', 1],
@@ -150,13 +149,7 @@ def load_fused_matrix(index):
     m = sio.loadmat(features+str(index)+'.mat')
     j = load_json(features+str(index)+'.json')
     m = np.array(m['Ws']['Fused'][0][0])
-    #print(np.min(m), np.max(m), np.mean(m), np.median(m))
-    m = MinMaxScaler().fit_transform(m)
-    #print(np.min(m), np.max(m), np.mean(m), np.median(m))
-    #print(np.percentile(m, 80), np.percentile(m, 90), np.percentile(m, 93))
-    m[m < np.percentile(m, 93)] = 0
-    m[m != 0] = 1
-    #m = knn_threshold(m, PARAMS['K_FACTOR'])
+    m = threshold_matrix(m, PARAMS['THRESHOLD'])
     beats = np.array(j['times'][:len(m)])
     return m, beats
 
@@ -193,16 +186,16 @@ def eval_and_add_results(index, method_name, groundtruth, intervals, labels, plo
     rows_func = lambda: evaluate(index, method_name, groundtruth, intervals, labels)
     RESULTS.add_rows(ref_rows, rows_func)
 
-def own_chroma_affinity(index, knn=True):
+def own_chroma_affinity(index):
     chroma = buffered_run(DATA+'chroma'+str(index),
         lambda: get_beatwise_chroma(index))#load_beatwise_chords(index)
     #chroma = MinMaxScaler().fit_transform(chroma)
     matrix, raw = get_affinity_matrix(chroma, chroma, False, PARAMS['MAX_GAPS'],
-        PARAMS['MAX_GAP_RATIO'], PARAMS['K_FACTOR'], knn)
+        PARAMS['MAX_GAP_RATIO'], PARAMS['THRESHOLD'])
     beats = get_beats(index)
     return matrix, raw, beats
 
-def own_chroma_mfcc_affinity(index, factor=2, knn=True):
+def own_chroma_mfcc_affinity(index, factor=2):
     chroma = buffered_run(DATA+'chroma'+str(index),
         lambda: get_beatwise_chroma(index))#load_beatwise_chords(index)
     mfcc = buffered_run(DATA+'mfcc'+str(index),
@@ -211,7 +204,7 @@ def own_chroma_mfcc_affinity(index, factor=2, knn=True):
     mfcc = MinMaxScaler().fit_transform(mfcc)
     mix = np.hstack((chroma, mfcc))
     matrix, raw = get_affinity_matrix(mix, mix, False, PARAMS['MAX_GAPS'],
-        PARAMS['MAX_GAP_RATIO'], factor, knn)
+        PARAMS['MAX_GAP_RATIO'], factor)
     beats = get_beats(index)
     return matrix, raw, beats
 
@@ -222,7 +215,7 @@ def transitive_hierarchy(matrix, unsmoothed, beats, groundtruth, index, plot_fil
     # #TODO STANDARDIZE THIS!!
     # if len(alignment) < 10:
     #     print('alternative matrix!')
-    #     matrix, raw, beats = own_chroma_affinity(index, 3, knn=True)
+    #     matrix, raw, beats = own_chroma_affinity(index, 3)
     #     alignment = get_segments_from_matrix(matrix, True, 100, int(MIN_LEN/2),
     #         MIN_DIST, MAX_GAPS, MAX_GAP_RATIO, raw)
     #     # print(len(alignment))
@@ -301,7 +294,7 @@ def plot(path=None):
     #data = data[1183 <= data['SONG']][data['SONG'] <= 1211]
     #data = data[data['SONG'] <= 333]
     #data = data[data['MIN_LEN'] == 24]
-    #data = data[(data['K_FACTOR'] == 5) | (data['K_FACTOR'] == 10)]
+    #data = data[(data['THRESHOLD'] == 5) | (data['THRESHOLD'] == 10)]
     #data.groupby(['METHOD']).mean().T.plot(legend=True)
     #data.groupby(['METHOD']).boxplot(column=['P','R','L'])
     print(data.groupby(['METHOD']).mean())
@@ -350,23 +343,24 @@ def salami_analysis(path='salami_analysis.pdf'):
     plt.savefig(path, dpi=1000) if path else plt.show()
 
 def objective(trial):
-    t = trial.suggest_int('t', 2, 2, step=1)
-    k = trial.suggest_int('k', 1, 3, step=1)
-    n = trial.suggest_int('n', 50, 150, step=50)
-    ml = trial.suggest_int('ml', 12, 20, step=4)
+    t = trial.suggest_int('t', 0, 0, step=1)
+    #k = trial.suggest_int('k', 1, 5, step=1)
+    k = trial.suggest_int('k', 70, 90, step=5)
+    n = trial.suggest_int('n', 100, 100, step=50)
+    ml = trial.suggest_int('ml', 12, 24, step=4)
     md = trial.suggest_int('md', 1, 1, step=1)
-    mg = trial.suggest_int('mg', 5, 9, step=2)
-    mgr = trial.suggest_float('mgr', .2, .6, step=.2)
-    ml2 = trial.suggest_int('ml2', 6, 10, step=2)
+    mg = trial.suggest_int('mg', 3, 9, step=2)
+    mgr = trial.suggest_float('mgr', .1, .5, step=.1)
+    ml2 = trial.suggest_int('ml2', 8, 8, step=2)
     md2 = trial.suggest_int('md2', 1, 1, step=1)
     lex = trial.suggest_int('lex', 1, 1)
     beta = trial.suggest_float('beta', .25, 1, step=.25)
     if trial.should_prune():
         raise optuna.TrialPruned()
     #[229, 79, 231, 315, 198] [75, 22, 183, 294, 111]
-    #[1270,1461,1375,340,1627,584,1196,443,23,1434]
-    return multi_eval([1270,1461,1375,340,1627,584,1196,443,23,1434],#get_monotonic_salami()[6:100],
-        {'MATRIX_TYPE': t, 'K_FACTOR': k,
+    #[1270,1461,1375,340,1627,584,1196,443,23,1434] [899,458,811,340,1072,1068,572,310,120,331]
+    return multi_eval([229, 79, 231, 315, 198],#get_monotonic_salami()[6:100],
+        {'MATRIX_TYPE': t, 'THRESHOLD': k,
         'NUM_SEGS': n, 'MIN_LEN': ml, 'MIN_DIST': md, 'MAX_GAPS': mg,
         'MAX_GAP_RATIO': mgr, 'MIN_LEN2': ml2, 'MIN_DIST2': md2, 'LEXIS': lex,
         'BETA': beta})
@@ -379,11 +373,6 @@ def study():
     study = optuna.create_study(direction='maximize', load_if_exists=True, pruner=RepeatPruner())#, sampler=optuna.samplers.GridSampler())
     study.optimize(objective, n_trials=100)
     print(study.best_params)
-    #{'t': 2, 'k': 2, 'n': 100, 'ml': 12, 'md': 1, 'mg': 7, 'mgr': 0.4, 'ml2': 8, 'md2': 1, 'lex': 1, 'beta': 0.25} 0.005633960560746798
-    #{'t': 2, 'k': 2, 'n': 100, 'ml': 12, 'md': 1, 'mg': 7, 'mgr': 0.4, 'ml2': 8, 'md2': 1, 'lex': 1, 'beta': 1.0} 0.011687901941789158
-    #{'t': 2, 'k': 2, 'n': 100, 'ml': 12, 'md': 1, 'mg': 5, 'mgr': 0.4, 'ml2': 8, 'md2': 1, 'lex': 1, 'beta': 1.0} 0.011687901941789158
-    #{'t': 2, 'k': 2, 'n': 100, 'ml': 20, 'md': 1, 'mg': 5, 'mgr': 0.4, 'ml2': 8, 'md2': 1, 'lex': 1, 'beta': 0.75} -0.052697247997233757
-    #{'t': 0, 'k': 3, 'n': 100, 'ml': 20, 'md': 1, 'mg': 9, 'mgr': 0.4, 'ml2': 8, 'md2': 1, 'lex': 1, 'beta': 0.75} -0.10814750620346555
 
 def sweep(multi=True):
     #songs = [37,95,107,108,139,148,166,170,192,200]
@@ -395,15 +384,12 @@ def sweep(multi=True):
         [evaluate_to_table(i) for i in tqdm.tqdm(songs)]
 
 if __name__ == "__main__":
-    # 1627, 0, 3, 50, 12, 1, 9, 0.6, 8, 1, 1, 0.25, 0, 't'
-    # 1270, 0, 1, 100, 12, 1, 7, 0.4, 8, 1, 1, 0.75, 0, 't'   1270, 0, 3, 50, 12, 1, 9, 0.6, 8, 1, 1, 0.25, 0, 't'
     #print(np.random.choice(get_monotonic_salami(), 20))#[6:100], 5))
     study()
-    #[133, 2, 1, 100, 16, 1, 7, 0.6, 8, 1, 1, 0.75, 0, 'l', 0.594276852421428, 0.9558344214839857, 0.7328896718548997]
     #extract_all_features()
     #calculate_fused_matrices()
     #sweep()
     #indie_eval()
-    #multi_eval([1270,1461,1375,340,1627,584,1196,443,23,1434])#[408, 822, 722, 637, 527])
+    #multi_eval([899,458,811,340,1072,1068,572,310,120,331])#[408, 822, 722, 637, 527])
     #salami_analysis()
     #plot('salamiF2.png')
