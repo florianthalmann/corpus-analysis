@@ -43,7 +43,7 @@ def get_equality(a, b):
 
 def k_factor(shape, emphasis, width=1):#used strength 10 before....
     #k = 1+k_factor*int(log(len(matrix), 2))
-    return round(emphasis * 2 * ceil(sqrt(((shape[0]+shape[1])/2) - 2 * width + 1)))
+    return round(2 * ceil(sqrt(((shape[0]+shape[1])/2*emphasis) - 2 * width + 1)))
 
 def knn_threshold(matrix, emphasis):
     k = k_factor(matrix.shape, emphasis)

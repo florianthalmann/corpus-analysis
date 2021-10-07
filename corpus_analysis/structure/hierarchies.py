@@ -106,7 +106,8 @@ def get_noise_factor(segments, target, size):
     return (len(np.nonzero(segmat-target > 0)[0])/len(np.nonzero(segmat > 0)[0])
         * (1-len(np.nonzero(target-segmat > 0)[0])/len(np.nonzero(target > 0)[0])))
 
-def make_segments_hierarchical(segments, min_len, min_dist, size, target=None, beta=.25, path=None, verbose=False):
+def make_segments_hierarchical(segments, min_len, min_dist, size, target=None,
+        beta=.25, min_len2=None, path=None, verbose=False):
     segments = segments.copy()#since we're removing from it
     if target is None:
         target = segments_to_matrix(segments, (size,size))#replace with raw or intermediary
@@ -171,13 +172,15 @@ def make_segments_hierarchical(segments, min_len, min_dist, size, target=None, b
     
     # #smooth final matrix
     # unsmoothed = matrix
-    # matrix = smooth_matrix(matrix, True, 5, .4)
-    # matrix = smooth_matrix(matrix+unsmoothed, True, 5, .4)
-    
-    # #keep only longer segments
-    # if verbose: print(dist_func(matrix, target))
-    # matrix = segments_to_matrix([s for s in matrix_to_segments(matrix) if len(s) > 20], (size,size))
-    # matrix = add_transitivity_to_matrix(matrix)
+    # matrix = smooth_matrix(matrix, True, 7, .4)
+    # matrix = smooth_matrix(matrix+unsmoothed, True, 7, .4)
+    # 
+    # if min_len2:
+    #     print(min_len2, '!')
+    #     #keep only longer segments
+    #     if verbose: print(dist_func(matrix, target))
+    #     matrix = segments_to_matrix([s for s in matrix_to_segments(matrix) if len(s) > 25], (size,size))
+    #     matrix = add_transitivity_to_matrix(matrix)
     
     # # if verbose: plot_matrix(matrix, 'new'+str(i)+'.png')
     # if verbose: print(dist_func(matrix, target, segments))
