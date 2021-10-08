@@ -21,12 +21,12 @@ from corpus_analysis.stats.hierarchies import monotonicity, monotonicity2,\
 from corpus_analysis.data import Data
 
 PARAMS = dict([
-    ['MATRIX_TYPE', 0],#0=own, 1=mcfee, 2=fused
-    ['THRESHOLD', 80],
+    ['MATRIX_TYPE', 2],#0=own, 1=mcfee, 2=fused
+    ['THRESHOLD', 91],
     ['NUM_SEGS', 100],
-    ['MIN_LEN', 16],
+    ['MIN_LEN', 20],
     ['MIN_DIST', 1],
-    ['MAX_GAPS', 7],
+    ['MAX_GAPS', 5],
     ['MAX_GAP_RATIO', .4],
     ['MIN_LEN2', 8],
     ['MIN_DIST2', 1],
@@ -44,7 +44,7 @@ annotations = corpus+'salami-data-public/annotations/'
 features = corpus+'features/'
 output = 'salami/'
 DATA = output+'data/'
-RESULTS = Data(output+'resultsF6.csv',
+RESULTS = Data(output+'resultsF7.csv',
     columns=['SONG']+list(PARAMS.keys())+['REF', 'METHOD', 'P', 'R', 'L'])
 PLOT_PATH=output+'all5/'
 graphditty = '/Users/flo/Projects/Code/Kyoto/GraphDitty/SongStructure.py'
@@ -52,7 +52,7 @@ graphditty = '/Users/flo/Projects/Code/Kyoto/GraphDitty/SongStructure.py'
 PLOT_FRAMES = 2000
 
 HOM_LABELS=False
-METHOD_NAME='transf.25oL'
+METHOD_NAME='t'
 
 #some annotations are missing!
 def get_annotation_ids():
@@ -179,9 +179,7 @@ def evaluate(index, method_name, groundtruth, intervals, labels):
     print(results)
     return results
 
-def eval_and_add_results(index, method_name, groundtruth, intervals, labels, plot_path=None):
-    if plot_path:
-        plot_hierarchy(plot_path, index, method_name, intervals, labels, groundtruth)
+def eval_and_add_results(index, method_name, groundtruth, intervals, labels):
     ref_rows = [[index]+list(PARAMS.values())+[i, method_name] for i in range(len(groundtruth))]
     rows_func = lambda: evaluate(index, method_name, groundtruth, intervals, labels)
     RESULTS.add_rows(ref_rows, rows_func)
@@ -262,19 +260,22 @@ def get_hierarchies(index, hierarchy_buffer=None, plot_path=None):
     return l, own, groundtruth
 
 def evaluate_to_table(index):
+    ref_rows = [[index]+list(PARAMS.values())+[i, METHOD_NAME]
+        for i in range(len(load_salami_hierarchies(index)))]
+    #if not RESULTS.rows_exist(ref_rows):
     l, own, gt = get_hierarchies(index, METHOD_NAME)
-    eval_and_add_results(index, 'l', gt, l[0], l[1], PLOT_PATH)
-    eval_and_add_results(index, METHOD_NAME, gt, own[0], own[1], PLOT_PATH)
+    eval_and_add_results(index, 'l', gt, l[0], l[1])
+    eval_and_add_results(index, METHOD_NAME, gt, own[0], own[1])
     # l_own = buffered_run(DATA+'l_own'+str(index),
     #     lambda: get_laplacian_struct_from_affinity2(own, obeats), PARAMS)
-    # eval_and_add_results(index, 'l_own', gt, l_own[0], l_own[1], PLOT_PATH)
+    # eval_and_add_results(index, 'l_own', gt, l_own[0], l_own[1])
     gc.collect()
 
 #24 31 32 37 47 56   5,14   95  135 148 166     133
 def indie_eval(params=[1434, PARAMS]):#index=95):#22):#32#38):
     global PARAMS
     index, PARAMS = params
-    l, own, gt = get_hierarchies(index, plot_path=PLOT_PATH)
+    l, own, gt = get_hierarchies(index)#, plot_path=PLOT_PATH)
     # #compare groundtruths with each other
     # if len(gt) > 1:
     #     print(evaluate_hierarchy(*gt[0], *gt[1]))
@@ -290,7 +291,7 @@ def multi_eval(indices, params=PARAMS):
     return np.mean([r[1]-r[0] for r in results])
 
 def plot(path=None):
-    data = RESULTS.get_rows()
+    data = RESULTS.read()
     #data = data[1183 <= data['SONG']][data['SONG'] <= 1211]
     #data = data[data['SONG'] <= 333]
     #data = data[data['MIN_LEN'] == 24]
@@ -343,9 +344,9 @@ def salami_analysis(path='salami_analysis.pdf'):
     plt.savefig(path, dpi=1000) if path else plt.show()
 
 def objective(trial):
-    t = trial.suggest_int('t', 0, 0, step=1)
-    #k = trial.suggest_int('k', 1, 5, step=1)
-    k = trial.suggest_int('k', 70, 90, step=5)
+    t = trial.suggest_int('t', 2, 2, step=1)
+    k = trial.suggest_float('k', 1, 3, step=0.5)
+    #k = trial.suggest_int('k', 70, 90, step=5)
     n = trial.suggest_int('n', 100, 100, step=50)
     ml = trial.suggest_int('ml', 12, 24, step=4)
     md = trial.suggest_int('md', 1, 1, step=1)
@@ -359,7 +360,7 @@ def objective(trial):
         raise optuna.TrialPruned()
     #[229, 79, 231, 315, 198] [75, 22, 183, 294, 111]
     #[1270,1461,1375,340,1627,584,1196,443,23,1434] [899,458,811,340,1072,1068,572,310,120,331]
-    return multi_eval([229, 79, 231, 315, 198],#get_monotonic_salami()[6:100],
+    return multi_eval([899,458,811,340,1072,1068,572,310,120,331],#get_monotonic_salami()[6:100],
         {'MATRIX_TYPE': t, 'THRESHOLD': k,
         'NUM_SEGS': n, 'MIN_LEN': ml, 'MIN_DIST': md, 'MAX_GAPS': mg,
         'MAX_GAP_RATIO': mgr, 'MIN_LEN2': ml2, 'MIN_DIST2': md2, 'LEXIS': lex,
@@ -374,10 +375,10 @@ def study():
     study.optimize(objective, n_trials=100)
     print(study.best_params)
 
-def sweep(multi=True):
+def sweep(multi=False):
     #songs = [37,95,107,108,139,148,166,170,192,200]
-    songs = [37,95,107,108,139,148,166,170,192,200]+get_monotonic_salami()[90:100]#[5:30]#get_available_songs()[:100]#[197:222]#[197:347]#[6:16]
-    #songs = get_monotonic_salami()[6:100]#get_available_songs()[:100]#[197:222]#[197:347]#[6:16]
+    #songs = [37,95,107,108,139,148,166,170,192,200]+get_monotonic_salami()[90:100]#[5:30]#get_available_songs()[:100]#[197:222]#[197:347]#[6:16]
+    songs = get_monotonic_salami()#[6:100]#get_available_songs()[:100]#[197:222]#[197:347]#[6:16]
     if multi:
         multiprocess('evaluating hierarchies', evaluate_to_table, songs, True)
     else:
@@ -385,10 +386,10 @@ def sweep(multi=True):
 
 if __name__ == "__main__":
     #print(np.random.choice(get_monotonic_salami(), 20))#[6:100], 5))
-    study()
+    #study()
     #extract_all_features()
     #calculate_fused_matrices()
-    #sweep()
+    sweep()
     #indie_eval()
     #multi_eval([899,458,811,340,1072,1068,572,310,120,331])#[408, 822, 722, 637, 527])
     #salami_analysis()

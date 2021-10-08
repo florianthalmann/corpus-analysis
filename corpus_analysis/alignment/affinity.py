@@ -61,7 +61,6 @@ def threshold_matrix(matrix, threshold):
         matrix = knn_threshold(matrix, threshold)
         #plot_matrix(matrix, 'est-.png')
     else:
-        print(threshold)
         matrix = MinMaxScaler().fit_transform(matrix)
         matrix[matrix < np.percentile(matrix, threshold)] = 0
         matrix[matrix != 0] = 1

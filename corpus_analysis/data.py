@@ -1,4 +1,4 @@
-import os
+import os, time
 import numpy as np
 import pandas as pd
 
@@ -7,21 +7,22 @@ class Data:
         self.path = path
         self.columns = columns
     
-    def rows_exist(self, rows):
+    def read(self):
         if os.path.isfile(self.path):
-            df = pd.read_csv(self.path)
-            return all([(df[df.columns[:len(r)]] == r).all(1).any()
-                for r in rows])
+            try:
+                return pd.read_csv(self.path)
+            except pd.errors.EmptyDataError:
+                time.sleep(0.01)
+                return self.read()
+        return pd.DataFrame([], columns=self.columns)
+    
+    def rows_exist(self, rows):
+        df = self.read()
+        return all([(df[df.columns[:len(r)]] == r).all(1).any() for r in rows])
     
     #lazy: calls rows_func only if no rows beginning with ref_rows exist
     def add_rows(self, ref_rows, rows_func):
         if not self.rows_exist(ref_rows):
-            rows = rows_func()
-            print(rows, self.columns)
-            rows = pd.DataFrame(rows, columns=self.columns)
-            if os.path.isfile(self.path):
-                rows = pd.read_csv(self.path).append(rows, ignore_index=True)
-            rows.to_csv(self.path, index=False)
-    
-    def get_rows(self):
-        return pd.read_csv(self.path)
+            rows =  pd.DataFrame(rows_func(), columns=self.columns)
+            data = self.read().append(rows, ignore_index=True)
+            data.to_csv(self.path, index=False)
