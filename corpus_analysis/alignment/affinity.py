@@ -1,8 +1,11 @@
 from math import ceil, sqrt, log
+from itertools import zip_longest
 import numpy as np
+from scipy.ndimage import uniform_filter
+from scipy.signal import convolve2d
 from sklearn.metrics import pairwise_distances
 from sklearn.preprocessing import MinMaxScaler
-from .util import median_filter, symmetric
+from .util import median_filter, symmetric, strided
 from ..util import plot_matrix, plot_hist
 
 def fill_gaps(a, gap_size, gap_ratio):
@@ -69,6 +72,75 @@ def threshold_matrix(matrix, threshold):
         # matrix = np.where(matrix >= thresh, 1, 0)
         #plot_matrix(matrix, 'est-.png')
     return matrix
+
+def averages(a, window_length):
+    windows = strided(a, window_length)
+    # avg = np.average(windows, axis=1)
+    # return avg / (np.std(windows, axis=1)/avg)
+    #return 1 / np.std(windows, axis=1)
+    return np.median(windows, axis=1)
+
+#sliding averages: position x window size
+def avg_matrix(a, min, max, matrix):
+    d = matrix[tuple(a.T)]
+    size = np.min(list(matrix.shape))#max([len(i) for i in diagonals])
+    m = np.zeros((size, max-min+1))
+    for l in range(min, max+1):
+        if l <= len(a):
+            avs = averages(d, l) #/ 
+            if avs is not None:
+                m[:,l-min] = np.pad(avs, (0,size-len(avs)))# * l**0.01
+    return m
+
+def convolve(matrix, kernel):
+    #convolve, only keep where kernel fully contained, and convert to diagonals
+    c = to_diagonals(convolve2d(matrix, kernel, mode='valid'))
+    #zip and pad into a matrix (diagonal index x position) 0 if no value
+    k = len(kernel)-1
+    return np.pad(np.array(list(zip_longest(*c, fillvalue=0))).T, ((k,k),(0,k)))
+
+def avg_filter(matrix, size):
+    #return convolve(matrix, np.ones((size,size))/size**2)
+    return convolve(matrix, (np.ones((size,size))-np.identity(size))/(size**2-size))
+
+def dia_avg_filter(matrix, size):
+    return convolve(matrix, np.identity(size)/size)
+
+def ratings(matrix, min_size, max_size):
+    dav = np.dstack([dia_avg_filter(matrix, s) for s in range(min_size, max_size+1)])
+    avg = np.dstack([avg_filter(matrix, s) for s in range(min_size, max_size+1)])
+    #print(dav)
+    #print(avg)
+    return np.divide(dav, avg, out=np.zeros(dav.shape), where=avg!=0)
+    #return dav-avg
+    #return dav
+
+#new method for unthresholded unsmoothed matrix!
+def get_best_segments(a, b, min_len=12, max_len=50, N=150):
+    symmetric = np.array_equal(a, b)
+    matrix = 1-pairwise_distances(a, b, metric="cosine")
+    p90 = np.percentile(matrix, 85)
+    #print(matrix.shape, matrix)
+    diagonals = get_diagonal_indices(matrix)
+    #avgs = ratings(matrix, min_len, max_len)
+    avgs = np.stack([avg_matrix(d, min_len, max_len, matrix) for d in diagonals])
+    #print(avgs)
+    best = []
+    b = np.unravel_index(np.argmax(avgs), avgs.shape)
+    #total = 0.02*matrix.shape[0]**2
+    while np.max(avgs) > 0 and avgs[b] > p90:# and sum([b[2]+min_len for b in best]) < total:#len(best) < N:
+        best.append(b)
+        #now remove all ratings that overlap with chosen
+        l = b[2]+min_len
+        for i in range(max_len-min_len+1):
+            avgs[b[0], max(b[1]-(min_len+i)+1,0):b[1]+l, i] = 0
+        b = np.unravel_index(np.argmax(avgs), avgs.shape)
+    print(best)
+    #print(indices)
+    #print([[matrix[tuple(ii)] for ii in i] for i in indices])
+    segs = [diagonals[b[0]][b[1]:b[1]+b[2]+min_len] for b in best]
+    #print(sum([len(s) for s in segs]), matrix.shape[0]**2)
+    return segments_to_matrix(segs, matrix.shape), matrix
 
 def get_affinity_matrix(a, b, equality, max_gaps, max_gap_ratio, threshold=1):
     symmetric = np.array_equal(a, b)
@@ -225,3 +297,6 @@ def segments_to_matrix(segments, shape=None, sum=False):
 def get_alignment_matrix(a, b, count, min_len, min_dist, max_gap_size, max_gap_ratio):
     segments = get_alignment_segments(a, b, count, min_len, min_dist, max_gap_size, max_gap_ratio)
     return segments_to_matrix(segments, (len(a), len(b)))
+
+#get_best_segments([[1,2],[3,3],[3,4],[3,1],[5,0]], [[4,1],[2,2],[2,3],[3,4],[4,5],[5,6]], 2, 3)
+get_best_segments([[0,0],[1,0],[2,1],[3,2],[5,0]], [[1,0],[2,1],[3,2],[4,0],[4,5],[5,6]], 2, 3)
