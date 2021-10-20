@@ -26,3 +26,4 @@ class Data:
             rows =  pd.DataFrame(rows_func(), columns=self.columns)
             data = self.read().append(rows, ignore_index=True)
             data.to_csv(self.path, index=False)
+            return rows

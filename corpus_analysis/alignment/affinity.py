@@ -75,7 +75,7 @@ def threshold_matrix(matrix, threshold):
 
 def averages(a, window_length):
     windows = strided(a, window_length)
-    # mean = np.median(windows, axis=1)
+    # mean = np.mean(windows, axis=1)
     # return mean / (np.std(windows, axis=1)/mean)
     #return 1 / np.std(windows, axis=1)
     return np.median(windows, axis=1)
@@ -119,12 +119,23 @@ def ssm(a, b):
     return 1-pairwise_distances(a, b, metric="cosine")
 
 #new method for unthresholded unsmoothed matrix!
-def get_best_segments(matrix, min_len=20, max_len=100, min_dist=4, threshold=99.5):
-    #print(matrix.shape, matrix)
+def get_best_segments(matrix, min_len=20, max_len=44, min_dist=4, threshold=99.5):
+    min_len=8
     diagonals = get_diagonal_indices(matrix)
     #avgs = ratings(matrix, min_len, max_len)
+    #print('avgs')
     avgs = np.stack([avg_matrix(d, min_len, max_len, matrix) for d in diagonals])
-    #print(avgs)
+    #print(avgs.shape)
+    #print('loc')
+    
+    # #TODO: divide by medians of adjacent lengths not same lengths (square)
+    # #divide by local environment (avg relative to surrounding diagonals..)
+    # envs = np.dstack([np.dstack([median_filter(avgs[:,i,j], j+min_len)
+    #     for i in range(avgs.shape[1])])[0] for j in range(avgs.shape[2])])
+    # avgs = np.divide(avgs, envs, out=np.zeros(avgs.shape), where=envs!=0)
+    # print(avgs.shape)
+    # print('done')
+    
     best = []
     b = np.unravel_index(np.argmax(avgs), avgs.shape)
     #total = 0.02*matrix.shape[0]**2
@@ -137,12 +148,12 @@ def get_best_segments(matrix, min_len=20, max_len=100, min_dist=4, threshold=99.
             avgs[b[0]-min_dist+1 : b[0]+min_dist ,
                 max(b[1]-(min_len+i)+1,0) : b[1]+l , i] = 0
         b = np.unravel_index(np.argmax(avgs), avgs.shape)
-    print(best)
+    #print(len(best))
     #print(indices)
     #print([[matrix[tuple(ii)] for ii in i] for i in indices])
     segs = [diagonals[b[0]][b[1]:b[1]+b[2]+min_len] for b in best]
     #print(sum([len(s) for s in segs]), matrix.shape[0]**2)
-    return segments_to_matrix(segs, matrix.shape), matrix
+    return segments_to_matrix(segs, matrix.shape)
 
 def get_affinity_matrix(a, b, equality, max_gaps, max_gap_ratio, threshold=1):
     symmetric = np.array_equal(a, b)
@@ -301,4 +312,4 @@ def get_alignment_matrix(a, b, count, min_len, min_dist, max_gap_size, max_gap_r
     return segments_to_matrix(segments, (len(a), len(b)))
 
 #get_best_segments([[1,2],[3,3],[3,4],[3,1],[5,0]], [[4,1],[2,2],[2,3],[3,4],[4,5],[5,6]], 2, 3)
-#get_best_segments([[0,0],[1,0],[2,1],[3,2],[5,0]], [[1,0],[2,1],[3,2],[4,0],[4,5],[5,6]], 2, 3)
+#get_best_segments(ssm([[0,0],[1,0],[2,1],[3,2],[5,0]], [[1,0],[2,1],[3,2],[4,0],[4,5],[5,6]]), 2, 3)
