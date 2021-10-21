@@ -45,7 +45,7 @@ annotations = corpus+'salami-data-public/annotations/'
 features = corpus+'features/'
 output = 'salami/'
 DATA = output+'data/'
-RESULTS = Data(output+'resultsF7.csv',
+RESULTS = Data(output+'resultsF8.csv',
     columns=['SONG']+list(PARAMS.keys())+['REF', 'METHOD', 'P', 'R', 'L'])
 PLOT_PATH=output+'all8/'
 graphditty = '/Users/flo/Projects/Code/Kyoto/GraphDitty/SongStructure.py'
@@ -184,7 +184,7 @@ def evaluate(index, method_name, groundtruth, intervals, labels):
 def eval_and_add_results(index, method_name, groundtruth, intervals, labels):
     ref_rows = [[index]+list(PARAMS.values())+[i, method_name] for i in range(len(groundtruth))]
     rows_func = lambda: evaluate(index, method_name, groundtruth, intervals, labels)
-    RESULTS.add_rows(ref_rows, rows_func)
+    return RESULTS.add_rows(ref_rows, rows_func)
 
 def own_chroma_affinity(index):
     chroma = buffered_run(DATA+'chroma'+str(index),
@@ -306,8 +306,13 @@ def indie_eval(params=[443, PARAMS]):#index=95):#22):#32#38):
     # l = l[0][:num_levels], l[1][:num_levels]
     
     #compare laplacian and own to groundtruth
-    evl = evaluate(index, 'l', gt, l[0], l[1])
-    evt = evaluate(index, 't', gt, own[0], own[1])
+    # evl = evaluate(index, 'l', gt, l[0], l[1])
+    # evt = evaluate(index, 't', gt, own[0], own[1])
+    
+    ref_rows = [[index]+list(PARAMS.values())+[i, METHOD_NAME]
+        for i in range(len(load_salami_hierarchies(index)))]
+    evl = eval_and_add_results(index, 'l', gt, l[0], l[1])
+    evt = eval_and_add_results(index, 't', gt, own[0], own[1])
     return np.mean([e[-1] for e in evl]), np.mean([e[-1] for e in evt])
 
 def multi_eval(indices, params=PARAMS):
@@ -324,9 +329,11 @@ def plot(path=None):
     #data = data[(data['THRESHOLD'] == 5) | (data['THRESHOLD'] == 10)]
     #data.groupby(['METHOD']).mean().T.plot(legend=True)
     #data.groupby(['METHOD']).boxplot(column=['P','R','L'])
-    print(data.groupby(['METHOD', 'MATRIX_TYPE']).mean())
-    print(data[data['METHOD'] == 'l'].groupby(['SONG']).max().groupby(['SONG']).mean())
-    print(data[data['METHOD'] == 'trans.9'].groupby(['SONG']).max().groupby(['SONG']).mean())
+    print(data[data['METHOD'] == 'l'].groupby(['SONG','REF']).max().groupby(['SONG']).mean().mean())
+    print(data[data['METHOD'] == 't'].groupby(['SONG','REF']).max().groupby(['SONG']).mean().mean())
+    # print(data.groupby(['METHOD', 'MATRIX_TYPE']).mean())
+    # print(data[data['METHOD'] == 'l'].groupby(['SONG']).max().groupby(['SONG']).mean())
+    # print(data[data['METHOD'] == 't'].groupby(['SONG']).max().groupby(['SONG']).mean())
     #print(data[(data['METHOD'] == 't_ownNY') | (data['METHOD'] == 'l')].sort_values(['SONG', 'METHOD']).to_string())
     #print(data.groupby(['SONG', 'METHOD']).mean().sort_values(['SONG', 'METHOD']).to_string())
     #print(data[data['METHOD'] != 'l'].groupby(['SONG']).mean())
@@ -371,23 +378,23 @@ def salami_analysis(path='salami_analysis.pdf'):
 
 def objective(trial):
     t = trial.suggest_int('t', 0, 0, step=1)
-    k = trial.suggest_float('k', 98, 99.5, step=0.5)
+    k = trial.suggest_float('k', 96, 99, step=1)
     #k = trial.suggest_int('k', 65, 95, step=5)
     #k = trial.suggest_int('k', 1, 3, step=5)
     n = trial.suggest_int('n', 100, 100, step=20)
     ml = trial.suggest_int('ml', 16, 16, step=4)
-    md = trial.suggest_int('md', 1, 5, step=1)
+    md = trial.suggest_int('md', 1, 1, step=1)
     mg = trial.suggest_int('mg', 5, 5, step=2)
     mgr = trial.suggest_float('mgr', .4, .4, step=.1)
     ml2 = trial.suggest_int('ml2', 8, 8, step=2)
     md2 = trial.suggest_int('md2', 1, 1, step=1)
     lex = trial.suggest_int('lex', 1, 1)
-    beta = trial.suggest_float('beta', .25, 1, step=.25)
+    beta = trial.suggest_float('beta', .75, .75, step=.25)
     if trial.should_prune():
         raise optuna.TrialPruned()
     #[229, 79, 231, 315, 198] [75, 22, 183, 294, 111]
     #[1270,1461,1375,340,1627,584,1196,443,23,1434] [899,458,811,340,1072,1068,572,310,120,331]
-    return 100 * multi_eval([75, 22, 183, 294, 111],#get_monotonic_salami()[6:100],
+    return 100 * multi_eval([680,95,791,229,1356,236,352,852,384,1168,1132,612,1231,1443,370,515,794,7,1256,1356,443,1634,791,275,373,332,1098,1186,498,1403,708,1382,616,462,1610,346,578,1266,1654,771,1404,637,344,813,1154,485,1237,108,148,618],#get_monotonic_salami()[6:100],
         {'MATRIX_TYPE': t, 'THRESHOLD': k,
         'NUM_SEGS': n, 'MIN_LEN': ml, 'MIN_DIST': md, 'MAX_GAPS': mg,
         'MAX_GAP_RATIO': mgr, 'MIN_LEN2': ml2, 'MIN_DIST2': md2, 'LEXIS': lex,
@@ -416,7 +423,7 @@ def sweep(multi=True):
         [evaluate_to_table(i) for i in tqdm.tqdm(songs)]
 
 if __name__ == "__main__":
-    #print(np.random.choice(get_monotonic_salami(), 20))#[6:100], 5))
+    #print(np.random.choice(get_monotonic_salami(), 100))#[6:100], 5))
     study()
     #extract_all_features()
     #calculate_fused_matrices()
