@@ -1,7 +1,9 @@
 from collections import defaultdict, Counter
 import numpy as np
 from ..features import to_multinomial
+from ..alignment.smith_waterman import smith_waterman
 
+#boolean monotonicity: all interval times of lower levels are contained in higher levels
 def monotonicity(hierarchy):
     ivls = hierarchy[0]
     return all([set(np.unique(ivls[i])) >= set(np.unique(ivls[i-1]))
@@ -12,23 +14,46 @@ def monotonicity2(hierarchy, beats):
     return pairwise_recalls(beatwise_ints(hierarchy, beats))
 
 #monotonicity without dependencies between different same-label areas
+#paper: interval monotonicity
 def monotonicity3(hierarchy, beats):
     labels = beatwise_ints(hierarchy, beats)
     labels = np.array([relabel_adjacent(l) for l in labels])
     return pairwise_recalls(labels)
 
-def transitivity(hierarchy):
-    tree = to_tree(hierarchy)
-    return recursive_transitivity(tree)
+def strict_transitivity(hierarchy):
+    child_dict = to_child_dict(to_tree(hierarchy))
+    num_conns = num_connections([len(cs) for cs in child_dict.values()])
+    return sum([num_identical_pairs(c) for c in child_dict.values()]) / num_conns
 
-def recursive_transitivity(tree):
-    child_dict = defaultdict(list)
+def order_transitivity(hierarchy, delta=1):
+    child_dict = to_child_dict(to_tree(hierarchy))
+    num_conns = num_connections([len(cs) for cs in child_dict.values()])
+    return sum([num_similar(c, delta) for c in child_dict.values()]) / num_conns
+
+def to_child_dict(tree, child_dict=None):
+    if not child_dict: child_dict = defaultdict(list)#default param didn't work
     for c in tree[1:]:
-        child_dict[c[0]].append(str([cc[0] for cc in c[1:]]))
-    return np.mean([largest_prop_same(c) for c in child_dict.values()])
+        if len(c) > 1:
+            child_dict[c[0]].append([cc[0] for cc in c[1:]])
+            to_child_dict(c, child_dict)
+    return child_dict
 
-def largest_prop_same(list):
-    return Counter(list).most_common(1)[0][1] / len(list)
+def num_identical_pairs(list):
+    list = [str(l) for l in list]
+    return num_connections([c[1] for c in Counter(list).most_common()])
+
+def num_similar(list, delta):
+    num = 0
+    for i in range(len(list)):
+        for j in range(i+1, len(list)):
+            max_len = max(len(list[i]), len(list[j]))
+            #print(list[i], list[j], smith_waterman(list[i], list[j])[0])
+            if len(smith_waterman(list[i], list[j])[0]) >= max_len-delta:
+                num += 1
+    return num
+
+def num_connections(group_sizes):
+    return sum([n*(n-1)/2 for n in group_sizes])
 
 def pairwise_recalls(labels):
     same = [np.triu(np.equal.outer(l, l), k=1) for l in labels]
@@ -54,8 +79,10 @@ def to_tree(hierarchy):
             #didn't want to work otherwise
             tree = [n for n in tree if not (i[0] <= n[0][0] and n[0][1] <= i[1])]
             tree.append((i,l,children))
+    print('tree1', tree[0])
     return to_label_tree(tree[0])
 
+#e.g. [0,[1,2],[]]
 def to_label_tree(tree):
     return [tree[1]] + [to_label_tree(c) for c in tree[2]]
 
@@ -100,3 +127,10 @@ def to_int_labels(hierarchy):
 def relabel_adjacent(labels):
     sp = np.split(labels, np.where(np.diff(labels) != 0)[0]+1)
     return np.hstack([np.repeat(i,len(s)) for i,s in enumerate(sp)])
+
+#print(pairwise_recalls([[0,0,0,1,1,1],[2,2,3,3,4,4]]))
+#print(recursive_transitivity([0,[1,[2],[3]],[1,[2]]]))#[0,[[1,[[2,[]],[3,[]]]]]]))#,(1,[4,5]),(0,[2]),(1,[4,5])]))
+#print(to_child_dict([0,[1,[2],[3]],[1,[2]]]))
+#print(num_similar([[0,1],[0,1,2],[0,1,2,3]], 1))
+#print(strict_transitivity([0,[1,[2,[4],[5],[6]],[3]],[1,[2,[4],[5]],[3]], [2,[4]]]))
+#print(order_transitivity([0,[1,[2,[4],[5],[6]],[3]],[1,[2,[4],[5]],[3]], [2,[4]]]))
