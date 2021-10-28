@@ -10,25 +10,35 @@ def monotonicity(hierarchy):
         for i in range(1, len(ivls))])
 
 #mcfee/kinnard monotonicity
-def monotonicity2(hierarchy, beats):
-    return pairwise_recalls(beatwise_ints(hierarchy, beats))
+def label_monotonicity(hierarchy, beats):
+    return pairwise_recalls2(beatwise_ints(hierarchy, beats))
 
 #monotonicity without dependencies between different same-label areas
 #paper: interval monotonicity
-def monotonicity3(hierarchy, beats):
+def interval_monotonicity(hierarchy, beats):
     labels = beatwise_ints(hierarchy, beats)
     labels = np.array([relabel_adjacent(l) for l in labels])
-    return pairwise_recalls(labels)
+    return pairwise_recalls2(labels)
 
 def strict_transitivity(hierarchy):
-    child_dict = to_child_dict(to_tree(hierarchy))
-    num_conns = num_connections([len(cs) for cs in child_dict.values()])
-    return sum([num_identical_pairs(c) for c in child_dict.values()]) / num_conns
+    return transitivity2(hierarchy, num_identical_pairs)
 
 def order_transitivity(hierarchy, delta=1):
+    return transitivity2(hierarchy, lambda c: num_similar(c, delta))
+
+def transitivity(hierarchy, sim_func):
     child_dict = to_child_dict(to_tree(hierarchy))
     num_conns = num_connections([len(cs) for cs in child_dict.values()])
-    return sum([num_similar(c, delta) for c in child_dict.values()]) / num_conns
+    if num_conns == 0: return 1
+    return sum([sim_func(c) for c in child_dict.values()]) / num_conns
+
+def transitivity2(hierarchy, sim_func):
+    child_dict = to_child_dict(to_tree(hierarchy))
+    num_conns = num_connections([len(cs) for cs in child_dict.values()])
+    if num_conns == 0: return 1
+    num_sim = sum([sim_func(c) for c in child_dict.values()])
+    total = num_connections([sum([len(cs) for cs in child_dict.values()])])
+    return (num_sim+(total-num_conns)) / total
 
 def to_child_dict(tree, child_dict=None):
     if not child_dict: child_dict = defaultdict(list)#default param didn't work
@@ -61,6 +71,14 @@ def pairwise_recalls(labels):
     return np.mean([len(same[i].intersection(same[i-1])) / len(same[i])
         for i in range(1, len(same))])
 
+def pairwise_recalls2(labels):
+    same = [np.triu(np.equal.outer(l, l), k=1) for l in labels]
+    same = [set(zip(*np.nonzero(s))) for s in same]
+    nc = [num_connections([len(l)]) for l in labels]
+    smnc = [n-len(s) for s,n in zip(same,nc)]
+    return np.mean([(len(same[i].intersection(same[i-1]))+smnc[i]) / (len(same[i])+smnc[i])
+        for i in range(1, len(same))])
+
 def to_tree(hierarchy):
     #add top node
     hierarchy = list(hierarchy[0]), list(hierarchy[1])
@@ -79,7 +97,6 @@ def to_tree(hierarchy):
             #didn't want to work otherwise
             tree = [n for n in tree if not (i[0] <= n[0][0] and n[0][1] <= i[1])]
             tree.append((i,l,children))
-    print('tree1', tree[0])
     return to_label_tree(tree[0])
 
 #e.g. [0,[1,2],[]]
