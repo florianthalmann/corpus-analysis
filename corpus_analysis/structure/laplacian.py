@@ -280,6 +280,8 @@ def get_laplacian_struct_from_affinity2(affinity, beat_times):
     struct = tuple(zip(*add_beat_times(struct, beat_times)))
     return struct[0], [np.array(s, dtype=int).tolist() for s in struct[1]]#np.append(struct, [sequence], axis=0)
 
-def get_laplacian_struct_from_audio(audio):
+def get_laplacian_struct_from_audio(audio, max_types=12):
+    global MAX_TYPES
+    MAX_TYPES = max_types
     return segment_file(audio)
     #return struct, beat_times#np.append(struct, [sequence], axis=0)
