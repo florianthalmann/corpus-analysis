@@ -18,7 +18,8 @@ from corpus_analysis.structure.laplacian import get_laplacian_struct_from_affini
     to_levels, get_laplacian_struct_from_audio, get_smooth_affinity_matrix
 from corpus_analysis.structure.eval import evaluate_hierarchy, simplify
 from corpus_analysis.stats.hierarchies import monotonicity, label_monotonicity,\
-    interval_monotonicity, beatwise_ints, strict_transitivity, order_transitivity
+    interval_monotonicity, beatwise_ints, strict_transitivity, order_transitivity,\
+    relabel_adjacent, to_int_labels, auto_labeled, repetitiveness
 from corpus_analysis.data import Data
 
 PARAMS = dict([
@@ -337,19 +338,32 @@ def eval_laplacian(index, levels, groundtruth, intervals, labels):
     return results
 
 def run_laplacian(params):
-    index, levels = params
+    index, levels, results, plot_path = params
     ref_rows = [[index, levels, i]
         for i in range(len(load_salami_hierarchies(index)))]
-    if not RESULTS.rows_exist(ref_rows):
+    if not results or not results.rows_exist(ref_rows):
         gt = load_salami_hierarchies(index)
         l = get_laplacian_struct_from_audio(get_audio(index), levels)
+        if plot_path: plot_hierarchy(plot_path, index, 'l', l[0], l[1], gt)
         rows_func = lambda: eval_laplacian(index, levels, gt, l[0], l[1])
-        return RESULTS.add_rows(ref_rows, rows_func)
+        print(print(eval_laplacian(index, levels, gt, l[0], l[1])))
+        l = to_int_labels(l)
+        l = l[0], np.array([relabel_adjacent(ll) for ll in l[1]])
+        print(eval_laplacian(index, levels, gt, l[0], l[1]))
+        if results:
+            return results.add_rows(ref_rows, rows_func)
 
 def sweep_laplacian(indices):
-    for l in range(2, 20):
-        params = [[i, l] for i in indices]
+    for l in range(2, 40):
+        params = [[i, l, RESULTS, None] for i in indices]
         multiprocess('multi eval', run_laplacian, params, True)
+
+def plot_laplacian(path='lapl.png'):
+    data = RESULTS.read()
+    print(data.groupby(['LEVELS']).mean())
+    data.boxplot(column=['P','R','L'], by=['LEVELS'])
+    plt.tight_layout()
+    plt.savefig(path, dpi=1000)
 
 def plot(path=None):
     data = RESULTS.read()
@@ -372,60 +386,86 @@ def plot(path=None):
     plt.tight_layout()
     plt.savefig(path, dpi=1000) if path else plt.show()
 
+#increasing number of possible pairs with same label decreases monotonicity...
+#(denominator gets larger)
+def label_count_test(hierarchy, beats):
+    #double number of beats
+    means = np.append(np.mean(np.vstack((beats[:-1], beats[1:])), axis=0), [0])
+    beats2 = np.vstack((beats, means)).reshape((-1,), order='F')[:-1]
+    print(label_monotonicity(hierarchy, beats),
+        label_monotonicity(hierarchy, beats2))
+
 #calculate and make graph of monotonicity and transitivity of salami annotations
-def salami_analysis(path='salami_analysis5.pdf'):
-    annos = {i:load_salami_hierarchies(i) for i in get_available_songs()[:]}
-    beats = {i:get_beats(i) for i in annos.keys()}
-    print("num songs", len(annos))
-    hiers = [a for a in flatten(list(annos.values()), 1)]
-    beats = flatten([[beats[i] for v in a] for i,a in annos.items()], 1)
-    #print(annos[3], hiers[0])
-    # print('hiers', len(hiers))
-    # print('SILENCE', [h[1][1] for h in hiers if len(np.unique(h[1][1])) == 1])
-    # print('uneven', [h[1] for h in hiers if len(np.unique(h[1][1])) < len(np.unique(h[1][0]))])
-    #print(interval_monotonicity(hiers[197], beats[197]), label_monotonicity(hiers[197], beats[197]))
-    #print(strict_transitivity(hiers[197]), order_transitivity(hiers[197]))
-    
-    h, b = hiers[27], beats[27]
-    print(b[:10])
-    means = np.append(np.mean(np.vstack((b[:-1], b[1:])), axis=0), [0])
-    print(means[:10])
-    beats2 = np.vstack((b,means)).reshape((-1,),order='F')[:-1]
-    print(beats2[:10])
-    print(label_monotonicity(h, b), label_monotonicity(h, beats2))
-    print(nothing)
-    #check = lambda i,a,b: [print(i), monotonicity2(a,b)]
-    #[[check(i,v,beats[i]) for v in a] for i,a in annos.items()]
-    #hiers = hiers[:40]
-    #m1 = [monotonicity(h) for h in tqdm.tqdm(hiers, desc='m1')]
-    #hiers = [homogenize_labels(h) for h in hiers]
-    mi = [interval_monotonicity(h, b) for h,b in tqdm.tqdm(list(zip(hiers, beats)), desc='mi')]
-    ml = [label_monotonicity(h, b) for h,b in tqdm.tqdm(list(zip(hiers, beats)), desc='ml')]
-    to = [order_transitivity(h) for h in tqdm.tqdm(hiers, desc='to')]
-    ts = [strict_transitivity(h) for h in tqdm.tqdm(hiers, desc='ts')]
-    # hiers = [homogenize_labels(h) for h in hiers]
-    # mih = [monotonicity3(h, b) for h,b in tqdm.tqdm(list(zip(hiers, beats)), desc='m3')]
-    # mlh = [monotonicity2(h, b) for h,b in tqdm.tqdm(list(zip(hiers, beats)), desc='m2')]
-    # tfh = [transitivity(h) for h in tqdm.tqdm(hiers, desc='th')]
-    
-    #print([(i,l,hiers[k][1]) for k,(i,l) in enumerate(zip(mi,ml)) if i < l])
-    
-    print('mi', sum([p for p in mi if p == 1]), np.median(mi), np.mean(mi), np.min(mi))
-    print('ml', sum([p for p in ml if p == 1]), np.median(ml), np.mean(ml), np.min(ml))
-    print('to', sum([p for p in to if p == 1]), np.median(to), np.mean(to), np.min(to))
-    print('ts', sum([p for p in ts if p == 1]), np.median(ts), np.mean(ts), np.min(ts))
-    # print('mih', sum([p for p in mlh if p == 1]), np.median(mih))
-    # print('mlh', sum([p for p in mlh if p == 1]), np.median(mlh))
-    # print('tfh', sum([p for p in tfh if p == 1]), np.median(tfh))
-    
-    data = np.vstack((mi, ml, to, ts)).T#, tfh, mlh)).T
-    pd.DataFrame(np.array(data), columns=['M_I', 'M_L', 'T_O', 'T_S']).boxplot()
+def salami_analysis(path='salami_analysis5'):
+    if os.path.isfile('salami.csv'):
+        data = pd.read_csv('salami.csv')
+    else:
+        annos = {i:load_salami_hierarchies(i) for i in get_available_songs()[:50]}
+        beats = {i:get_beats(i) for i in annos.keys()}
+        print("num songs", len(annos))
+        hiers = [a for a in flatten(list(annos.values()), 1)]
+        beats = flatten([[beats[i] for v in a] for i,a in annos.items()], 1)
+        #print(annos[3], hiers[0])
+        # print('hiers', len(hiers))
+        # print('SILENCE', [h[1][1] for h in hiers if len(np.unique(h[1][1])) == 1])
+        # print('uneven', [h[1] for h in hiers if len(np.unique(h[1][1])) < len(np.unique(h[1][0]))])
+        #print(interval_monotonicity(hiers[197], beats[197]), label_monotonicity(hiers[197], beats[197]))
+        #print(sum([1 if auto_labeled(h) else 0 for h in hiers]), len(hiers))
+        #print([int_labels(h)[1] for h in hiers if auto_labeled(h)])
+        #print(strict_transitivity(hiers[197]), order_transitivity(hiers[197]))
+        
+        #label_count_test(hiers[27], beats[27])
+        
+        #check = lambda i,a,b: [print(i), monotonicity2(a,b)]
+        #[[check(i,v,beats[i]) for v in a] for i,a in annos.items()]
+        #hiers = hiers[:40]
+        #m1 = [monotonicity(h) for h in tqdm.tqdm(hiers, desc='m1')]
+        #hiers = [homogenize_labels(h) for h in hiers]
+        mi = [interval_monotonicity(h, b) for h,b in tqdm.tqdm(list(zip(hiers, beats)), desc='mi')]
+        ml = [label_monotonicity(h, b) for h,b in tqdm.tqdm(list(zip(hiers, beats)), desc='ml')]
+        to = [order_transitivity(h) for h in tqdm.tqdm(hiers, desc='to')]
+        ts = [strict_transitivity(h) for h in tqdm.tqdm(hiers, desc='ts')]
+        r = [repetitiveness(h) for h in tqdm.tqdm(hiers, desc='r')]
+        # hiers = [homogenize_labels(h) for h in hiers]
+        # mih = [monotonicity3(h, b) for h,b in tqdm.tqdm(list(zip(hiers, beats)), desc='m3')]
+        # mlh = [monotonicity2(h, b) for h,b in tqdm.tqdm(list(zip(hiers, beats)), desc='m2')]
+        # tfh = [transitivity(h) for h in tqdm.tqdm(hiers, desc='th')]
+        
+        #print([(i,l,hiers[k][1]) for k,(i,l) in enumerate(zip(mi,ml)) if i < l])
+        print([(i,l,hiers[k][1]) for k,(i,l) in enumerate(zip(to,ts)) if i < 1])
+        print(nothing)
+        
+        print('mi', sum([p for p in mi if p == 1]), np.median(mi), np.mean(mi), np.min(mi))
+        print('ml', sum([p for p in ml if p == 1]), np.median(ml), np.mean(ml), np.min(ml))
+        print('to', sum([p for p in to if p == 1]), np.median(to), np.mean(to), np.min(to))
+        print('ts', sum([p for p in ts if p == 1]), np.median(ts), np.mean(ts), np.min(ts))
+        print('r', sum([p for p in r if p == 1]), np.median(r), np.mean(r), np.min(r))
+        # print('mih', sum([p for p in mlh if p == 1]), np.median(mih))
+        # print('mlh', sum([p for p in mlh if p == 1]), np.median(mlh))
+        # print('tfh', sum([p for p in tfh if p == 1]), np.median(tfh))
+        
+        data = np.vstack((mi, ml, to, ts, r)).T#, tfh, mlh)).T
+        data = pd.DataFrame(np.array(data), columns=['M_I', 'M_L', 'U_O', 'U_S', 'R'])
+        data.to_csv('salami.csv', index=False)
+    data.boxplot()
     #transitivity(homogenize_labels(annos[960][0]))
     # print("m1hom", np.mean([monotonicity(h) for h in hiers]))
     # print("m2hom", np.mean([monotonicity2(h, b) for h,b in zip(hiers, beats)]))
     # print("m3hom", np.mean([monotonicity3(h, b) for h,b in zip(hiers, beats)]))
+    plot(data.boxplot, path+'.pdf')
+    plot(lambda: data.plot.scatter(x='U_S', y='R'), path+'s.pdf')
+    plot(lambda: data.plot.scatter(x='M_L', y='R'), path+'s2.pdf')
+    plot(lambda: data.plot.scatter(x='M_I', y='M_L'), path+'s3.pdf')
+    plot(lambda: data.plot.scatter(x='U_O', y='U_S'), path+'s4.pdf')
+    plot(lambda: data.plot.scatter(x='M_I', y='U_S'), path+'s5.pdf')
+    plot(lambda: data.plot.scatter(x='M_L', y='U_S'), path+'s6.pdf')
+    plot(lambda: data.plot.scatter(x='M_L', y='U_O'), path+'s7.pdf')
+
+def plot(plot_func, path):
+    plot_func()
     plt.tight_layout()
     plt.savefig(path, dpi=1000) if path else plt.show()
+    plt.close()
 
 def objective(trial):
     t = trial.suggest_int('t', 0, 0, step=1)
@@ -474,14 +514,17 @@ def sweep(multi=True):
         [evaluate_to_table(i) for i in tqdm.tqdm(songs)]
 
 if __name__ == "__main__":
-    #print(np.random.choice(get_monotonic_salami(), 100))#[6:100], 5))
+    #print(np.random.choice(get_available_songs(), 100, replace=False))#[6:100], 5))
+    #[880,36,1212,1491,1202,216,1106,1120,1302,715,135,1261,1613,1653,1363,512,1179,1456,376,486,653,340,979,1110,805,1207,983,1454,1630,1127,1479,1038,1069,315,1334,1191,1394,389,1132,613,1307,800,349,356,1112,1054,1311,155,388,1173,587,1291,768,722,261,302,1210,612,626,1379,749,1229,995,1042,1428,1629,1603,1195,327,1388,911,1434,1332,1364,458,735,1242,204,1420,1062,133,1150,1286,1451,330,1048,959,1216,31,1064,374,787,227,751,655,634,1381,509,1282,550]
     #study()
     #extract_all_features()
     #calculate_fused_matrices()
     #sweep()
     #indie_eval()
     #multi_eval([75, 22, 183, 294, 111])#[408, 822, 722, 637, 527])
-    #salami_analysis()
-    sweep_laplacian(get_available_songs()[:50])
+    salami_analysis()
+    #run_laplacian([880, 12, None, None])
+    #sweep_laplacian([880,36,1212,1491,1202,216,1106,1120,1302,715,135,1261,1613,1653,1363,512,1179,1456,376,486,653,340,979,1110,805,1207,983,1454,1630,1127,1479,1038,1069,315,1334,1191,1394,389,1132,613,1307,800,349,356,1112,1054,1311,155,388,1173,587,1291,768,722,261,302,1210,612,626,1379,749,1229,995,1042,1428,1629,1603,1195,327,1388,911,1434,1332,1364,458,735,1242,204,1420,1062,133,1150,1286,1451,330,1048,959,1216,31,1064,374,787,227,751,655,634,1381,509,1282,550])
+    #plot_laplacian()
     #load_salami_hierarchies(197)
     #plot('salamiF8.png')

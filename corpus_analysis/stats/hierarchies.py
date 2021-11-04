@@ -3,6 +3,18 @@ import numpy as np
 from ..features import to_multinomial
 from ..alignment.smith_waterman import smith_waterman
 
+#one layer contains repetition
+def auto_labeled(hierarchy):
+    h = to_int_labels(hierarchy)[1]
+    all_diff = lambda l: len(np.unique(l)) == len(l)
+    #return all_diff(h[0]) != all_diff(h[1])
+    return all_diff(h[1]) or all_diff(h[0]) #top level repeats, bottom not
+
+def repetitiveness(hierarchy):
+    h = to_int_labels(hierarchy)[1]
+    return np.mean([(len(l)-len(np.unique(l))) / (len(l)-1) if len(l) > 1 else 1
+        for l in h])
+
 #boolean monotonicity: all interval times of lower levels are contained in higher levels
 def monotonicity(hierarchy):
     ivls = hierarchy[0]
@@ -11,27 +23,29 @@ def monotonicity(hierarchy):
 
 #mcfee/kinnard monotonicity
 def label_monotonicity(hierarchy, beats):
-    return pairwise_recalls2(beatwise_ints(hierarchy, beats))
+    return pairwise_recalls(beatwise_ints(hierarchy, beats))
 
 #monotonicity without dependencies between different same-label areas
 #paper: interval monotonicity
 def interval_monotonicity(hierarchy, beats):
     labels = beatwise_ints(hierarchy, beats)
     labels = np.array([relabel_adjacent(l) for l in labels])
-    return pairwise_recalls2(labels)
+    return pairwise_recalls(labels)
 
 def strict_transitivity(hierarchy):
-    return transitivity2(hierarchy, num_identical_pairs)
+    return transitivity(hierarchy, num_identical_pairs)
 
 def order_transitivity(hierarchy, delta=1):
-    return transitivity2(hierarchy, lambda c: num_similar(c, delta))
+    return transitivity(hierarchy, lambda c: num_similar(c, delta))
 
+#of all parent pairs with same labels, how many child sequences are similar
 def transitivity(hierarchy, sim_func):
     child_dict = to_child_dict(to_tree(hierarchy))
     num_conns = num_connections([len(cs) for cs in child_dict.values()])
     if num_conns == 0: return 1
     return sum([sim_func(c) for c in child_dict.values()]) / num_conns
 
+#of all possible pairs of parents, how many have either different label or similar child sequences
 def transitivity2(hierarchy, sim_func):
     child_dict = to_child_dict(to_tree(hierarchy))
     num_conns = num_connections([len(cs) for cs in child_dict.values()])
@@ -65,18 +79,20 @@ def num_similar(list, delta):
 def num_connections(group_sizes):
     return sum([n*(n-1)/2 for n in group_sizes])
 
+#of all similarly labeled pairs on each level, how many have the same parent
 def pairwise_recalls(labels):
     same = [np.triu(np.equal.outer(l, l), k=1) for l in labels]
     same = [set(zip(*np.nonzero(s))) for s in same]
     return np.mean([len(same[i].intersection(same[i-1])) / len(same[i])
         for i in range(1, len(same))])
 
+#of all possible pairs on each level, how many are either labeled differently or have the same parent
 def pairwise_recalls2(labels):
     same = [np.triu(np.equal.outer(l, l), k=1) for l in labels]
     same = [set(zip(*np.nonzero(s))) for s in same]
     nc = [num_connections([len(l)]) for l in labels]
     smnc = [n-len(s) for s,n in zip(same,nc)]
-    return np.mean([(len(same[i].intersection(same[i-1]))+smnc[i]) / (len(same[i])+smnc[i])
+    return np.mean([(len(same[i].intersection(same[i-1]))+smnc[i]) / nc[i]
         for i in range(1, len(same))])
 
 def to_tree(hierarchy):
