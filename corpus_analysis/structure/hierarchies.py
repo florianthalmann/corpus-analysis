@@ -69,11 +69,13 @@ def matrix_f_measure(matrix, target, beta=1, verbose=False):
     matrix_total = len(np.nonzero(matrix > 0)[0])
     if matrix_total == 0: return 0
     intersection = len(np.nonzero(matrix+target > 1)[0])
+    if intersection == 0: return 0
     precision = intersection / matrix_total
     recall = intersection / target_total
-    if verbose: print(target_total, matrix_total, intersection, precision, recall, 2*precision*recall / (precision+recall))
+    f = (1+beta**2) * precision*recall / ((beta**2*precision)+recall)
+    if verbose: print(target_total, matrix_total, intersection, precision, recall, f)
     #return 2*(precision**2)*recall / (precision+recall)
-    return (1+beta**2) * precision*recall / ((beta**2*precision)+recall)
+    return f
 
 def dist_func(matrix, target, segments):
     target_total = len(np.nonzero(target > 0)[0])+1
@@ -107,12 +109,13 @@ def get_noise_factor(segments, target, size):
         * (1-len(np.nonzero(target-segmat > 0)[0])/len(np.nonzero(target > 0)[0])))
 
 def make_segments_hierarchical(segments, min_len, min_dist, size, target=None,
-        beta=.25, min_len2=None, path=None, verbose=False):
+        beta=.25, path=None, verbose=False):
     segments = segments.copy()#since we're removing from it
     if target is None:
         target = segments_to_matrix(segments, (size,size))#replace with raw or intermediary
-    target += target.T
-    np.fill_diagonal(target, 1)
+    #target += target.T
+    #np.fill_diagonal(target, 1)
+    target = np.triu(target, k=1)
     if verbose: plot_matrix(target, 'new0.png')
     if verbose: plot_matrix(segments_to_matrix(segments, (size,size)), 'new00.png')
     noise_factor = get_noise_factor(segments, target, size)
@@ -124,12 +127,12 @@ def make_segments_hierarchical(segments, min_len, min_dist, size, target=None,
     while improvement > 0 and len(segments) > 0:
         
         def best_transitive(matrices, last_best=False):
-            matrices = [add_transitivity_to_matrix(m) for m in matrices]
+            matrices = [np.triu(add_transitivity_to_matrix(m), k=1) for m in matrices]
             #dists = [dist_func(m, target, segments) for m in matrices]
             dists = [1-matrix_f_measure(m, target, beta) for m in matrices]
             best = len(dists)-np.argmin(dists[::-1])-1 if last_best else np.argmin(dists)
             if verbose: matrix_f_measure(matrices[best], target, beta, True)
-            if verbose: print(dists[best], best, np.array(np.round(dists), dtype=int))
+            if verbose: print(dists[best], best, np.array(np.round(dists, decimals=2), dtype=int))
             return best, matrices[best], dists[best]
         
         matrices = [(matrix+segments_to_matrix([s], (size,size))) for s in segments]
@@ -150,6 +153,7 @@ def make_segments_hierarchical(segments, min_len, min_dist, size, target=None,
             return [np.concatenate((s, p[:l-i])) for i in range(l)] + [s] \
                 + [s[:l-i] for i in range(1, min(l+1, len(s)))]
         
+        #print(segments[best])
         vars = get_start_variations(segments[best])
         matrices = [(matrix+segments_to_matrix([v], (size,size))) for v in vars]
         best, mat, dist = best_transitive(matrices, True)#last min (shortest possible)
@@ -175,12 +179,10 @@ def make_segments_hierarchical(segments, min_len, min_dist, size, target=None,
     # matrix = smooth_matrix(matrix, True, 7, .4)
     # matrix = smooth_matrix(matrix+unsmoothed, True, 7, .4)
     # 
-    # if min_len2:
-    #     print(min_len2, '!')
-    #     #keep only longer segments
-    #     if verbose: print(dist_func(matrix, target))
-    #     matrix = segments_to_matrix([s for s in matrix_to_segments(matrix) if len(s) > 25], (size,size))
-    #     matrix = add_transitivity_to_matrix(matrix)
+    # #keep only longer segments
+    # if verbose: print(dist_func(matrix, target, segments))
+    # matrix = segments_to_matrix([s for s in matrix_to_segments(matrix) if len(s) > min_len], (size,size))
+    # matrix = add_transitivity_to_matrix(matrix)
     
     # # if verbose: plot_matrix(matrix, 'new'+str(i)+'.png')
     # if verbose: print(dist_func(matrix, target, segments))

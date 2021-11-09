@@ -120,7 +120,7 @@ def ssm(a, b):
 
 #new method for unthresholded unsmoothed matrix!
 def get_best_segments(matrix, min_len=20, max_len=44, min_dist=4, threshold=99.5):
-    min_len=8
+    #min_len=2
     diagonals = get_diagonal_indices(matrix)
     #avgs = ratings(matrix, min_len, max_len)
     #print('avgs')
