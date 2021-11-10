@@ -8,7 +8,7 @@ class Data:
         self.columns = columns
     
     def read(self):
-        if os.path.isfile(self.path):
+        if self.path and os.path.isfile(self.path):
             try:
                 return pd.read_csv(self.path)
             except pd.errors.EmptyDataError:
@@ -31,7 +31,7 @@ class Data:
             rows =  rows_func()
             data = self.read().append(pd.DataFrame(rows, columns=self.columns),
                 ignore_index=True)
-            data.to_csv(self.path, index=False)
+            if self.path: data.to_csv(self.path, index=False)
             return rows
         else:
             return self.get_rows(ref_rows)

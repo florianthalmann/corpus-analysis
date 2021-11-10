@@ -179,10 +179,10 @@ def make_segments_hierarchical(segments, min_len, min_dist, size, target=None,
     # matrix = smooth_matrix(matrix, True, 7, .4)
     # matrix = smooth_matrix(matrix+unsmoothed, True, 7, .4)
     # 
-    # #keep only longer segments
-    # if verbose: print(dist_func(matrix, target, segments))
-    # matrix = segments_to_matrix([s for s in matrix_to_segments(matrix) if len(s) > min_len], (size,size))
-    # matrix = add_transitivity_to_matrix(matrix)
+    #keep only longer segments
+    if verbose: print(dist_func(matrix, target, segments))
+    matrix = segments_to_matrix([s for s in matrix_to_segments(matrix) if len(s) >= min_len], (size,size))
+    matrix = add_transitivity_to_matrix(matrix)
     
     # # if verbose: plot_matrix(matrix, 'new'+str(i)+'.png')
     # if verbose: print(dist_func(matrix, target, segments))

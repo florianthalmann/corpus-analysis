@@ -24,7 +24,7 @@ def graph_from_matrix(matrix, directed=False):
     weights = g.new_ep("float")
     edges = np.nonzero(matrix)
     edges = np.append(edges, [matrix[edges]], axis=0)
-    g.add_edge_list(list(zip(*edges)), eprops=[weights])
+    g.add_edge_list(np.transpose(edges), eprops=[weights])
     #graph_draw(g, output_size=(1000, 1000), output="results/structure.pdf")
     return g, weights
 
