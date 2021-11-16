@@ -6,6 +6,12 @@ def strided(a, L, S=1):  # Window len = L, Stride len/stepsize = S
     n = a.strides[0]
     return np.lib.stride_tricks.as_strided(a, shape=(nrows,L), strides=(S*n,n))
 
+def strided2D(a, L, S=1):
+    if len(a) <= L: return np.array([a])
+    s0,s1 = a.strides
+    m,n = a.shape
+    return np.lib.stride_tricks.as_strided(a, shape=(m,n-L+1,L), strides=(s0,s1,s1))
+
 def median_filter(a, radius):
     windows = strided(a, (radius*2)+1)
     medians = np.median(windows, axis=1)

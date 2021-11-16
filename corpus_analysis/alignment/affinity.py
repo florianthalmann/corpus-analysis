@@ -5,7 +5,7 @@ from scipy.ndimage import uniform_filter
 from scipy.signal import convolve2d
 from sklearn.metrics import pairwise_distances
 from sklearn.preprocessing import MinMaxScaler
-from .util import median_filter, symmetric, strided
+from .util import median_filter, symmetric, strided, strided2D
 from ..util import plot_matrix, plot_hist
 
 def fill_gaps(a, gap_size, gap_ratio):
@@ -78,7 +78,7 @@ def averages(a, window_length):
     # mean = np.mean(windows, axis=1)
     # return mean / (np.std(windows, axis=1)/mean)
     #return 1 / np.std(windows, axis=1)
-    return np.median(windows, axis=1)
+    return np.mean(windows, axis=1)
 
 #sliding averages: position x window size
 def avg_matrix(a, min, max, matrix):
@@ -87,9 +87,9 @@ def avg_matrix(a, min, max, matrix):
     m = np.zeros((size, max-min+1))
     for l in range(min, max+1):
         if l <= len(a):
-            avs = averages(d, l) #/ 
+            avs = averages(d, l) #/
             if avs is not None:
-                m[:,l-min] = np.pad(avs, (0,size-len(avs))) * l**0.01
+                m[:,l-min] = np.pad(avs, (0,size-len(avs)))# * l**0.01
     return m
 
 def convolve(matrix, kernel):
@@ -118,15 +118,35 @@ def ratings(matrix, min_size, max_size):
 def ssm(a, b):
     return 1-pairwise_distances(a, b, metric="cosine")
 
+def index(array, item):
+    for idx, val in np.ndenumerate(array):
+        if val == item:
+            return idx
+    return None
+
+def avgs1(diagonals, min_len, max_len, matrix):
+    #avgs = ratings(matrix, min_len, max_len)
+    return np.stack([avg_matrix(d, min_len, max_len, matrix) for d in diagonals])
+
+def avgs2(diagonals, min_len, max_len, matrix):
+    diagonals = [matrix[tuple(d.T)] for d in diagonals]
+    diagonals = np.column_stack((zip_longest(*diagonals, fillvalue=0)))
+    result = []
+    for l in range(min_len, max_len+1):
+        windows = np.concatenate(strided2D(diagonals, l))
+        avgs = np.reshape(np.mean(windows, axis=1), (diagonals.shape[0],-1))
+        mask = np.tril(np.ones(avgs.shape), -l+1)
+        mask = np.logical_and(mask, np.flip(mask, axis=0))
+        result.append(np.pad(avgs*mask, ((0,0),(0,l-min_len))))
+    return np.dstack(result)
+
 #new method for unthresholded unsmoothed matrix!
 def get_best_segments(matrix, min_len=20, max_len=44, min_dist=4, threshold=99.5):
     #min_len=2
     diagonals = get_diagonal_indices(matrix)
     #avgs = ratings(matrix, min_len, max_len)
-    #print('avgs')
-    avgs = np.stack([avg_matrix(d, min_len, max_len, matrix) for d in diagonals])
-    #print(avgs.shape)
-    #print('loc')
+    #avgs = avgs1(diagonals, min_len, max_len, matrix)
+    avgs = avgs2(diagonals, min_len, max_len, matrix)
     
     # #TODO: divide by medians of adjacent lengths not same lengths (square)
     # #divide by local environment (avg relative to surrounding diagonals..)
@@ -136,18 +156,35 @@ def get_best_segments(matrix, min_len=20, max_len=44, min_dist=4, threshold=99.5
     # print(avgs.shape)
     # print('done')
     
+    flatavgs = np.reshape(avgs, -1)
+    maxorder = np.flip(np.argsort(flatavgs))#order of max avgs
+    maxpos = np.argsort(maxorder)
+    maxavgs = flatavgs[maxorder]
+    maxindices = np.transpose(np.unravel_index(maxorder, avgs.shape))#indices of maxes in original
+    ignored = np.zeros(avgs.shape)#ignored avgs, in original shape
+    maxignored = np.reshape(ignored, -1)[maxorder]#ignored, in order of maxes
     best = []
-    b = np.unravel_index(np.argmax(avgs), avgs.shape)
+    i = 0
     #total = 0.02*matrix.shape[0]**2
     threshold = np.percentile(avgs, threshold)#0
-    while np.max(avgs) > threshold:# and sum([b[2]+min_len for b in best]) < total:#len(best) < N:
+    while maxavgs[i] > threshold and maxavgs[i] > 0:# and sum([b[2]+min_len for b in best]) < total:#len(best) < N:
+        #print(i, maxavgs[i], maxindices[i], maxignored[i])
+        b = maxindices[i]
         best.append(b)
-        #now remove all ratings that overlap with chosen
+        #now ignore all ratings that overlap with chosen
         l = b[2]+min_len
-        for i in range(max_len-min_len+1):
-            avgs[b[0]-min_dist+1 : b[0]+min_dist ,
-                max(b[1]-(min_len+i)+1,0) : b[1]+l , i] = 0
-        b = np.unravel_index(np.argmax(avgs), avgs.shape)
+        
+        ixs = [np.mgrid[
+                max(b[0]-min_dist+1, 0) : min(b[0]+min_dist, avgs.shape[0]),
+                max(b[1]-(min_len+k)+1,0) : min(b[1]+l, avgs.shape[1]),
+                k:k+1]
+            for k in range(max_len-min_len+1)]
+        ixs = np.hstack([np.ravel_multi_index(x, ignored.shape) for x in ixs])
+        maxignored[maxpos[ixs]] = 1
+        
+        
+        i += index(maxignored[i:], 0)[0]#np.argmax(maxignored[i:]==0)
+        
     #print(len(best))
     #print(indices)
     #print([[matrix[tuple(ii)] for ii in i] for i in indices])
@@ -312,4 +349,4 @@ def get_alignment_matrix(a, b, count, min_len, min_dist, max_gap_size, max_gap_r
     return segments_to_matrix(segments, (len(a), len(b)))
 
 #get_best_segments([[1,2],[3,3],[3,4],[3,1],[5,0]], [[4,1],[2,2],[2,3],[3,4],[4,5],[5,6]], 2, 3)
-#get_best_segments(ssm([[0,0],[1,0],[2,1],[3,2],[5,0]], [[1,0],[2,1],[3,2],[4,0],[4,5],[5,6]]), 2, 3)
+get_best_segments(ssm([[0,0],[1,0],[2,1],[3,2],[5,0]], [[1,0],[2,1],[3,2],[4,0],[4,5],[5,6]]), 2, 3, threshold=50)
