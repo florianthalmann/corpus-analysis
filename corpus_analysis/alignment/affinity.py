@@ -134,7 +134,8 @@ def avgs2(diagonals, min_len, max_len, matrix):
     result = []
     for l in range(min_len, max_len+1):
         windows = np.concatenate(strided2D(diagonals, l))
-        avgs = np.reshape(np.mean(windows, axis=1), (diagonals.shape[0],-1))
+        avgs = np.reshape(np.median(windows, axis=1), (diagonals.shape[0],-1))
+        avgs *= l**0.01
         mask = np.tril(np.ones(avgs.shape), -l+1)
         mask = np.logical_and(mask, np.flip(mask, axis=0))
         result.append(np.pad(avgs*mask, ((0,0),(0,l-min_len))))

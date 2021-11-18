@@ -22,7 +22,7 @@ class Data:
     
     def get_rows(self, rows):
         df = self.read()
-        return [df.iloc[np.where((df[df.columns[:len(rows[0])]] == rows[0]).all(1))].to_numpy()[0]
+        return [df.iloc[np.where((df[df.columns[:len(rows[0])]] == r).all(1))].to_numpy()[0]
             for r in rows]
     
     #lazy: calls rows_func only if no rows beginning with ref_rows exist
