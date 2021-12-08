@@ -21,11 +21,13 @@ from corpus_analysis.structure.eval import evaluate_hierarchy, simplify
 from corpus_analysis.stats.hierarchies import monotonicity, label_monotonicity,\
     interval_monotonicity, beatwise_ints, strict_transitivity, order_transitivity,\
     relabel_adjacent, to_int_labels, auto_labeled, repetitiveness, complexity
+from corpus_analysis.structure.novelty import get_novelty_boundaries
 from corpus_analysis.data import Data
 
 PARAMS = dict([
     ['MATRIX_TYPE', 0],#0=own, 1=mcfee, 2=fused, 3=own2
-    ['THRESHOLD', 2.5],
+    ['WEIGHT', 0.5],
+    ['THRESHOLD', 2.25],
     ['NUM_SEGS', 100],
     ['MIN_LEN', 6],
     ['MIN_DIST', 1],
@@ -34,7 +36,7 @@ PARAMS = dict([
     ['MIN_LEN2', 25],
     ['MIN_DIST2', 1],
     ['LEXIS', 1],
-    ['BETA', 0.225]
+    ['BETA', 0.21]
 ])
 
 # PARAMS = dict([
@@ -63,7 +65,7 @@ features = corpus+'features/'
 output = 'salami/'
 DATA = output+'data/'
 #RESULTS = Data(None,
-RESULTS = Data(output+'resultsF10.csv',
+RESULTS = Data(output+'resultsF14.csv',
     columns=['SONG']+list(PARAMS.keys())+['REF', 'METHOD', 'P', 'R', 'L'])
 # RESULTS = Data(output+'lapl.csv',
 #     columns=['SONG', 'LEVELS', 'REF', 'P', 'R', 'L'])
@@ -125,13 +127,13 @@ def load_beatwise_chords(index):
 def get_audio(index):
     return os.path.join(audio, str(index)+'.mp3')
 
-def get_beatwise_chroma(index):
+def get_beatwise_chroma(index, beats=None):
     return get_summarized_chroma(get_audio(index),
-        features+str(index)+'_bars.txt')
+        features+str(index)+'_bars.txt', beats)
 
-def get_beatwise_mfcc(index):
+def get_beatwise_mfcc(index, beats=None):
     return get_summarized_mfcc(get_audio(index),
-        features+str(index)+'_bars.txt')
+        features+str(index)+'_bars.txt', beats)
 
 def get_beats(index):
     return load_beats(features+str(index)+'_bars.txt')
@@ -201,22 +203,33 @@ def evaluate(index, method_name, param_vals, intervals, labels):
     print(results)
     return results
 
-# def eval_and_add_results(index, method_name, param_vals, groundtruth, intervals, labels):
-#     ref_rows = [[index]+param_vals+[i, method_name] for i in range(len(groundtruth))]
-#     rows_func = lambda: evaluate(index, method_name, param_vals, groundtruth, intervals, labels)
-#     return RESULTS.add_rows(ref_rows, rows_func)
+def own_chroma_affinity(index, beats=None):
+    chroma = beatwise_feature(index, 'chroma', get_beatwise_chroma, beats)
+    return own_affinity(index, [chroma], [1], beats)
 
-# def load_results(index, method_name, param_vals, groundtruth):
-#     ref_rows = [[index]+param_vals+[i, method_name] for i in range(len(groundtruth))]
-#     return RESULTS.get_rows(ref_rows)
+def own_mfcc_affinity(index, beats=None):
+    mfcc = beatwise_feature(index, 'mfcc', get_beatwise_mfcc, beats)
+    return own_affinity(index, [mfcc], [1], beats)
 
-def own_chroma_affinity(index):
-    chroma = buffered_run(DATA+'chroma'+str(index),
-        lambda: get_beatwise_chroma(index))#load_beatwise_chords(index)
-    chroma = MinMaxScaler().fit_transform(chroma)
-    beats = get_beats(index)
-    matrix, raw = get_affinity_matrix(chroma, chroma, False, PARAMS['MAX_GAPS'],
+def own_chroma_mfcc_affinity(index, beats=None):
+    chroma = beatwise_feature(index, 'chroma', get_beatwise_chroma, beats)
+    mfcc = beatwise_feature(index, 'mfcc', get_beatwise_mfcc, beats)
+    return own_affinity(index, [chroma, mfcc],
+        [1-PARAMS['WEIGHT'], PARAMS['WEIGHT']], beats)
+
+def beatwise_feature(index, name, func, beats=None):
+    return buffered_run(DATA+name+str(index), lambda: func(index),
+        [len(beats)] if beats is not None else [])#load_beatwise_chords(index)
+
+#features is an array of arrays of feature vectors (e.g. chroma, mfcc,...)
+def own_affinity(index, features, weights, beats=None):
+    print(weights)
+    features = [w * MinMaxScaler().fit_transform(f)
+        for f,w in zip(features, weights)]
+    mix = np.hstack(features) if len(features) > 1 else features[0]
+    matrix, raw = get_affinity_matrix(mix, mix, False, PARAMS['MAX_GAPS'],
         PARAMS['MAX_GAP_RATIO'], PARAMS['THRESHOLD'])
+    if beats is None: beats = get_beats(index)
     return matrix, raw, beats
 
 def own_chroma_affinity_new(index):
@@ -235,20 +248,7 @@ def own_chroma_affinity_new(index):
     
     return matrix, raw, beats
 
-def own_chroma_mfcc_affinity(index, factor=2):
-    chroma = buffered_run(DATA+'chroma'+str(index),
-        lambda: get_beatwise_chroma(index))#load_beatwise_chords(index)
-    mfcc = buffered_run(DATA+'mfcc'+str(index),
-        lambda: get_beatwise_mfcc(index))#load_beatwise_chords(index)
-    chroma = MinMaxScaler().fit_transform(chroma)
-    mfcc = MinMaxScaler().fit_transform(mfcc)
-    mix = np.hstack((chroma, mfcc))
-    matrix, raw = get_affinity_matrix(mix, mix, False, PARAMS['MAX_GAPS'],
-        PARAMS['MAX_GAP_RATIO'], factor)
-    beats = get_beats(index)
-    return matrix, raw, beats
-
-def transitive_hierarchy(matrix, unsmoothed, beats, groundtruth, index, plot_file):
+def transitive_hierarchy(matrix, unsmoothed, target, beats, groundtruth, index, plot_file):
     alignment = get_segments_from_matrix(matrix, True, PARAMS['NUM_SEGS'],
         PARAMS['MIN_LEN'], PARAMS['MIN_DIST'], PARAMS['MAX_GAPS'],
         PARAMS['MAX_GAP_RATIO'], unsmoothed)
@@ -264,7 +264,7 @@ def transitive_hierarchy(matrix, unsmoothed, beats, groundtruth, index, plot_fil
     #     # plot_matrix(matrix, 'm1.png')
     #matrix = segments_to_matrix(alignment, matrix.shape)
     #seq = matrix[0] if matrix is not None else []
-    target = unsmoothed#np.where(matrix+unsmoothed > 0, 1, 0)
+    #target = unsmoothed#np.where(matrix+unsmoothed > 0, 1, 0)
     hierarchy = simple_structure(alignment, PARAMS['MIN_LEN2'],
         PARAMS['MIN_DIST2'], PARAMS['BETA'], target, lexis=PARAMS['LEXIS'] == 1,
         plot_file=plot_file)
@@ -283,14 +283,15 @@ def get_hierarchy(index, hierarchy_buffer=None):
     groundtruth = get_groundtruth(index)
     if PARAMS['MATRIX_TYPE'] is 2:
         matrix, beats = load_fused_matrix(index)
+        raw = matrix.copy()
         if PLOT_PATH: plot_matrix(matrix, PLOT_PATH+str(index)+'-m1f.png')
     elif PARAMS['MATRIX_TYPE'] is 1:
         matrix, beats = buffered_run(DATA+'mcfee'+str(index),
             lambda: get_smooth_affinity_matrix(get_audio(index)))
         if PLOT_PATH: plot_matrix(matrix, PLOT_PATH+str(index)+'-m1m.png')
     else:
-        matrix, raw, beats = buffered_run(DATA+'own'+str(index),
-            lambda: own_chroma_affinity(index), PARAMS.values())
+        matrix, raw, beats = buffered_run(DATA+'ownM'+str(index),
+            lambda: own_chroma_mfcc_affinity(index), PARAMS.values())
         if PLOT_PATH: plot_matrix(raw, PLOT_PATH+str(index)+'-m0o.png')
         if PLOT_PATH: plot_matrix(matrix, PLOT_PATH+str(index)+'-m1o.png')
     # matrix, raw, beats = own_chroma_affinity_new(index)
@@ -298,53 +299,24 @@ def get_hierarchy(index, hierarchy_buffer=None):
     # if PLOT_PATH: plot_matrix(matrix, PLOT_PATH+str(index)+'-m1oN.png')
     # #raw = None
     
+    target = raw
+    #target = load_fused_matrix(index, True)[0]
+    #target = (raw-np.min(raw))/(np.max(raw)-np.min(raw))
+    # target = buffered_run(DATA+'own'+str(index),
+    #     lambda: own_chroma_affinity(index, beats), PARAMS.values())[1]
+    # target = np.pad(target, (0, len(beats)-len(target)))
+    
     plot_file = PLOT_PATH+str(index)+'-m2'+matrix_type()[0]+'.png' if PLOT_PATH else None
     if hierarchy_buffer is not None:
         own = buffered_run(DATA+hierarchy_buffer+str(index),
-            lambda: transitive_hierarchy(matrix, raw, beats, groundtruth, index, plot_file), PARAMS.values())
+            lambda: transitive_hierarchy(matrix, raw, target, beats, groundtruth, index, plot_file), PARAMS.values())
     else:
-        own = transitive_hierarchy(matrix, raw, beats, groundtruth, index, plot_file)
+        own = transitive_hierarchy(matrix, raw, target, beats, groundtruth, index, plot_file)
     if PLOT_PATH: plot_hierarchy(PLOT_PATH, index, 'o'+matrix_type()[0],
         own[0], own[1], groundtruth, force=True)
     return own
 
-# def evaluate_to_table(index):
-#     ref_rows = [[index]+list(PARAMS.values())+[i, METHOD_NAME]
-#         for i in range(len(load_salami_hierarchies(index)))]
-#     #if not RESULTS.rows_exist(ref_rows):
-#     l, own, gt = get_hierarchies(index, METHOD_NAME)
-#     eval_and_add_results(index, [0 for v in PARAMS.values()], 'l', gt, l[0], l[1])
-#     eval_and_add_results(index, list(PARAMS.values()), 't', gt, own[0], own[1])#METHOD_NAME, gt, own[0], own[1])
-#     # l_own = buffered_run(DATA+'l_own'+str(index),
-#     #     lambda: get_laplacian_struct_from_affinity2(own, obeats), PARAMS)
-#     # eval_and_add_results(index, 'l_own', gt, l_own[0], l_own[1])
-#     gc.collect()
-
-# #24 31 32 37 47 56   5,14   95  135 148 166     133     1627    231     618
-# def indie_eval(params=[1375, PARAMS]):#index=95):#22):#32#38):
-#     global PARAMS
-#     index, PARAMS = params
-#     if not RESULTS.rows_exist(ref_rows):
-#         l, own, gt = get_hierarchies(index)#, plot_path=PLOT_PATH)
-#         # #compare groundtruths with each other
-#         # if len(gt) > 1:
-#         #     print(evaluate_hierarchy(*gt[0], *gt[1]))
-# 
-#         # num_levels = len(own[0])
-#         # l = l[0][:num_levels], l[1][:num_levels]
-# 
-#         #compare laplacian and own to groundtruth
-#         # evl = evaluate(index, 'l', gt, l[0], l[1])
-#         # evt = evaluate(index, 't', gt, own[0], own[1])
-# 
-#         evl = eval_and_add_results(index, 'l2', [0 for v in list(PARAMS.values())], gt, l[0], l[1])
-#         evt = []#eval_and_add_results(index, 't', list(PARAMS.values()), gt, own[0], own[1])
-#     # else:
-#     #     gt = load_salami_hierarchies(index)
-#     #     evl = load_results(index, 'l2', [0 for v in list(PARAMS.values())], gt)
-#     #     evt = []#load_results(index, 't', list(PARAMS.values()), gt)
-#     return np.mean([e[-1] for e in evl]), np.mean([e[-1] for e in evt])
-
+#24 31 32 37 47 56   5,14   95  135 148 166     133     1627    231     618
 def own_eval(params):
     global PARAMS
     index, method_name, PARAMS = params
@@ -371,6 +343,8 @@ def get_missing_indices(indices, method_name, ignore_params):
     return [r[0][0] for r in ref_rows if not RESULTS.rows_exist(r)]
 
 def multi_eval(indices, method_name, method_func, ignore_params, params=PARAMS):
+    global PARAMS
+    PARAMS = params
     #calculate missing results
     missing = get_missing_indices(indices, method_name, ignore_params)
     l2params = [[i, method_name, params] for i in missing]
@@ -533,20 +507,26 @@ def plott(plot_func, path):
     plt.savefig(path, dpi=1000) if path else plt.show()
     plt.close()
 
+def test_mfcc_novelty(index=943):#340 356 (482 574 576)
+    ssm = own_chroma_mfcc_affinity(index)[0]
+    novelty = get_novelty_boundaries(ssm)
+    print(novelty)
+
 def objective(trial):
     t = trial.suggest_int('t', 0, 0, step=1)
-    k = trial.suggest_float('k', 2, 6)#, step=0.5)
+    w = trial.suggest_float('w', 0, 1)
+    k = trial.suggest_float('k', 1, 4)#, step=0.5)
     #k = trial.suggest_float('k', 1, 4, step=1)
     #k = trial.suggest_float('k', 98.25, 99.25)#, step=0.5)
     #k = trial.suggest_int('k', 1, 3, step=5)
     n = trial.suggest_int('n', 100, 100)#, step=50)
     ml = trial.suggest_int('ml', 5, 10)#, step=4)
-    md = trial.suggest_int('md', 1, 1, step=1)
+    md = trial.suggest_int('md', 1, 5, step=1)
     #mg = trial.suggest_int('mg', 6, 8, step=1)
     mg = trial.suggest_int('mg', 10, 16, step=1)
     mgr = trial.suggest_float('mgr', .4, .8)#, step=.1)
     #mgr = trial.suggest_float('mgr', 0.02, 0.05)#, step=.1)
-    ml2 = trial.suggest_int('ml2', 20, 50)#, step=4)
+    ml2 = trial.suggest_int('ml2', 10, 40)#, step=4)
     md2 = trial.suggest_int('md2', 1, 1, step=1)
     lex = trial.suggest_int('lex', 1, 1)
     beta = trial.suggest_float('beta', .1, .4)#, step=.1)
@@ -555,8 +535,8 @@ def objective(trial):
     #[229, 79, 231, 315, 198] [75, 22, 183, 294, 111]
     #[1270,1461,1375,340,1627,584,1196,443,23,1434] [899,458,811,340,1072,1068,572,310,120,331]
     #[680,95,791,229,1356,236,352,852,384,1168,1132,612,1231,1443,370,794,7,1256,1356,443,1634,791,275,373,332,1098,1186,498,1403,708,1382,616,462,1610,346,578,1266,1654,771,1404,637,344,813,1154,1237,148,618]
-    return 100 * comparative_eval([63,604,1365,608,787,799,655,36,1406,702,1295,1392,1339,611,1234,640,1148,1314,1431,1621,1315,298,1254,1379,108,1174,708,24,146,1206,1176,994,973,1082,1103,213,594,1253,770,1104,1216,974,615,1019,1340,1251,1127,455,607,1349,662,1053,672,1356,1294,992,819,935,582,1284,520,107,668,1156,400,1422,733,1141,7,1306,1210,814,1150,643,1477,925,1647,1355,1399,307,695,1111,762,468,562,227,1028,1203,1290,22,47,95,1382,790,1119,847,597,565,1059,1248],#get_monotonic_salami()[6:100],
-        {'MATRIX_TYPE': t, 'THRESHOLD': k,
+    return 100 * comparative_eval([1099,1179,1210,1431,616,1419,578,749,765,1405,198,1603,1395,1059,696,774,1196,675,1186,1347,458,1648,244,1392,14],#get_monotonic_salami()[6:100],
+        {'MATRIX_TYPE': t, 'WEIGHT': w, 'THRESHOLD': k,
         'NUM_SEGS': n, 'MIN_LEN': ml, 'MIN_DIST': md, 'MAX_GAPS': mg,
         'MAX_GAP_RATIO': mgr, 'MIN_LEN2': ml2, 'MIN_DIST2': md2, 'LEXIS': lex,
         'BETA': beta})
@@ -569,8 +549,8 @@ def study():
     study = optuna.create_study(direction='maximize', load_if_exists=True, pruner=RepeatPruner())#, sampler=optuna.samplers.GridSampler())
     study.optimize(objective, n_trials=100)
     print(study.best_params)
-    params=['k','mgr','ml','mg','ml2','beta']
-    ext='14old.png'
+    params=['w','k','mgr','ml','mg','ml2','beta']
+    ext='16mix.png'
     optuna.visualization.plot_slice(study, params=params).write_image(output+'params'+ext)
     optuna.visualization.plot_param_importances(study, params=params).write_image(output+'pimps'+ext)
     optuna.visualization.plot_optimization_history(study).write_image(output+'poptim'+ext)
@@ -586,7 +566,7 @@ def study():
 #         [evaluate_to_table(i) for i in tqdm.tqdm(songs)]
 
 if __name__ == "__main__":
-    #print(np.random.choice(get_available_songs(), 100, replace=False))#[6:100], 5))
+    #print(np.random.choice(get_available_songs(), 200, replace=False))#[6:100], 5))
     #[880,36,1212,1491,1202,216,1106,1120,1302,715,135,1261,1613,1653,1363,512,1179,1456,376,486,653,340,979,1110,805,1207,983,1454,1630,1127,1479,1038,1069,315,1334,1191,1394,389,1132,613,1307,800,349,356,1112,1054,1311,155,388,1173,587,1291,768,722,261,302,1210,612,626,1379,749,1229,995,1042,1428,1629,1603,1195,327,1388,911,1434,1332,1364,458,735,1242,204,1420,1062,133,1150,1286,1451,330,1048,959,1216,31,1064,374,787,227,751,655,634,1381,509,1282,550]
     #[1630,485,757,790,1207,1607,1019,252,851,1050,1363,632,610,739,1280,770,1200,930,1635,1366,1251,5,228,1061,1314]
     #[613,1275,964,973,386,1138,1056,771,1007,572,376,660,1175,152,1014,282,7,1462,1218,1261,426,1384,293,1293,1003]
@@ -597,13 +577,16 @@ if __name__ == "__main__":
     #[1330,832,822,944,739,47,48,1362,539,668,383,1394,1156,1232,1072,1435,654,261,1371,658,1086,1400,1191,272,1408]
     #[264,1397,426,158,1352,485,568,1461,1149,819,1084,988,298,1605,959,365,1301,900,1028,31,932,1152,445,768,229]
     #[63,604,1365,608,787,799,655,36,1406,702,1295,1392,1339,611,1234,640,1148,1314,1431,1621,1315,298,1254,1379,108,1174,708,24,146,1206,1176,994,973,1082,1103,213,594,1253,770,1104,1216,974,615,1019,1340,1251,1127,455,607,1349,662,1053,672,1356,1294,992,819,935,582,1284,520,107,668,1156,400,1422,733,1141,7,1306,1210,814,1150,643,1477,925,1647,1355,1399,307,695,1111,762,468,562,227,1028,1203,1290,22,47,95,1382,790,1119,847,597,565,1059,1248]
-    #study()
+    #[584,819,781,280,1152,900,726,780,957,1219,1413,51,767,1340,1066,424,515,583,343,1619,307,799,971,1059,632,1445,805,86,527,1351,611,50,702,1188,1341,1070,26,884,615,772,616,1127,346,1299,1388,636,491,536,31,941,1138,1366,1647,906,980,592,1189,520,944,942,1100,790,379,1620,1406,1018,557,1603,1139,994,1259,549,981,1091,914,861,1234,1104,1120,1347,1047,483,1079,1368,1221,1467,968,996,1300,846,578,1042,811,991,1652,1112,1263,671,366,1124,978,1240,740,478,1157,1342,534,63,244,293,1608,404,988,565,1146,1437,572,1359,1296,1256,1274,725,629,1630,1004,532,1110,501,842,1421,236,1422,661,356,1154,405,620,146,973,1615,958,1435,1416,1008,1272,352,11,613,422,439,1148,1275,1253,466,158,482,1099,518,1151,1394,1284,899,984,887,446,152,828,276,1143,472,384,24,294,1355,1364,651,1381,1356,10,1243,464,682,19,331,1247,1408,1136,1474,813,818,1309,261,566,528,1074,1286,460,1382,956,198]
+    study()
     #laplacian_analysis()
     #extract_all_features()
     #calculate_fused_matrices()
     #sweep()
     #profile(indie_eval)#indie_eval()
-    comparative_eval(get_available_songs())
+    # PLOT_PATH=output+'all10/'
+    # own_eval([340, 'tm', PARAMS])
+    #print(comparative_eval(get_available_songs()))
     #multi_eval(get_available_songs(), 'l', lapl_eval, True) #[63,604,1365,608,787,799,655,36,1406,702,1295,1392,1339,611,1234,640,1148,1314,1431,1621,1315,298,1254,1379,108,1174,708,24,146,1206,1176,994,973,1082,1103,213,594,1253,770,1104,1216,974,615,1019,1340,1251,1127,455,607,1349,662,1053,672,1356,1294,992,819,935,582,1284,520,107,668,1156,400,1422,733,1141,7,1306,1210,814,1150,643,1477,925,1647,1355,1399,307,695,1111,762,468,562,227,1028,1203,1290,22,47,95,1382,790,1119,847,597,565,1059,1248])#[408, 822, 722, 637, 527])
     #salami_analysis()
     #run_laplacian([880, 12, None, None])
@@ -611,3 +594,4 @@ if __name__ == "__main__":
     #plot_laplacian()
     #load_salami_hierarchies(197)
     #plot('salamiF9.png')
+    #test_mfcc_novelty()
