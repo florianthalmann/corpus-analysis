@@ -13,7 +13,7 @@ from corpus_analysis.features import extract_chords, extract_bars,\
     get_summarized_chords, get_summarized_chroma, load_beats, get_summarized_mfcc
 from corpus_analysis.alignment.affinity import get_alignment_segments,\
     segments_to_matrix, get_affinity_matrix, get_segments_from_matrix,\
-    matrix_to_segments, threshold_matrix, get_best_segments, ssm
+    matrix_to_segments, threshold_matrix, get_best_segments, ssm, double_smooth_matrix
 from corpus_analysis.structure.structure import simple_structure
 from corpus_analysis.structure.laplacian import get_laplacian_struct_from_affinity2,\
     to_levels, get_laplacian_struct_from_audio, get_smooth_affinity_matrix
@@ -25,10 +25,10 @@ from corpus_analysis.structure.novelty import get_novelty_boundaries
 from corpus_analysis.data import Data
 
 PARAMS = dict([
-    ['MATRIX_TYPE', 0],#0=own, 1=mcfee, 2=fused, 3=own2
-    ['WEIGHT', 0.5],
-    ['THRESHOLD', 2.25],
-    ['NUM_SEGS', 100],
+    ['MATRIX_TYPE', 2],#0=own, 1=mcfee, 2=fused, 3=own2
+    ['WEIGHT', 0.5],#how much mfcc: 1 = only
+    ['THRESHOLD', 0],
+    ['NUM_SEGS', 200],
     ['MIN_LEN', 6],
     ['MIN_DIST', 1],
     ['MAX_GAPS', 13],
@@ -38,19 +38,20 @@ PARAMS = dict([
     ['LEXIS', 1],
     ['BETA', 0.21]
 ])
-
+#1.489692 {'t': 2, 'k': 3.89, 'n': 100, 'ml': 10, 'md': 2, 'mg': 13, 'mgr': 0.775, 'ml2': 27, 'md2': 1, 'lex': 1, 'beta': 0.343}
 # PARAMS = dict([
-#     ['MATRIX_TYPE', 0],#0=own, 1=mcfee, 2=fused, 3=own2
-#     ['THRESHOLD', 2.63],
+#     ['MATRIX_TYPE', 2],#0=own, 1=mcfee, 2=fused, 3=own2
+#     ['WEIGHT', 0.5],
+#     ['THRESHOLD', 1],
 #     ['NUM_SEGS', 100],
 #     ['MIN_LEN', 6],
-#     ['MIN_DIST', 4],
-#     ['MAX_GAPS', 10],
-#     ['MAX_GAP_RATIO', .736],
-#     ['MIN_LEN2', 27],
+#     ['MIN_DIST', 1],
+#     ['MAX_GAPS', 13],
+#     ['MAX_GAP_RATIO', .75],
+#     ['MIN_LEN2', 25],
 #     ['MIN_DIST2', 1],
 #     ['LEXIS', 1],
-#     ['BETA', 0.253]
+#     ['BETA', 0.21]
 # ])
 #'k': 2.63, 'n': 100, 'ml': 6, 'md': 1, 'mg': 10, 'mgr': 0.736, 'ml2': 27, 'md2': 1, 'lex': 1, 'beta': 0.253
 
@@ -65,11 +66,11 @@ features = corpus+'features/'
 output = 'salami/'
 DATA = output+'data/'
 #RESULTS = Data(None,
-RESULTS = Data(output+'resultsF14.csv',
+RESULTS = Data(output+'resultsF15.csv',
     columns=['SONG']+list(PARAMS.keys())+['REF', 'METHOD', 'P', 'R', 'L'])
 # RESULTS = Data(output+'lapl.csv',
 #     columns=['SONG', 'LEVELS', 'REF', 'P', 'R', 'L'])
-PLOT_PATH=''#output+'all10/'
+PLOT_PATH=''#output+'all11/'
 graphditty = '/Users/flo/Projects/Code/Kyoto/GraphDitty/SongStructure.py'
 
 PLOT_FRAMES = 2000
@@ -171,9 +172,11 @@ def int_labels(salami_hierarchy):
 def load_fused_matrix(index, threshold=True):
     m = sio.loadmat(features+str(index)+'.mat')
     j = load_json(features+str(index)+'.json')
-    m = np.array(m['Ws']['Fused'][0][0])
+    m = np.array(m['Ws']['Fused MFCC/Chroma'][0][0])#['Fused'][0][0])
     if threshold:
         m = threshold_matrix(m, PARAMS['THRESHOLD'])
+    m = np.logical_or(m.T, m)#thresholding may lead to asymmetries (peak picking..)
+    m = np.triu(m, k=1)#now symmetrix so only keep upper triangle
     beats = np.array(j['times'][:len(m)])
     return m, beats
 
@@ -223,7 +226,6 @@ def beatwise_feature(index, name, func, beats=None):
 
 #features is an array of arrays of feature vectors (e.g. chroma, mfcc,...)
 def own_affinity(index, features, weights, beats=None):
-    print(weights)
     features = [w * MinMaxScaler().fit_transform(f)
         for f,w in zip(features, weights)]
     mix = np.hstack(features) if len(features) > 1 else features[0]
@@ -252,6 +254,8 @@ def transitive_hierarchy(matrix, unsmoothed, target, beats, groundtruth, index, 
     alignment = get_segments_from_matrix(matrix, True, PARAMS['NUM_SEGS'],
         PARAMS['MIN_LEN'], PARAMS['MIN_DIST'], PARAMS['MAX_GAPS'],
         PARAMS['MAX_GAP_RATIO'], unsmoothed)
+    
+    if PLOT_PATH: plot_matrix(segments_to_matrix(alignment, matrix.shape), PLOT_PATH+str(index)+'-m1f2.png')
     #alignment = sorted(matrix_to_segments(matrix), key=lambda s: len(s), reverse=True)#[:PARAMS['NUM_SEGS']]
     # #TODO STANDARDIZE THIS!!
     # if len(alignment) < 10:
@@ -284,6 +288,9 @@ def get_hierarchy(index, hierarchy_buffer=None):
     if PARAMS['MATRIX_TYPE'] is 2:
         matrix, beats = load_fused_matrix(index)
         raw = matrix.copy()
+        if PLOT_PATH: plot_matrix(matrix, PLOT_PATH+str(index)+'-m0f.png')
+        matrix = double_smooth_matrix(matrix, True, PARAMS['MAX_GAPS'],
+            PARAMS['MAX_GAP_RATIO'])
         if PLOT_PATH: plot_matrix(matrix, PLOT_PATH+str(index)+'-m1f.png')
     elif PARAMS['MATRIX_TYPE'] is 1:
         matrix, beats = buffered_run(DATA+'mcfee'+str(index),
@@ -299,7 +306,7 @@ def get_hierarchy(index, hierarchy_buffer=None):
     # if PLOT_PATH: plot_matrix(matrix, PLOT_PATH+str(index)+'-m1oN.png')
     # #raw = None
     
-    target = raw
+    target = raw#matrix
     #target = load_fused_matrix(index, True)[0]
     #target = (raw-np.min(raw))/(np.max(raw)-np.min(raw))
     # target = buffered_run(DATA+'own'+str(index),
@@ -513,9 +520,9 @@ def test_mfcc_novelty(index=943):#340 356 (482 574 576)
     print(novelty)
 
 def objective(trial):
-    t = trial.suggest_int('t', 0, 0, step=1)
-    w = trial.suggest_float('w', 0, 1)
-    k = trial.suggest_float('k', 1, 4)#, step=0.5)
+    t = trial.suggest_int('t', 2, 2, step=1)
+    w = trial.suggest_float('w', 0.5, 0.5)
+    k = trial.suggest_float('k', 0, 0)#, step=0.5)
     #k = trial.suggest_float('k', 1, 4, step=1)
     #k = trial.suggest_float('k', 98.25, 99.25)#, step=0.5)
     #k = trial.suggest_int('k', 1, 3, step=5)
@@ -549,8 +556,8 @@ def study():
     study = optuna.create_study(direction='maximize', load_if_exists=True, pruner=RepeatPruner())#, sampler=optuna.samplers.GridSampler())
     study.optimize(objective, n_trials=100)
     print(study.best_params)
-    params=['w','k','mgr','ml','mg','ml2','beta']
-    ext='16mix.png'
+    params=['mgr','ml','mg','ml2','beta']
+    ext='16fusedNEW3.png'
     optuna.visualization.plot_slice(study, params=params).write_image(output+'params'+ext)
     optuna.visualization.plot_param_importances(study, params=params).write_image(output+'pimps'+ext)
     optuna.visualization.plot_optimization_history(study).write_image(output+'poptim'+ext)
@@ -584,9 +591,10 @@ if __name__ == "__main__":
     #calculate_fused_matrices()
     #sweep()
     #profile(indie_eval)#indie_eval()
-    # PLOT_PATH=output+'all10/'
-    # own_eval([340, 'tm', PARAMS])
-    #print(comparative_eval(get_available_songs()))
+    #PLOT_PATH=output+'all11/'
+    # own_eval([340, 't', PARAMS])
+    #print(100*comparative_eval([340,356,482,574,576]))
+    #print(comparative_eval([1099,1179,1210,1431,616,1419,578,749,765,1405,198,1603,1395,1059,696,774,1196,675,1186,1347,458,1648,244,1392,14]))#get_available_songs()))
     #multi_eval(get_available_songs(), 'l', lapl_eval, True) #[63,604,1365,608,787,799,655,36,1406,702,1295,1392,1339,611,1234,640,1148,1314,1431,1621,1315,298,1254,1379,108,1174,708,24,146,1206,1176,994,973,1082,1103,213,594,1253,770,1104,1216,974,615,1019,1340,1251,1127,455,607,1349,662,1053,672,1356,1294,992,819,935,582,1284,520,107,668,1156,400,1422,733,1141,7,1306,1210,814,1150,643,1477,925,1647,1355,1399,307,695,1111,762,468,562,227,1028,1203,1290,22,47,95,1382,790,1119,847,597,565,1059,1248])#[408, 822, 722, 637, 527])
     #salami_analysis()
     #run_laplacian([880, 12, None, None])

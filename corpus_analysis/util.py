@@ -113,7 +113,7 @@ def load_json(path):
         return json.load(f)
 
 def buffered_run(name, func, params=[]):
-    path = name+'_'.join(str(p) for p in params)+'.np'
+    path = name+'_'+'_'.join(str(p) for p in params)+'.np'
     if os.path.isfile(path+'y'):
         return np.load(path+'y', allow_pickle=True)
     elif os.path.isfile(path+'z'):

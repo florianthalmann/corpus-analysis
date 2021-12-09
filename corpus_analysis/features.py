@@ -96,8 +96,10 @@ def summarize(feature, timepoints):
     modes = [np.argmax(get_overlaps(t, f_intervals)) for t in t_intervals]
     return np.array([feature[m][1] for m in modes], dtype=int)
 
-def get_beat_summary(feature, beatsFile, srate=22050, fsize=512):
-    beats = np.array(np.around(load_beats(beatsFile)*(srate/fsize)), dtype=int)
+#beats param should be list of positions in seconds
+def get_beat_summary(feature, beatsFile, beats, srate=22050, fsize=512):
+    if beatsFile and beats is None: beats = load_beats(beatsFile)
+    beats = np.array(np.around(beats*(srate/fsize)), dtype=int)#to frames
     return librosa.util.sync(feature, beats)[:,1:]
 
 def load_chords(chordsFile):
@@ -116,15 +118,15 @@ def get_summarized_chords(beatsFile, chordsFile, bars=False):
     chords = load_chords(chordsFile)
     return summarize(chords, time)
 
-def get_summarized_chroma(audioFile, beatsFile):
+def get_summarized_chroma(audioFile, beatsFile=None, beats=None):
     y, sr = librosa.load(audioFile)
     chroma = librosa.feature.chroma_cqt(y, sr)
-    return get_beat_summary(chroma, beatsFile, sr).T
+    return get_beat_summary(chroma, beatsFile, beats, srate=sr).T
 
-def get_summarized_mfcc(audioFile, beatsFile):
+def get_summarized_mfcc(audioFile, beatsFile=None, beats=None):
     y, sr = librosa.load(audioFile)
     mfcc = librosa.feature.mfcc(y, sr)
-    return get_beat_summary(mfcc, beatsFile, sr).T
+    return get_beat_summary(mfcc, beatsFile, beats, srate=sr).T
 
 def to_multinomial(sequences):
     unique = np.unique(np.concatenate(sequences), axis=0)

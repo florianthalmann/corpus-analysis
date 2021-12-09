@@ -7,6 +7,7 @@ from sklearn.metrics import pairwise_distances
 from sklearn.preprocessing import MinMaxScaler
 from .util import median_filter, symmetric, strided, strided2D
 from ..util import plot_matrix, plot_hist
+from ..structure.novelty import peak_picking_MSAF
 
 def fill_gaps(a, gap_size, gap_ratio):
     diffs = np.diff(a)
@@ -18,6 +19,7 @@ def fill_gaps(a, gap_size, gap_ratio):
         else s
         for i,s in enumerate(segs)])
 
+#smooth with a median filter
 def smooth_matrix(matrix, symmetric, max_gaps, max_gap_ratio):
     func = lambda d: median_filter(d, max_gaps)
     #func = lambda d: fill_gaps(d, max_gaps, max_gap_ratio)
@@ -28,6 +30,15 @@ def smooth_matrix(matrix, symmetric, max_gaps, max_gap_ratio):
     else:
         smoothed = [func(d) for d in diagonals]
     return from_diagonals(smoothed, matrix.shape)
+
+#resmoothing sum keeps beginnings followed by gaps
+def double_smooth_matrix(matrix, symmetric, max_gaps, max_gap_ratio):
+    unsmoothed = matrix
+    if max_gaps > 0:
+        matrix = smooth_matrix(matrix, symmetric, max_gaps, max_gap_ratio)
+        matrix = smooth_matrix(np.logical_or(matrix, unsmoothed),
+            symmetric, max_gaps, max_gap_ratio)
+    return matrix
 
 def to_diagonals(A):
     return [A.diagonal(i).T for i in range(-A.shape[0]+1, A.shape[1])]
@@ -57,11 +68,18 @@ def knn_threshold(matrix, emphasis):
         conns[i][k] = 1
     return conns
 
+def peak_threshold(matrix):
+    result = np.zeros(matrix.shape)
+    for i,r in enumerate(matrix):
+        result[i][peak_picking_MSAF(r, median_len=16, sigma=2)[0].astype(int)] = 1
+    return result
+
 #if factor <= 10, use knn, otherwise percentile
 def threshold_matrix(matrix, threshold):
-    knn = threshold <= 10
-    if knn:
-        matrix = knn_threshold(matrix, threshold)
+    if threshold == 0:
+        return peak_threshold(matrix)
+    elif threshold <= 10:
+        return knn_threshold(matrix, threshold)
         #plot_matrix(matrix, 'est-.png')
     else:
         matrix = MinMaxScaler().fit_transform(matrix)
@@ -71,7 +89,7 @@ def threshold_matrix(matrix, threshold):
         # thresh = np.partition(matrix.flatten(), -k)[-k]
         # matrix = np.where(matrix >= thresh, 1, 0)
         #plot_matrix(matrix, 'est-.png')
-    return matrix
+        return matrix
 
 def averages(a, window_length):
     windows = strided(a, window_length)
@@ -128,26 +146,26 @@ def avgs1(diagonals, min_len, max_len, matrix):
     #avgs = ratings(matrix, min_len, max_len)
     return np.stack([avg_matrix(d, min_len, max_len, matrix) for d in diagonals])
 
-def avgs2(diagonals, min_len, max_len, matrix):
+def avgs2(diagonals, min_len, max_len, matrix, len_emph):
     diagonals = [matrix[tuple(d.T)] for d in diagonals]
     diagonals = np.column_stack((zip_longest(*diagonals, fillvalue=0)))
     result = []
     for l in range(min_len, max_len+1):
         windows = np.concatenate(strided2D(diagonals, l))
         avgs = np.reshape(np.median(windows, axis=1), (diagonals.shape[0],-1))
-        avgs *= l**0.01
+        avgs *= l**len_emph
         mask = np.tril(np.ones(avgs.shape), -l+1)
         mask = np.logical_and(mask, np.flip(mask, axis=0))
         result.append(np.pad(avgs*mask, ((0,0),(0,l-min_len))))
     return np.dstack(result)
 
 #new method for unthresholded unsmoothed matrix!
-def get_best_segments(matrix, min_len=20, max_len=44, min_dist=4, threshold=99.5):
+def get_best_segments(matrix, min_len=20, max_len=44, min_dist=4, threshold=99.5, len_emph=0.01):
     #min_len=2
     diagonals = get_diagonal_indices(matrix)
     #avgs = ratings(matrix, min_len, max_len)
     #avgs = avgs1(diagonals, min_len, max_len, matrix)
-    avgs = avgs2(diagonals, min_len, max_len, matrix)
+    avgs = avgs2(diagonals, min_len, max_len, matrix, len_emph)
     
     # #TODO: divide by medians of adjacent lengths not same lengths (square)
     # #divide by local environment (avg relative to surrounding diagonals..)
@@ -193,6 +211,7 @@ def get_best_segments(matrix, min_len=20, max_len=44, min_dist=4, threshold=99.5
     #print(sum([len(s) for s in segs]), matrix.shape[0]**2)
     return segments_to_matrix(segs, matrix.shape)
 
+
 def get_affinity_matrix(a, b, equality, max_gaps, max_gap_ratio, threshold=1):
     symmetric = np.array_equal(a, b)
     #create affinity or equality matrix
@@ -203,15 +222,10 @@ def get_affinity_matrix(a, b, equality, max_gaps, max_gap_ratio, threshold=1):
         matrix = threshold_matrix(matrix, threshold)
     #only keep upper triangle in symmetric case
     if symmetric: matrix = np.triu(matrix, k=1)
-    unsmoothed = matrix
-    #smooth with a median filter (smoothing sum keeps beginnings followed by gaps)
-    if max_gaps > 0:
-        matrix = smooth_matrix(matrix, symmetric, max_gaps, max_gap_ratio)
-        #plot_matrix(matrix, 'est-1.png')
-        #plot_matrix(matrix+unsmoothed, 'est-2.png')
-        matrix = smooth_matrix(matrix+unsmoothed, symmetric, max_gaps, max_gap_ratio)
+    
+    smoothed = double_smooth_matrix(matrix, symmetric, max_gaps, max_gap_ratio)
     #plot_matrix(matrix, 'est-3.png')
-    return matrix, unsmoothed
+    return smoothed, matrix
 
 #returns a list of arrays of index pairs
 def get_diagonal_indices(A):
