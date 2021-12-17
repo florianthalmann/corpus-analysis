@@ -197,8 +197,12 @@ def make_segments_hierarchical(segments, min_len, min_dist, target,
     # 
     #keep only longer segments
     if verbose: print(dist_func(matrix, target, segments))
+    print([len(s) for s in matrix_to_segments(matrix)])
+    plot_matrix(matrix, 'salami/all12/14-.png')
     matrix = segments_to_matrix([s for s in matrix_to_segments(matrix) if len(s) >= min_len], target.shape)
+    plot_matrix(matrix, 'salami/all12/14--.png')
     matrix = add_transitivity_to_matrix(matrix)
+    plot_matrix(matrix, 'salami/all12/14---.png')
     
     # # if verbose: plot_matrix(matrix, 'new'+str(i)+'.png')
     # if verbose: print(dist_func(matrix, target, segments))
@@ -641,6 +645,31 @@ def group_ungrouped_surface_elements(sequences, sections, occurrences, ignore):
         sections[k] = group_ungrouped_elements(s, sections, occurrences, ignore)
     return sequences, sections, occurrences
 
+def get_section_locs(id, labels):
+    secs = np.where(np.array(labels) == id)[0]
+    return secs[np.where(np.hstack(([1], np.diff(secs) > 1)))]
+
+def divide_hierarchy(indices, hierarchy):
+    segments, labels = hierarchy
+    labels = np.array(labels)
+    for i in indices:
+        for s,l in zip(segments, labels):
+            section = l[i]
+            locations = get_section_locs(section, l)
+            print(locations)
+            offset = int(np.where(i-locations >= 0, i-locations, np.inf).min())
+            print(offset)
+            nextid = np.max(labels)+1
+            print(locations[:,None] + np.arange(offset))
+            boundaries = np.unique(locations[:,None] + (np.arange(offset)-1))
+            boundaries = boundaries[boundaries >= 0]
+            print(divided)
+            #print(l.dtype)
+            l[divided.astype(int)] = nextid
+            #print(l)
+    return segments, labels
+    
+
 def group_ungrouped_elements(sequence, sections, occurrences, ignore):
     next_index = max_index(sections)+1
     #positions of elements that are not groups themselves
@@ -772,3 +801,5 @@ def get_hierarchy_sections(sequences):
 # print(reindex([np.array([3,1,5])]))
 # print(indices_of_subarray(np.array([1,2,1,2]), np.array([1,2])))
 # reindex2(np.array([[0,0,1,1,1,1],[2,2,4,4,5,5],[7,6,7,8,10,9]]))
+#print(get_section_locs(2, [2,2,1,1,2,2,2,3,2]))
+#print(divide_hierarchy_labels([1], np.array([[2,2,2,1,2,2,2,3,2,2,2],[3,3,1,5,5,2,2,3,3,3,4]])))
