@@ -4,10 +4,10 @@ from scipy import signal
 from scipy.ndimage import filters
 from ..util import plot
 
-def get_novelty_boundaries(S, kernel_size=40, min_dist=15):
+def get_novelty_boundaries(S, kernel_size=40, min_dist=15, sigma=4.0):
     novelty = compute_novelty_ssm(S, L=kernel_size, exclude=True)
     #return signal.find_peaks(novelty, distance=min_dist)[0]
-    return peak_picking_MSAF(novelty)[0]
+    return peak_picking_MSAF(novelty, sigma=sigma)[0]
 
 def peak_picking_MSAF(x, median_len=16, offset_rel=0.05, sigma=4.0):
     """Peak picking strategy following MSFA using an adaptive threshold (https://github.com/urinieto/msaf)
