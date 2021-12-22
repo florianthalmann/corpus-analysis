@@ -130,19 +130,12 @@ def make_segments_hierarchical(segments, min_len, min_dist, target,
     matrix = np.zeros(target.shape)
     distance = math.inf
     i=1#for plot filenames
+    bestsegments = [] #chosen segments that generate the best matrix
     while improvement > 0 and len(segments) > 0:
-        
-        def best_transitive(matrices, last_best=False):
-            matrices = [np.triu(add_transitivity_to_matrix(m), k=1) for m in matrices]
-            #dists = [dist_func(m, target, segments) for m in matrices]
-            dists = [1-matrix_f_measure(m, target, beta) for m in matrices]
-            best = len(dists)-np.argmin(dists[::-1])-1 if last_best else np.argmin(dists)
-            if verbose: matrix_f_measure(matrices[best], target, beta, True)
-            if verbose: print(dists[best], best, np.array(np.round(dists, decimals=2), dtype=int))
-            return best, matrices, dists
+        #print(improvement, len(segments))
         
         matrices = [(matrix+segments_to_matrix([s], target.shape)) for s in segments[:beam_size]]
-        best, mats, dists = best_transitive(matrices)
+        best, mats, dists = best_transitive(matrices, target, beta, verbose)
         bestseg = segments[best]
         if len(segments) > beam_size:
             #put worst 75% of checked segments to back
@@ -154,37 +147,33 @@ def make_segments_hierarchical(segments, min_len, min_dist, target,
         #print(best, len(segments))
         if verbose: plot_matrix(mats[best], 'new'+str(i)+'-.png')
         
-        def get_start_variations(s, length=10):
-            l = min(s[0][0], s[0][1], length)
-            r = np.arange(s[0][0]-l, s[0][0])
-            p = np.vstack((r, r+(s[0][1]-s[0][0]))).T
-            return [np.concatenate((p[i:], s)) for i in range(l)] + [s] \
-                + [s[i:] for i in range(1, min(l+1, len(s)))]
-        
-        def get_end_variations(s, length=10):
-            l = min(target.shape[0]-s[-1][0]-1, target.shape[0]-s[-1][1]-1, length)
-            r = np.arange(s[-1][0]+1, s[-1][0]+l+1)
-            p = np.vstack((r, r+(s[0][1]-s[0][0]))).T
-            return [np.concatenate((s, p[:l-i])) for i in range(l)] + [s] \
-                + [s[:l-i] for i in range(1, min(l+1, len(s)))]
-        
-        #print(segments[best])
-        vars = get_start_variations(bestseg)
-        matrices = [(matrix+segments_to_matrix([v], target.shape)) for v in vars]
-        best, mats, dists = best_transitive(matrices, True)#last min (shortest possible)
-        
-        vars = get_end_variations(vars[best])
-        matrices = [(matrix+segments_to_matrix([v], target.shape)) for v in vars]
-        best, mats, dists = best_transitive(matrices, True)#last min (shortest possible)
+        best, mats, dists, seg = get_best_variation(bestseg, matrix, target, beta, verbose)
         
         if dists[best] < distance:
+            bestsegments.append(seg)
             matrix = mats[best]
             if verbose: plot_matrix(mats[best], 'new'+str(i)+'.png')
             #keep only parts of segments not covered by current matrix
             #segments = [s for s in segments if np.sum(matrix[tuple(s.T)]) / len(s) < 1]
+            
+            
+            #print([len(s) for s in bestsegments])
+            #adjust all previous segments
+            for i in range(len(bestsegments)):
+                s = bestsegments[i]
+                m = segments_to_matrix(bestsegments[:i] + bestsegments[i+1:], target.shape)
+                m = np.triu(add_transitivity_to_matrix(m), k=1)
+                #print(s)
+                best, mats, dists, seg = get_best_variation(s, m, target, beta, verbose)
+                bestsegments[i] = seg
+            #print([len(s) for s in bestsegments], np.sum(matrix), np.sum(mats[best]))
+            matrix = mats[best]
+            
+            #adjust remaining segments
             segments = [s[np.nonzero(matrix[tuple(s.T)] == 0)] for s in segments]
             #segments = [s for s in segments if len(s) == len(s[np.nonzero(matrix[tuple(s.T)] == 0)])]
-            segments = [s for s in segments if len(s) >= min_len]
+            segments = [s for s in segments if len(s) > 0]
+            #segments = [s for s in segments if len(s) >= min_len]
             i+=1
         improvement = distance-dists[best]
         distance = dists[best]
@@ -197,16 +186,51 @@ def make_segments_hierarchical(segments, min_len, min_dist, target,
     # 
     #keep only longer segments
     if verbose: print(dist_func(matrix, target, segments))
-    print([len(s) for s in matrix_to_segments(matrix)])
-    plot_matrix(matrix, 'salami/all12/14-.png')
     matrix = segments_to_matrix([s for s in matrix_to_segments(matrix) if len(s) >= min_len], target.shape)
-    plot_matrix(matrix, 'salami/all12/14--.png')
     matrix = add_transitivity_to_matrix(matrix)
-    plot_matrix(matrix, 'salami/all12/14---.png')
     
     # # if verbose: plot_matrix(matrix, 'new'+str(i)+'.png')
     # if verbose: print(dist_func(matrix, target, segments))
     return matrix_to_segments(matrix)
+
+def best_transitive(matrices, target, beta, verbose, last_best=False):
+    matrices = [np.triu(add_transitivity_to_matrix(m), k=1) for m in matrices]
+    #dists = [dist_func(m, target, segments) for m in matrices]
+    dists = [1-matrix_f_measure(m, target, beta) for m in matrices]
+    best = len(dists)-np.argmin(dists[::-1])-1 if last_best else np.argmin(dists)
+    if verbose: matrix_f_measure(matrices[best], target, beta, True)
+    if verbose: print(dists[best], best, np.array(np.round(dists, decimals=2), dtype=int))
+    return best, matrices, dists
+
+def get_best_variation(segment, matrix, target, beta, verbose, length=10):
+    
+    def get_start_variations(s):
+        l = min(s[0][0], s[0][1], length)
+        r = np.arange(s[0][0]-l, s[0][0])
+        p = np.vstack((r, r+(s[0][1]-s[0][0]))).T
+        return [np.concatenate((p[i:], s)) for i in range(l)] + [s] \
+            + [s[i:] for i in range(1, min(l+1, len(s)))]
+    
+    def get_end_variations(s):
+        l = min(target.shape[0]-s[-1][0]-1, target.shape[0]-s[-1][1]-1, length)
+        r = np.arange(s[-1][0]+1, s[-1][0]+l+1)
+        p = np.vstack((r, r+(s[0][1]-s[0][0]))).T
+        return [np.concatenate((s, p[:l-i])) for i in range(l)] + [s] \
+            + [s[:l-i] for i in range(1, min(l+1, len(s)))]
+    
+    #print("start", len(segment), np.sum(matrix), np.sum(target))
+    #print(segments[best])
+    vars = get_start_variations(segment)
+    matrices = [(matrix+segments_to_matrix([v], target.shape)) for v in vars]
+    best, mats, dists = best_transitive(matrices, target, beta, verbose, True)#last min (shortest possible)
+    
+    #print(best, len(vars[best]))
+    vars = get_end_variations(vars[best])
+    matrices = [(matrix+segments_to_matrix([v], target.shape)) for v in vars]
+    best, mats, dists = best_transitive(matrices, target, beta, verbose, True)#last min (shortest possible)
+    
+    #print(best, len(vars[best]))
+    return best, mats, dists, vars[best]
 
 #with beam search
 def make_segments_hierarchical2(segments, min_len, min_dist, size, target=None, path=None, verbose=False):
