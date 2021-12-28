@@ -22,6 +22,12 @@ def split(lst, n):
     for i in range(0, len(lst), n):
         yield lst[i:i + n]
 
+def summarize_matrix(A, window, func=np.mean):
+    blocks = np.array_split(A, A.shape[0]/window, axis=0)
+    blocks = np.array([[np.hstack(bb)
+        for bb in np.array_split(b, b.shape[1]/window, axis=1)] for b in blocks])
+    return func(blocks, axis=2)
+
 def group_by(l, key=lambda x: x):
     d = defaultdict(list)
     for item in l:
