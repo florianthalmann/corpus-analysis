@@ -680,17 +680,16 @@ def divide_hierarchy(indices, hierarchy):
         for s,l in zip(segments, labels):
             section = l[i]
             locations = get_section_locs(section, l)
-            print(locations)
+            #print(locations)
             offset = int(np.where(i-locations >= 0, i-locations, np.inf).min())
-            print(offset)
+            #print(offset)
             nextid = np.max(labels)+1
-            print(locations[:,None] + np.arange(offset))
-            boundaries = np.unique(locations[:,None] + (np.arange(offset)-1))
-            boundaries = boundaries[boundaries >= 0]
-            print(divided)
-            #print(l.dtype)
-            l[divided.astype(int)] = nextid
-            #print(l)
+            #print(locations[:,None] + (np.arange(offset)-1))
+            #indices of initial part to be relabeled
+            relabels = np.unique(locations[:,None] + (np.arange(offset)-1))
+            relabels = relabels[(0 <= relabels) & (relabels < len(l))]
+            #print(relabels)
+            l[relabels.astype(int)] = nextid
     return segments, labels
     
 
