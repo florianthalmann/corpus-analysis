@@ -26,7 +26,7 @@ def lexis(sequences):
     os.remove(lexis_path+id+'-core')
     return dag, core
 
-def lexis_sections(sequences):
+def lexis_sections(sequences, ignore_homogenous=False):
     #lexis code cannot have types < 1 (assigns 0 to sequences)
     min = np.min(np.concatenate(sequences))
     offset = 1-min if min < 1 else 0
@@ -37,6 +37,12 @@ def lexis_sections(sequences):
     #convert types back
     seqs = [np.array(s)-offset for s in lex[0]]
     sections = {k-offset:np.array(v)-offset for k,v in lex.items() if k != 0}
+    # if ignore_homogenous:
+    #     new_sections = {}
+    #     for k in np.sort(sections.keys())[::-1]:
+    #         if np.all(sections[k] == sections[k][0]):
+    #             for 
+    # 
     occs = np.bincount(np.concatenate(list(sections.values())+seqs)+1)[1:]#ignore -1
     occs = {k:np.repeat(0, occs[k]) if k < len(occs) else 0 for k in sections.keys()}#dummy occs for now
     #print('core', core)

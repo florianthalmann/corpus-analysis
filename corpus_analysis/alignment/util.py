@@ -24,3 +24,4 @@ def symmetric(A):
 
 # print(np.array([0,0,0,0,1,0,1,1,0,0,1,1,0,0,0]))
 # print(median_filter(np.array([0,0,0,0,1,0,1,1,0,0,1,1,0,0,0]), 2))
+#print(summarize_matrix(np.arange(36).reshape((6,6)), 2))

@@ -166,6 +166,7 @@ def make_segments_hierarchical(segments, min_len, min_dist, target,
                 #print(s)
                 best, mats, dists, seg = get_best_variation(s, m, target, beta, verbose)
                 bestsegments[i] = seg
+            bestsegments = [s for s in bestsegments if len(s) > 0]
             #print([len(s) for s in bestsegments], np.sum(matrix), np.sum(mats[best]))
             matrix = mats[best]
             
@@ -678,15 +679,18 @@ def divide_hierarchy(indices, hierarchy):
     labels = np.array(labels)
     for i in indices:
         for s,l in zip(segments, labels):
+            #section label at position
             section = l[i]
+            #locations of section
             locations = get_section_locs(section, l)
             #print(locations)
+            #position in section at which to divide
             offset = int(np.where(i-locations >= 0, i-locations, np.inf).min())
             #print(offset)
             nextid = np.max(labels)+1
-            #print(locations[:,None] + (np.arange(offset)-1))
+            #print(locations[:,None] + (np.arange(offset)))
             #indices of initial part to be relabeled
-            relabels = np.unique(locations[:,None] + (np.arange(offset)-1))
+            relabels = np.unique(locations[:,None] + (np.arange(offset)))
             relabels = relabels[(0 <= relabels) & (relabels < len(l))]
             #print(relabels)
             l[relabels.astype(int)] = nextid
