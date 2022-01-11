@@ -155,7 +155,7 @@ def avgs2(diagonals, min_len, max_len, matrix, len_emph):
     result = []
     for l in range(min_len, max_len+1):
         windows = np.concatenate(strided2D(diagonals, l))
-        avgs = np.reshape(np.median(windows, axis=1), (diagonals.shape[0],-1))
+        avgs = np.reshape(np.mean(windows, axis=1), (diagonals.shape[0],-1))
         avgs *= l**len_emph
         mask = np.tril(np.ones(avgs.shape), -l+1)
         mask = np.logical_and(mask, np.flip(mask, axis=0))
@@ -163,9 +163,12 @@ def avgs2(diagonals, min_len, max_len, matrix, len_emph):
     return np.dstack(result)
 
 #new method for unthresholded unsmoothed matrix!
-def get_best_segments(matrix, min_len=20, max_len=44, min_dist=4, threshold=99.5, len_emph=0.01):
+def get_best_segments(matrix, min_len=20, max_len=44, min_dist=1, threshold=0,#99.5,
+        len_emph=0.01, min_val=.6, ignore_overlaps=False):
     #min_len=2
     diagonals = get_diagonal_indices(matrix)
+    
+    #avgs is organized as: (diagonal index, position, length)
     #avgs = ratings(matrix, min_len, max_len)
     #avgs = avgs1(diagonals, min_len, max_len, matrix)
     avgs = avgs2(diagonals, min_len, max_len, matrix, len_emph)
@@ -189,21 +192,29 @@ def get_best_segments(matrix, min_len=20, max_len=44, min_dist=4, threshold=99.5
     i = 0
     #total = 0.02*matrix.shape[0]**2
     threshold = np.percentile(avgs, threshold)#0
-    while maxavgs[i] > threshold and maxavgs[i] > 0:# and sum([b[2]+min_len for b in best]) < total:#len(best) < N:
+    while maxavgs[i] > max(threshold, min_val):# and sum([b[2]+min_len for b in best]) < total:#len(best) < N:
         #print(i, maxavgs[i], maxindices[i], maxignored[i])
         b = maxindices[i]
         best.append(b)
-        #now ignore all ratings that overlap with chosen
-        l = b[2]+min_len
         
-        ixs = [np.mgrid[
-                max(b[0]-min_dist+1, 0) : min(b[0]+min_dist, avgs.shape[0]),
-                max(b[1]-(min_len+k)+1,0) : min(b[1]+l, avgs.shape[1]),
-                k:k+1]
-            for k in range(max_len-min_len+1)]
-        ixs = np.hstack([np.ravel_multi_index(x, ignored.shape) for x in ixs])
-        maxignored[maxpos[ixs]] = 1
-        
+        if ignore_overlaps:#now ignore all ratings that overlap with chosen
+            l = b[2]+min_len
+            ixs = [np.mgrid[
+                    max(b[0]-min_dist+1, 0) : min(b[0]+min_dist, avgs.shape[0]),
+                    max(b[1]-(min_len+k)+1, 0) : min(b[1]+l, avgs.shape[1]),
+                    k:k+1]
+                for k in range(max_len-min_len+1)]
+            ixs = np.hstack([np.ravel_multi_index(x, ignored.shape) for x in ixs])
+            maxignored[maxpos[ixs]] = 1
+        else:#ignore ratings that are contained by chosen
+            l = b[2]+min_len
+            ixs = [np.mgrid[
+                    max(b[0]-min_dist+1, 0) : min(b[0]+min_dist, avgs.shape[0]),
+                    max(b[1], 0) : min(b[1]+l-(min_len+k)+1, avgs.shape[1]),
+                    k:k+1]
+                for k in range(b[2]+1)]
+            ixs = np.hstack([np.ravel_multi_index(x, ignored.shape) for x in ixs])
+            maxignored[maxpos[ixs]] = 1
         
         i += index(maxignored[i:], 0)[0]#np.argmax(maxignored[i:]==0)
         
@@ -211,6 +222,7 @@ def get_best_segments(matrix, min_len=20, max_len=44, min_dist=4, threshold=99.5
     #print(indices)
     #print([[matrix[tuple(ii)] for ii in i] for i in indices])
     segs = [diagonals[b[0]][b[1]:b[1]+b[2]+min_len] for b in best]
+    segs = [remove_outer_gaps(s, matrix) for s in segs]
     #print(sum([len(s) for s in segs]), matrix.shape[0]**2)
     return segments_to_matrix(segs, matrix.shape)
 
@@ -367,4 +379,4 @@ def get_alignment_matrix(a, b, count, min_len, min_dist, max_gap_size, max_gap_r
     return segments_to_matrix(segments, (len(a), len(b)))
 
 #get_best_segments([[1,2],[3,3],[3,4],[3,1],[5,0]], [[4,1],[2,2],[2,3],[3,4],[4,5],[5,6]], 2, 3)
-get_best_segments(ssm([[0,0],[1,0],[2,1],[3,2],[5,0]], [[1,0],[2,1],[3,2],[4,0],[4,5],[5,6]]), 2, 3, threshold=50)
+#get_best_segments(ssm([[0,0],[1,0],[2,1],[3,2],[5,0]], [[1,0],[2,1],[3,2],[4,0],[4,5],[5,6]]), 2, 3, threshold=50)
