@@ -4,14 +4,16 @@ import pandas as pd
 from .util import flatten
 
 class Data:
-    def __init__(self, path, columns):
+    def __init__(self, path, columns=[]):
         self.path = path
         self.columns = columns
         self.data = self.read()
     
     def read(self):
         if self.path and os.path.isfile(self.path):
-            return pd.read_csv(self.path)
+            data = pd.read_csv(self.path)
+            self.columns = list(data.columns.values)
+            return data
         return pd.DataFrame([], columns=self.columns)
     
     def rows_exist(self, rows):

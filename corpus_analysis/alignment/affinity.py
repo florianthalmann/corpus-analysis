@@ -72,8 +72,9 @@ def knn_threshold(matrix, emphasis):
 def peak_threshold(matrix, median_len=16, sigma=0.25):
     result = np.zeros(matrix.shape)
     for i,r in enumerate(matrix):
-        result[i][peak_picking_MSAF(r, median_len=median_len, sigma=sigma)[0].astype(int)] = 1
-        #result[i][find_peaks(r, prominence=0.02)[0].astype(int)] = 1
+        #result[i][peak_picking_MSAF(r, median_len=median_len, sigma=sigma)[0].astype(int)] = 1
+        result[i][find_peaks(r, height=sigma)[0].astype(int)] = 1
+        #result[i][libfmp.c6.peak_picking_roeder(r)[0].astype(int)] = 1
         #result[i][librosa.util.peak_pick(r, pre_max=5, post_max=5, pre_avg=5, post_avg=5, delta=0.01, wait=5)] = 1
     return result
 
@@ -164,7 +165,7 @@ def avgs2(diagonals, min_len, max_len, matrix, len_emph):
 
 #new method for unthresholded unsmoothed matrix!
 def get_best_segments(matrix, min_len=20, max_len=44, min_dist=1, threshold=0,#99.5,
-        len_emph=0.01, min_val=.6, ignore_overlaps=False):
+        len_emph=0, min_val=.6, ignore_overlaps=False, max_gap_len=5):
     #min_len=2
     diagonals = get_diagonal_indices(matrix)
     
@@ -223,6 +224,7 @@ def get_best_segments(matrix, min_len=20, max_len=44, min_dist=1, threshold=0,#9
     #print([[matrix[tuple(ii)] for ii in i] for i in indices])
     segs = [diagonals[b[0]][b[1]:b[1]+b[2]+min_len] for b in best]
     segs = [remove_outer_gaps(s, matrix) for s in segs]
+    segs = [s for s in segs if max_gap_length(s, matrix) <= max_gap_len]
     #print(sum([len(s) for s in segs]), matrix.shape[0]**2)
     return segments_to_matrix(segs, matrix.shape)
 
@@ -327,6 +329,13 @@ def filter_segments(segments, count, min_len, min_dist, symmetric, shape):
     else: selected += remaining
     #print([(len(s), s[0][1]-s[0][0]) for s in selected])
     return selected[1:] if symmetric else selected #remove diagonal if symmetric
+
+def max_gap_length(segment, unsmoothed):
+    gaps = np.nonzero(1 - unsmoothed[tuple(segment.T)])[0]
+    return max([len(c) for c in consecutive(gaps)])
+
+def consecutive(data, stepsize=1):
+    return np.split(data, np.where(np.diff(data) != stepsize)[0]+1)
 
 def remove_outer_gaps(segment, unsmoothed):
     true_matches = np.nonzero(unsmoothed[tuple(segment.T)])[0]
