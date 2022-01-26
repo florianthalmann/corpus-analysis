@@ -5,7 +5,7 @@ from collections import Counter, OrderedDict
 import numpy as np
 import sortednp as snp
 from graph_tool.all import Graph, graph_draw, GraphView, edge_endpoint_property,\
-    remove_parallel_edges
+    remove_parallel_edges, minimize_blockmodel_dl
 from graph_tool.spectral import adjacency
 from graph_tool.topology import transitive_closure, all_paths, max_cliques, label_components
 from graph_tool.util import find_edge
@@ -17,6 +17,11 @@ def adjacency_matrix(graph, weight=None):
 
 def prune_isolated_vertices(g):
     return GraphView(g, vfilt=g.get_total_degrees(g.get_vertices()) > 0)
+
+def blockmodel(matrix):
+    state = minimize_blockmodel_dl(graph_from_matrix(matrix)[0])
+    blocks = np.argsort(state.get_blocks().get_array())
+    return matrix[blocks][:, blocks]
 
 def graph_from_matrix(matrix, directed=False):
     g = Graph(directed=directed)
