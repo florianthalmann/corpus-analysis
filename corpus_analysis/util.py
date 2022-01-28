@@ -115,8 +115,9 @@ def save_json(path, data):
         json.dump(data, f)
 
 def load_json(path):
-    with open(path) as f:
-        return json.load(f)
+    if os.path.isfile(path):
+        with open(path) as f:
+            return json.load(f)
 
 def buffered_run(name, func, params=[]):
     path = name+'_'+'_'.join(str(p) for p in params)+'.np'
