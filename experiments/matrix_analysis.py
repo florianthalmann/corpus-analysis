@@ -3,8 +3,10 @@ from corpus_analysis.util import plot
 from corpus_analysis.alignment.affinity import to_diagonals, matrix_to_segments,\
     segments_to_matrix, get_best_segments
 from corpus_analysis.structure.structure import matrix_to_labels
+from corpus_analysis.structure.hierarchies import make_segments_hierarchical,\
+    add_transitivity_to_matrix
 from corpus_analysis.stats.util import entropy
-from corpus_analysis.util import plot_matrix
+from corpus_analysis.util import plot_matrix, flatten
 import salami
 
 def analyze_matrix(params):
@@ -62,12 +64,15 @@ def matrix_analysis2(file='salami/matricesH.csv'):
 
 def entropy_experiment(index, params, plot_path, results, resolution=10, minlen=8):
     data = read_and_prepare_results(results)
-    data = data[(data['MAX_GAP_RATIO'] == 0.2) & (data['BETA'] == 0.5)]
     #param, values = 'SIGMA', np.round(np.arange(0.001,0.011,0.001), 3)
     #param, values = 'SIGMA', np.round(np.arange(0.01,0.11,0.01), 2)
     #param, values = 'SIGMA', [0.0001,0.001,0.005,0.01,0.1,1,10]
     param, values = 'SIGMA', [0.001,0.002,0.004,0.008,0.016,0.032,0.064,0.128]#,0.256,0.512,1.024]
     #param, values = 'BETA', [0.2,0.3,0.4,0.5]
+    if param == 'BETA':
+        data = data[(data['MAX_GAP_RATIO'] == 0.2) & (data['SIGMA'] == 0.016)]
+    else:
+        data = data[(data['MAX_GAP_RATIO'] == 0.2) & (data['BETA'] == 0.5)]
     matrix = None
     for v in values:
         params[param] = v
@@ -84,45 +89,11 @@ def entropy_experiment(index, params, plot_path, results, resolution=10, minlen=
         else: matrix = m
         plot_matrix(matrix, plot_path+'eee'+str(index)+'-'+str(v)+'.png')
         #plot_matrix(blockmodel(matrix), plot_path+'e'+str(index)+'-'+str(v)+'*.png')
-        antidiagonals = to_diagonals(np.flip(matrix, axis=0))
-        diagonals = to_diagonals(matrix)
-        admeans = np.array([np.mean(d) for d in antidiagonals])
-        admax = np.max([np.sum(d) for d in antidiagonals])
-        dmeans = np.array([np.mean(d) for d in diagonals])
-        dmax = np.max([np.sum(d) for d in diagonals])
-        xmeans = np.sum(matrix, axis=0)
-        advar = np.std(admeans)/np.mean(admeans)
-        dvar = np.std(dmeans)/np.mean(dmeans)
-        xvar = np.std(xmeans)/np.mean(xmeans)
-        #print(np.mean(admeans), np.mean(dmeans), np.mean(xmeans))
-        #print(np.std(admeans), np.std(dmeans), np.std(xmeans))
-        #print(np.std(admeans)/np.mean(admeans), np.std(dmeans)/np.mean(dmeans), np.std(xmeans)/np.mean(xmeans))
-        # admeans = np.round(admeans/np.max(admeans)*resolution).astype(int)
-        # dmeans = np.round(dmeans/np.max(dmeans)*resolution).astype(int)
-        # xmeans = np.round(xmeans/np.max(xmeans)*resolution).astype(int)
-        admeans = np.round(admeans/np.max(admeans)*admax).astype(int)
-        dmeans = np.round(dmeans/np.max(dmeans)*dmax).astype(int)
-        xmeans = np.round(xmeans).astype(int)
-        # admeans = np.append(admeans, [len(matrix)])
-        # dmeans = np.append(dmeans, [len(matrix)])
-        # xmeans = np.append(xmeans, [len(matrix)])
-        #xmeans = np.round(xmeans/np.max(xmeans)*resolution).astype(int)
-        segs = [len(s) for s in matrix_to_segments(matrix)]
-        segs = [s for s in segs if s > 2]
-        seglenmean, seglenmax = np.mean(segs), np.max(segs)
-        nonzero = len([x for x in xmeans if np.sum(x) > 0]) / len(xmeans)
-        #print(np.histogram(admeans)[0], np.histogram(dmeans)[0], np.histogram(xmeans)[0])
-        #print(np.bincount(xmeans))
-        #print(np.bincount(admeans))
-        print(v, seglenmean, seglenmax, nonzero)
-        print(entropy(admeans), entropy(dmeans), entropy(xmeans))
-        print(advar, dvar, xvar)
-        print(entropy(admeans)*advar, entropy(dmeans)*dvar, entropy(xmeans)*xvar)
-        #measure = entropy_x_variation(antidiagonals)*entropy_x_variation(matrix)*seglenmean if seglenmax >= minlen else 0
-        #measure = entropy_x_variation(xmeans)*nonzero if seglenmax >= minlen else 0
-        measure = xvar*nonzero if seglenmax >= minlen else 0
-        print(measure)
-        print(data[(data['SONG'] == index) & (data['SIGMA'] == v)]['L'].iloc[0])
+        
+        print(v)
+        rating = matrix_rating(matrix)
+        print(rating)
+        print(data[(data['SONG'] == index) & (data[param] == v)]['L'].iloc[0])
         
         if param == 'BETA':
             t = salami.labels_to_hierarchy(matrix_to_labels(matrix), matrix,
@@ -138,6 +109,12 @@ def entropy_x_variation(vectors, var_weight=1):
     means = np.round(means/np.max(means)*max).astype(int)
     return entropy(means)*(var_coeff**var_weight)
 
+def matrix_to_endpoint_vector(matrix):
+    segs = matrix_to_segments(matrix)
+    endpoints = flatten([[s[0], s[-1]] for s in segs if len(s) > 1], 1)
+    endpoints += [s[0] for s in segs if len(s) == 1]
+    return np.bincount([e[1] for e in endpoints])
+
 def matrix_rating(matrix, minlen=10):
     antidiagonals = to_diagonals(np.flip(matrix, axis=0))
     admeans = np.array([np.mean(d) for d in antidiagonals])
@@ -147,13 +124,18 @@ def matrix_rating(matrix, minlen=10):
     xmeans = np.round(xmeans).astype(int)
     nonzero = len([x for x in xmeans if np.sum(x) > 0]) / len(xmeans)
     segs = [len(s) for s in matrix_to_segments(matrix)]
+    #segs = [s for s in segs if s > 2]
     meanseglen, maxseglen = np.mean(segs), np.max(segs)
     xvar = np.std(xmeans)/np.mean(xmeans)
     advar = np.std(admeans)/np.mean(admeans)
-    print(v, meanseglen, maxseglen, nonzero)
+    #print(np.histogram(admeans)[0], np.histogram(dmeans)[0], np.histogram(xmeans)[0])
+    #print(np.bincount(xmeans))
+    #print(np.bincount(admeans))
+    print(meanseglen, maxseglen, nonzero)
     print(entropy(admeans), entropy(xmeans))
     print(advar, xvar)
     print(entropy(admeans)*advar, entropy(xmeans)*xvar)
+    print(entropy(matrix_to_endpoint_vector(matrix)))
     #return entropy_x_variation(antidiagonals)*entropy_x_variation(matrix) if maxseglen >= minlen else 0
     #return entropy(xmeans)*nonzero if maxseglen >= minlen else 0
     #return entropy_x_variation(matrix)*nonzero if maxseglen >= minlen else 0 #0.511143729873462 0.5385528126486275
@@ -260,3 +242,4 @@ def test_measure(results, params):
         lmaxes.append(lmax)
     print(np.mean(lmeasures), np.mean(lmaxes))
 
+#print(matrix_to_endpoint_vector(np.array([[0,1,0,1],[1,0,1,0],[0,1,0,1],[0,0,1,1]])))
