@@ -1,3 +1,4 @@
+from itertools import product, chain, combinations
 import numpy as np
 from corpus_analysis.util import plot
 from corpus_analysis.alignment.affinity import to_diagonals, matrix_to_segments,\
@@ -102,6 +103,43 @@ def entropy_experiment(index, params, plot_path, results, resolution=10, minlen=
         #np.std(xmeans)/np.mean(xmeans), entropy(xmeans)*var_coeff)
         #print(fractal_dimension(matrix))
 
+def beta_combi_experiment(index, params, plot_path, results):
+    data = read_and_prepare_results(results)
+    betas = np.array([0.2,0.3,0.4,0.5])
+    matrix = salami.load_fused_matrix(index, params, var_sigma=False)[0]
+    segs = matrix_to_segments(get_best_segments(matrix, params['MIN_LEN'],
+        min_dist=params['MIN_DIST'], min_val=1-params['MAX_GAP_RATIO'],
+        max_gap_len=params['MAX_GAPS']))
+    transitives = []
+    for b in betas:
+        m = segments_to_matrix(make_segments_hierarchical(segs, params['MIN_LEN'],
+            min_dist=params['MIN_DIST'], target=matrix, beta=b, verbose=False), matrix.shape)
+        transitives.append(m + m.T)
+    combis = powerset(np.arange(len(betas)))[1:]#ignore empty set
+    print(combis)
+    betacombis = [betas[c] for c in combis]
+    matrixcombis = []
+    combiratings = []
+    for c in combis:
+        combi = np.logical_or.reduce([transitives[i] for i in c])
+        combi = add_transitivity_to_matrix(combi)
+        plot_matrix(combi, plot_path+'ccc'+str(index)+'-'+str(list(c))+'.png')
+        matrixcombis.append(combi)
+        combiratings.append(matrix_rating(combi))
+        print(betas[c], combiratings[-1])
+    best = matrixcombis[np.argmax(combiratings)]
+    print('baseline', data[(data['SONG'] == index) & (data['MAX_GAP_RATIO'] == 0.2)
+        & (data['SIGMA'] == 0.016) & (data['BETA'] == 0.5)]['L'].iloc[0])
+    t = salami.labels_to_hierarchy(matrix_to_labels(best), best,
+        salami.get_beats(index), salami.get_groundtruth(index))
+    print('best', betacombis[np.argmax(combiratings)])
+    salami.evaluate(index, 'combi', list(params.values()), t[0], t[1])
+
+def powerset(iterable):
+    s = list(iterable)
+    ps = chain.from_iterable(combinations(s, r) for r in range(len(s)+1))
+    return [np.array(list(e)) for e in ps]
+
 def entropy_x_variation(vectors, var_weight=1):
     means = np.array([np.mean(v) for v in vectors])
     var_coeff = np.std(means)/np.mean(means)
@@ -110,12 +148,14 @@ def entropy_x_variation(vectors, var_weight=1):
     return entropy(means)*(var_coeff**var_weight)
 
 def matrix_to_endpoint_vector(matrix):
+    #ONLY UPPER/LOWER TRIANGLE!!?!???!!
     segs = matrix_to_segments(matrix)
     endpoints = flatten([[s[0], s[-1]] for s in segs if len(s) > 1], 1)
     endpoints += [s[0] for s in segs if len(s) == 1]
     return np.bincount([e[1] for e in endpoints])
 
 def matrix_rating(matrix, minlen=10):
+    if np.sum(matrix) == 0: return 0
     antidiagonals = to_diagonals(np.flip(matrix, axis=0))
     admeans = np.array([np.mean(d) for d in antidiagonals])
     admax = np.max([np.sum(d) for d in antidiagonals])
@@ -128,21 +168,22 @@ def matrix_rating(matrix, minlen=10):
     meanseglen, maxseglen = np.mean(segs), np.max(segs)
     xvar = np.std(xmeans)/np.mean(xmeans)
     advar = np.std(admeans)/np.mean(admeans)
+    pent = entropy(matrix_to_endpoint_vector(matrix))
     #print(np.histogram(admeans)[0], np.histogram(dmeans)[0], np.histogram(xmeans)[0])
     #print(np.bincount(xmeans))
     #print(np.bincount(admeans))
-    print(meanseglen, maxseglen, nonzero)
-    print(entropy(admeans), entropy(xmeans))
-    print(advar, xvar)
-    print(entropy(admeans)*advar, entropy(xmeans)*xvar)
-    print(entropy(matrix_to_endpoint_vector(matrix)))
+    # print("s", meanseglen, maxseglen, nonzero)
+    # print("e", entropy(admeans), entropy(xmeans))
+    # print("v", advar, xvar)
+    # print("*", entropy(admeans)*advar, entropy(xmeans)*xvar)
+    # print("p", pent)
     #return entropy_x_variation(antidiagonals)*entropy_x_variation(matrix) if maxseglen >= minlen else 0
     #return entropy(xmeans)*nonzero if maxseglen >= minlen else 0
     #return entropy_x_variation(matrix)*nonzero if maxseglen >= minlen else 0 #0.511143729873462 0.5385528126486275
     return xvar*nonzero if maxseglen >= minlen else 0 #0.5285681381755871 0.5486171025288525
     #return xvar*nonzero*maxseglen #0.5088370030634288 0.5312888863716688
     #return xvar*nonzero*meanseglen if maxseglen >= minlen else 0 #0.5173722584948066 0.5350565320835667
-    #return xvar*nonzero*advar if maxseglen >= minlen else 0
+    #return nonzero/pent if maxseglen >= minlen else 0
 
 def test_peak_param(file='salami/matricesH.csv', resolution=10, minlen=10):
     param = 'SIGMA'
