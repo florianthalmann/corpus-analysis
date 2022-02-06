@@ -112,6 +112,7 @@ def beta_combi_experiment(index, params, plot_path, results):
         max_gap_len=params['MAX_GAPS']))
     transitives = []
     for b in betas:
+        print('transitive', b)
         m = segments_to_matrix(make_segments_hierarchical(segs, params['MIN_LEN'],
             min_dist=params['MIN_DIST'], target=matrix, beta=b, verbose=False), matrix.shape)
         transitives.append(m + m.T)
@@ -123,7 +124,7 @@ def beta_combi_experiment(index, params, plot_path, results):
     for c in combis:
         combi = np.logical_or.reduce([transitives[i] for i in c])
         combi = add_transitivity_to_matrix(combi)
-        plot_matrix(combi, plot_path+'ccc'+str(index)+'-'+str(list(c))+'.png')
+        plot_matrix(combi, plot_path+'ccc'+str(index)+'-'+str(betas[c])+'.png')
         matrixcombis.append(combi)
         combiratings.append(matrix_rating(combi))
         print(betas[c], combiratings[-1])
@@ -133,7 +134,7 @@ def beta_combi_experiment(index, params, plot_path, results):
     t = salami.labels_to_hierarchy(matrix_to_labels(best), best,
         salami.get_beats(index), salami.get_groundtruth(index))
     print('best', betacombis[np.argmax(combiratings)])
-    salami.evaluate(index, 'combi', list(params.values()), t[0], t[1])
+    return salami.evaluate(index, 'combi', list(params.values()), t[0], t[1])
 
 def powerset(iterable):
     s = list(iterable)
@@ -155,6 +156,7 @@ def matrix_to_endpoint_vector(matrix):
     return np.bincount([e[1] for e in endpoints])
 
 def matrix_rating(matrix, minlen=10):
+    #np.fill_diagonal(matrix, 0)
     if np.sum(matrix) == 0: return 0
     antidiagonals = to_diagonals(np.flip(matrix, axis=0))
     admeans = np.array([np.mean(d) for d in antidiagonals])
@@ -163,11 +165,13 @@ def matrix_rating(matrix, minlen=10):
     xmeans = np.sum(matrix, axis=0)
     xmeans = np.round(xmeans).astype(int)
     nonzero = len([x for x in xmeans if np.sum(x) > 0]) / len(xmeans)
+    decent = len([x for x in xmeans if np.sum(x) > 2]) / len(xmeans)
     segs = [len(s) for s in matrix_to_segments(matrix)]
-    #segs = [s for s in segs if s > 2]
+    segs = [s for s in segs if s > 2]
     meanseglen, maxseglen = np.mean(segs), np.max(segs)
     xvar = np.std(xmeans)/np.mean(xmeans)
     advar = np.std(admeans)/np.mean(admeans)
+    xent = entropy(xmeans)
     pent = entropy(matrix_to_endpoint_vector(matrix))
     #print(np.histogram(admeans)[0], np.histogram(dmeans)[0], np.histogram(xmeans)[0])
     #print(np.bincount(xmeans))
@@ -180,10 +184,11 @@ def matrix_rating(matrix, minlen=10):
     #return entropy_x_variation(antidiagonals)*entropy_x_variation(matrix) if maxseglen >= minlen else 0
     #return entropy(xmeans)*nonzero if maxseglen >= minlen else 0
     #return entropy_x_variation(matrix)*nonzero if maxseglen >= minlen else 0 #0.511143729873462 0.5385528126486275
-    return xvar*nonzero if maxseglen >= minlen else 0 #0.5285681381755871 0.5486171025288525
+    #return xvar*nonzero if maxseglen >= minlen else 0 #0.5285681381755871 0.5486171025288525
     #return xvar*nonzero*maxseglen #0.5088370030634288 0.5312888863716688
     #return xvar*nonzero*meanseglen if maxseglen >= minlen else 0 #0.5173722584948066 0.5350565320835667
     #return nonzero/pent if maxseglen >= minlen else 0
+    return nonzero*decent*xent
 
 def test_peak_param(file='salami/matricesH.csv', resolution=10, minlen=10):
     param = 'SIGMA'
@@ -246,24 +251,34 @@ def read_and_prepare_results(results):
     #average cases with multiple groundtruths
     return data.groupby(allbut(data.columns, ['REF','P','R','L'])).mean().reset_index()
 
-def test_measure(results, params):
+def prepare_and_log_results(results, params):
     data = read_and_prepare_results(results)
     print("baseline:", data[data['METHOD'] == 'l']['L'].mean())
     data = data[data['METHOD'] == 't']
     #data = data[data['BETA'] <= 0.5]
     grouped = data.groupby(['SIGMA','MAX_GAP_RATIO','BETA'])[['L']].mean()
-    bestcombi = grouped.idxmax().item()
-    print("fixed:", grouped.max().item(), tuple(zip(('SIGMA','MAX_GAP_RATIO','BETA'), bestcombi)))
+    bestparams = grouped.idxmax().item()
+    print("fixed:", grouped.max().item(), tuple(zip(('SIGMA','MAX_GAP_RATIO','BETA'), bestparams)))
     print("max:", np.mean(data.groupby(['SONG']).max()['L']))
-    print("max var beta:", np.mean(data[(data['SIGMA'] == bestcombi[0]) & (data['MAX_GAP_RATIO'] == bestcombi[1])].groupby(['SONG']).max()['L']))
+    print("max var beta:", np.mean(data[(data['SIGMA'] == bestparams[0])
+        & (data['MAX_GAP_RATIO'] == bestparams[1])].groupby(['SONG']).max()['L']))
     # plot(lambda: data.boxplot(column=['L'], by=['SIGMA']))
     # plot(lambda: data.groupby(['SIGMA'])[['L']].mean().plot())
     # plot(lambda: data.groupby(['BETA'])[['L']].mean().plot())
     #plot(lambda: data.groupby(['MAX_GAP_RATIO'])[['L']].mean().plot())
-    
+    return data, bestparams
+
+def test_beta_combi(results, params, plot_path):
+    data, bestparams = prepare_and_log_results(results, params)
+    results = [beta_combi_experiment(s, params, plot_path, results)
+        for s in data['SONG'].unique()]
+    print('overall', np.mean([np.mean([r[-1] for r in rs]) for rs in results]))
+
+def test_measure(results, params):
+    data, bestparams = prepare_and_log_results(results, params)
     songs = data['SONG'].unique()
     values = data['SIGMA'].unique()
-    data = data[(data['MAX_GAP_RATIO'] == bestcombi[1])]
+    data = data[(data['MAX_GAP_RATIO'] == bestparams[1])]
     lmeasures = []
     lmaxes = []
     for s in songs:
@@ -273,10 +288,10 @@ def test_measure(results, params):
             matrix = salami.load_fused_matrix(s, params, var_sigma=False)[0]
             matrix = matrix + matrix.T
             rating = matrix_rating(matrix)
-            print(s, v, rating, data[(data['SONG'] == s) & (data['SIGMA'] == v) & (data['BETA'] == bestcombi[2])]['L'].iloc[0])
+            print(s, v, rating, data[(data['SONG'] == s) & (data['SIGMA'] == v) & (data['BETA'] == bestparams[2])]['L'].iloc[0])
             measures.append(rating)
         best = values[np.argmax(measures)]
-        l = data[(data['SONG'] == s) & (data['SIGMA'] == best) & (data['BETA'] == bestcombi[2])]['L'].iloc[0]
+        l = data[(data['SONG'] == s) & (data['SIGMA'] == best) & (data['BETA'] == bestparams[2])]['L'].iloc[0]
         lmax = data[(data['SONG'] == s) & (data['SIGMA'] == best)].max()['L']
         print(s, np.argmax(measures), best, l, lmax, data[(data['SONG'] == s)].max()['L'])
         lmeasures.append(l)
