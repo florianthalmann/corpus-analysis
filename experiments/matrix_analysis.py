@@ -7,7 +7,7 @@ from corpus_analysis.structure.structure import matrix_to_labels
 from corpus_analysis.structure.hierarchies import make_segments_hierarchical,\
     add_transitivity_to_matrix
 from corpus_analysis.stats.util import entropy
-from corpus_analysis.util import plot_matrix, flatten
+from corpus_analysis.util import plot_matrix, flatten, load_json, save_json
 import salami
 
 def analyze_matrix(params):
@@ -117,7 +117,6 @@ def beta_combi_experiment(index, params, plot_path, results):
             min_dist=params['MIN_DIST'], target=matrix, beta=b, verbose=False), matrix.shape)
         transitives.append(m + m.T)
     combis = powerset(np.arange(len(betas)))[1:]#ignore empty set
-    print(combis)
     betacombis = [betas[c] for c in combis]
     matrixcombis = []
     combiratings = []
@@ -165,13 +164,14 @@ def matrix_rating(matrix, minlen=10):
     xmeans = np.sum(matrix, axis=0)
     xmeans = np.round(xmeans).astype(int)
     nonzero = len([x for x in xmeans if np.sum(x) > 0]) / len(xmeans)
-    decent = len([x for x in xmeans if np.sum(x) > 2]) / len(xmeans)
+    decent = len([x for x in xmeans if 2 < np.sum(x) < 0.1*len(xmeans)]) / len(xmeans)
     segs = [len(s) for s in matrix_to_segments(matrix)]
     segs = [s for s in segs if s > 2]
     meanseglen, maxseglen = np.mean(segs), np.max(segs)
     xvar = np.std(xmeans)/np.mean(xmeans)
     advar = np.std(admeans)/np.mean(admeans)
     xent = entropy(xmeans)
+    adent = entropy(admeans)
     pent = entropy(matrix_to_endpoint_vector(matrix))
     #print(np.histogram(admeans)[0], np.histogram(dmeans)[0], np.histogram(xmeans)[0])
     #print(np.bincount(xmeans))
@@ -188,7 +188,7 @@ def matrix_rating(matrix, minlen=10):
     #return xvar*nonzero*maxseglen #0.5088370030634288 0.5312888863716688
     #return xvar*nonzero*meanseglen if maxseglen >= minlen else 0 #0.5173722584948066 0.5350565320835667
     #return nonzero/pent if maxseglen >= minlen else 0
-    return nonzero*decent*xent
+    return decent*xvar#xent*xvar
 
 def test_peak_param(file='salami/matricesH.csv', resolution=10, minlen=10):
     param = 'SIGMA'
@@ -219,28 +219,26 @@ def test_peak_param(file='salami/matricesH.csv', resolution=10, minlen=10):
         lmeasures.append(l)
     print(np.mean(lmeasures))
 
-def best_sigma(index, buffer='salami/sigmas.json', minmaxlen=12):
-    sigmas = load_json(buffer)
-    if sigmas and str(index) in sigmas:
-        return sigmas[str(index)]
+def best_sigma(index, params, buffer=None):#='salami/sigmas.json'):
+    if buffer:
+        sigmas = load_json(buffer)
+        if sigmas and str(index) in sigmas:
+            return sigmas[str(index)]
     #values = np.round(np.arange(0.001,0.011,0.001), 3)
     values = [0.001,0.002,0.004,0.008,0.016,0.032,0.064,0.128]#,0.256,0.512,1.024]
     measures = []
     for v in values:
-        PARAMS['SIGMA'] = v
-        matrix = salami.load_fused_matrix(index, var_sigma=False)[0]
+        params['SIGMA'] = v
+        matrix = salami.load_fused_matrix(index, params, var_sigma=False)[0]
         matrix = matrix + matrix.T
-        antidiagonals = to_diagonals(np.flip(matrix, axis=0))
-        [len(s) for s in matrix_to_segments(matrix)]
-        seglenmax = np.max([len(s) for s in matrix_to_segments(matrix)])
-        m = entropy_x_variation(antidiagonals) * entropy_x_variation(matrix) \
-            if seglenmax >= minmaxlen else 0
-        measures.append(m)
+        measures.append(matrix_rating(matrix))
+        print(index, v, measures[-1])
     best = values[np.argmax(measures)]
-    sigmas = load_json(buffer)
-    sigmas = sigmas if sigmas else {}
-    sigmas[index] = best
-    save_json(buffer, sigmas)
+    if buffer:
+        sigmas = load_json(buffer)
+        sigmas = sigmas if sigmas else {}
+        sigmas[index] = best
+        save_json(buffer, sigmas)
     return best
 
 def allbut(columns, exclude):
@@ -297,5 +295,14 @@ def test_measure(results, params):
         lmeasures.append(l)
         lmaxes.append(lmax)
     print(np.mean(lmeasures), np.mean(lmaxes))
+
+def test_var_sigma_beta(results, params, plot_path):
+    data, bestparams = prepare_and_log_results(results, params)
+    evals = []
+    for s in data['SONG'].unique():
+        params['SIGMA'] = best_sigma(s, params)
+        print(s, 'best sigma', params['SIGMA'])
+        evals.append(beta_combi_experiment(s, params, plot_path, results))
+    print('overall', np.mean([np.mean([r[-1] for r in rs]) for rs in evals]))
 
 #print(matrix_to_endpoint_vector(np.array([[0,1,0,1],[1,0,1,0],[0,1,0,1],[0,0,1,1]])))
