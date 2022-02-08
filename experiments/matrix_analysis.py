@@ -1,3 +1,4 @@
+from math import log
 from itertools import product, chain, combinations
 import numpy as np
 from corpus_analysis.util import plot
@@ -140,12 +141,12 @@ def powerset(iterable):
     ps = chain.from_iterable(combinations(s, r) for r in range(len(s)+1))
     return [np.array(list(e)) for e in ps]
 
-def entropy_x_variation(vectors, var_weight=1):
+def distribution_measures(vectors, resolution=0):
     means = np.array([np.mean(v) for v in vectors])
     var_coeff = np.std(means)/np.mean(means)
-    max = np.max([np.sum(v) for v in vectors])
-    means = np.round(means/np.max(means)*max).astype(int)
-    return entropy(means)*(var_coeff**var_weight)
+    if resolution == 0: resolution = np.max([np.sum(v) for v in vectors])#full resolution
+    means = np.round(means/np.max(means)*resolution).astype(int)
+    return means, var_coeff, entropy(means)
 
 def matrix_to_endpoint_vector(matrix):
     #ONLY UPPER/LOWER TRIANGLE!!?!???!!
@@ -154,70 +155,45 @@ def matrix_to_endpoint_vector(matrix):
     endpoints += [s[0] for s in segs if len(s) == 1]
     return np.bincount([e[1] for e in endpoints])
 
-def matrix_rating(matrix, minlen=10):
+def min_dist_between_nonzero(a):
+    ix = np.where(a)[0]
+    a[ix[:-1]] = np.diff(ix)
+    a = a[:-1]
+    return np.min(a[np.nonzero(a)])
+
+def matrix_rating(matrix, resolution=0, minlen=10):
     #np.fill_diagonal(matrix, 0)
     if np.sum(matrix) == 0: return 0
+    diagonals = to_diagonals(matrix)
     antidiagonals = to_diagonals(np.flip(matrix, axis=0))
-    admeans = np.array([np.mean(d) for d in antidiagonals])
-    admax = np.max([np.sum(d) for d in antidiagonals])
-    admeans = np.round(admeans/np.max(admeans)*admax).astype(int)
-    xmeans = np.sum(matrix, axis=0)
-    xmeans = np.round(xmeans).astype(int)
+    xmeans, xvar, xent = distribution_measures(matrix, resolution)
+    dmeans, dvar, dent = distribution_measures(diagonals, resolution)
+    admeans, advar, adent = distribution_measures(antidiagonals, resolution)
     nonzero = len([x for x in xmeans if np.sum(x) > 0]) / len(xmeans)
     decent = len([x for x in xmeans if 2 < np.sum(x) < 0.1*len(xmeans)]) / len(xmeans)
     segs = [len(s) for s in matrix_to_segments(matrix)]
     segs = [s for s in segs if s > 2]
-    meanseglen, maxseglen = np.mean(segs), np.max(segs)
-    xvar = np.std(xmeans)/np.mean(xmeans)
-    advar = np.std(admeans)/np.mean(admeans)
-    xent = entropy(xmeans)
-    adent = entropy(admeans)
+    meanseglen, maxseglen, minseglen = np.mean(segs), np.max(segs), np.min(segs)
     pent = entropy(matrix_to_endpoint_vector(matrix))
+    xdiffent = entropy(np.abs(np.diff(xmeans)))
+    mindist = min_dist_between_nonzero(dmeans)
     #print(np.histogram(admeans)[0], np.histogram(dmeans)[0], np.histogram(xmeans)[0])
-    #print(np.bincount(xmeans))
     #print(np.bincount(admeans))
     # print("s", meanseglen, maxseglen, nonzero)
     # print("e", entropy(admeans), entropy(xmeans))
     # print("v", advar, xvar)
     # print("*", entropy(admeans)*advar, entropy(xmeans)*xvar)
     # print("p", pent)
-    #return entropy_x_variation(antidiagonals)*entropy_x_variation(matrix) if maxseglen >= minlen else 0
-    #return entropy(xmeans)*nonzero if maxseglen >= minlen else 0
-    #return entropy_x_variation(matrix)*nonzero if maxseglen >= minlen else 0 #0.511143729873462 0.5385528126486275
+    #return adent*advar*xent*xvar if maxseglen >= minlen else 0
+    #return xent*nonzero if maxseglen >= minlen else 0
+    #return xent*xvar*nonzero if maxseglen >= minlen else 0 #0.511143729873462 0.5385528126486275
     #return xvar*nonzero if maxseglen >= minlen else 0 #0.5285681381755871 0.5486171025288525
+    return xvar/xent*nonzero if maxseglen >= minlen else 0
     #return xvar*nonzero*maxseglen #0.5088370030634288 0.5312888863716688
     #return xvar*nonzero*meanseglen if maxseglen >= minlen else 0 #0.5173722584948066 0.5350565320835667
     #return nonzero/pent if maxseglen >= minlen else 0
-    return decent*xvar#xent*xvar
-
-def test_peak_param(file='salami/matricesH.csv', resolution=10, minlen=10):
-    param = 'SIGMA'
-    data = Data(file).read()
-    songs = data['SONG'].unique()
-    values = data[param].unique()
-    print(np.mean(data[data[param] == 0.005]['L']))
-    print(np.mean(data.groupby(['SONG']).max()['L']))
-    lmeasures = []
-    for s in songs:
-        measures = []
-        for v in values:
-            PARAMS[param] = v
-            matrix = salami.load_fused_matrix(s, var_sigma=False)[0]
-            matrix = matrix + matrix.T
-            # xm = np.mean(matrix, axis=0)
-            # entrop = entropy(np.round(xm/np.max(xm)*resolution).astype(int))
-            antidiagonals = to_diagonals(np.flip(matrix, axis=0))
-            [len(s) for s in matrix_to_segments(matrix)]
-            seglenmax = np.max([len(s) for s in matrix_to_segments(matrix)])
-            m = entropy_x_variation(antidiagonals) * entropy_x_variation(matrix) \
-                if seglenmax >= minlen else 0
-            #seglenmean = np.mean([len(s) for s in matrix_to_segments(matrix)])
-            measures.append(m)#*seglenmean)
-        best = values[np.argmax(measures)]
-        l = data[(data['SONG'] == s) & (data['SIGMA'] == best)]['L'].iloc[0]
-        print(s, np.argmax(measures), best, l, data[(data['SONG'] == s)].max()['L'])
-        lmeasures.append(l)
-    print(np.mean(lmeasures))
+    #return decent*xvar if maxseglen >= minlen else 0#xent*xvar
+    #return nonzero/xent*xdiffent#if mindist > minlen else 0 #*log(len(segs))#/minseglen #if maxseglen >= minlen else 0
 
 def best_sigma(index, params, buffer=None):#='salami/sigmas.json'):
     if buffer:
@@ -272,7 +248,7 @@ def test_beta_combi(results, params, plot_path):
         for s in data['SONG'].unique()]
     print('overall', np.mean([np.mean([r[-1] for r in rs]) for rs in results]))
 
-def test_measure(results, params):
+def test_sigma(results, params, plot_path):
     data, bestparams = prepare_and_log_results(results, params)
     songs = data['SONG'].unique()
     values = data['SIGMA'].unique()
@@ -285,6 +261,7 @@ def test_measure(results, params):
             params['SIGMA'] = v
             matrix = salami.load_fused_matrix(s, params, var_sigma=False)[0]
             matrix = matrix + matrix.T
+            plot_matrix(matrix, plot_path+'eee'+str(s)+'-'+str(v)+'.png')
             rating = matrix_rating(matrix)
             print(s, v, rating, data[(data['SONG'] == s) & (data['SIGMA'] == v) & (data['BETA'] == bestparams[2])]['L'].iloc[0])
             measures.append(rating)
