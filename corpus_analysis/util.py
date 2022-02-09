@@ -23,10 +23,12 @@ def split(lst, n):
         yield lst[i:i + n]
 
 def summarize_matrix(A, window, func=np.mean):
-    blocks = np.array_split(A, A.shape[0]/window, axis=0)
+    blocks = np.array_split(A, math.floor(A.shape[0]/window), axis=0)
     blocks = np.array([[np.hstack(bb)
         for bb in np.array_split(b, b.shape[1]/window, axis=1)] for b in blocks])
-    return func(blocks, axis=2)
+    if blocks.dtype != 'object':
+        return func(blocks, axis=2)
+    return np.array([[func(b) for b in bb] for bb in blocks])
 
 def group_by(l, key=lambda x: x):
     d = defaultdict(list)
@@ -93,8 +95,12 @@ def plot_sequences(sequences, path=None):
     plt.savefig(path, dpi=1000) if path else plt.show()
     plt.close()
 
-def plot(data, path=None):
-    plt.plot(data)
+def plot(data_or_func, path=None):
+    if callable(data_or_func):
+        data_or_func()
+    else:
+        plt.plot(data)
+    plt.tight_layout()
     plt.savefig(path, dpi=1000) if path else plt.show()
     plt.close()
 

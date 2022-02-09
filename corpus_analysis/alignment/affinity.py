@@ -224,7 +224,8 @@ def get_best_segments(matrix, min_len=20, max_len=44, min_dist=1, threshold=0,#9
     #print([[matrix[tuple(ii)] for ii in i] for i in indices])
     segs = [diagonals[b[0]][b[1]:b[1]+b[2]+min_len] for b in best]
     segs = [remove_outer_gaps(s, matrix) for s in segs]
-    segs = [s for s in segs if max_gap_length(s, matrix) <= max_gap_len]
+    if max_gap_len > 0:
+        segs = [s for s in segs if max_gap_length(s, matrix) <= max_gap_len]
     #print(sum([len(s) for s in segs]), matrix.shape[0]**2)
     return segments_to_matrix(segs, matrix.shape)
 
