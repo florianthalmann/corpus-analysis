@@ -1,43 +1,71 @@
-import os, mir_eval, subprocess, tqdm, gc, optuna
+import os, mir_eval, subprocess, tqdm, gc, optuna, librosa, itertools
 from multiprocessing import Pool, cpu_count
 from mutagen.mp3 import MP3
 import numpy as np
 import pandas as pd
 import scipy.io as sio
+from scipy.linalg import block_diag
 from sklearn.preprocessing import MinMaxScaler
 from datetime import datetime
 from matplotlib import pyplot as plt
 from corpus_analysis.util import multiprocess, plot_matrix, buffered_run,\
-    plot_sequences, save_json, load_json, flatten, catch, RepeatPruner, profile
+    plot_sequences, save_json, load_json, flatten, catch, RepeatPruner, profile,\
+    summarize_matrix, plot_hist
 from corpus_analysis.features import extract_chords, extract_bars,\
     get_summarized_chords, get_summarized_chroma, load_beats, get_summarized_mfcc
 from corpus_analysis.alignment.affinity import get_alignment_segments,\
     segments_to_matrix, get_affinity_matrix, get_segments_from_matrix,\
-    matrix_to_segments, threshold_matrix, get_best_segments, ssm, double_smooth_matrix
+    matrix_to_segments, threshold_matrix, get_best_segments, ssm,\
+    double_smooth_matrix, peak_threshold
 from corpus_analysis.structure.structure import simple_structure
 from corpus_analysis.structure.laplacian import get_laplacian_struct_from_affinity2,\
     to_levels, get_laplacian_struct_from_audio, get_smooth_affinity_matrix
+from corpus_analysis.structure.graphs import blockmodel
 from corpus_analysis.structure.eval import evaluate_hierarchy, simplify
 from corpus_analysis.stats.hierarchies import monotonicity, label_monotonicity,\
     interval_monotonicity, beatwise_ints, strict_transitivity, order_transitivity,\
     relabel_adjacent, to_int_labels, auto_labeled, repetitiveness, complexity
+from corpus_analysis.stats.util import entropy
+from corpus_analysis.stats.matrices import fractal_dimension
+from corpus_analysis.structure.hierarchies import divide_hierarchy,\
+    make_segments_hierarchical, add_transitivity_to_matrix
 from corpus_analysis.structure.novelty import get_novelty_boundaries
 from corpus_analysis.data import Data
+import experiments.matrix_analysis as matrix_analysis
 
+# PARAMS = dict([
+#     ['MATRIX_TYPE', 2],#0=own, 1=mcfee, 2=fused, 3=own2
+#     ['MEDIAN_LEN', 16],
+#     ['SIGMA', 1.004],
+#     ['WEIGHT', 0.5],#how much mfcc: 1 = only
+#     ['THRESHOLD', 0],
+#     ['NUM_SEGS', 100],
+#     ['MIN_LEN', 6],
+#     ['MIN_DIST', 1],
+#     ['MAX_GAPS', 8],
+#     ['MAX_GAP_RATIO', .5],
+#     ['MIN_LEN2', 10],
+#     ['MIN_DIST2', 1],
+#     ['LEXIS', 1],
+#     ['BETA', 0.3]
+# ])
 PARAMS = dict([
     ['MATRIX_TYPE', 2],#0=own, 1=mcfee, 2=fused, 3=own2
+    ['MEDIAN_LEN', 16],
+    ['SIGMA', 0.016],
     ['WEIGHT', 0.5],#how much mfcc: 1 = only
     ['THRESHOLD', 0],
-    ['NUM_SEGS', 200],
-    ['MIN_LEN', 6],
+    ['NUM_SEGS', 100],
+    ['MIN_LEN', 10],
     ['MIN_DIST', 1],
-    ['MAX_GAPS', 13],
-    ['MAX_GAP_RATIO', .75],
-    ['MIN_LEN2', 25],
+    ['MAX_GAPS', 0],
+    ['MAX_GAP_RATIO', .2],
+    ['MIN_LEN2', 10],
     ['MIN_DIST2', 1],
     ['LEXIS', 1],
-    ['BETA', 0.21]
+    ['BETA', 0.5]
 ])
+
 #1.489692 {'t': 2, 'k': 3.89, 'n': 100, 'ml': 10, 'md': 2, 'mg': 13, 'mgr': 0.775, 'ml2': 27, 'md2': 1, 'lex': 1, 'beta': 0.343}
 # PARAMS = dict([
 #     ['MATRIX_TYPE', 2],#0=own, 1=mcfee, 2=fused, 3=own2
@@ -66,11 +94,11 @@ features = corpus+'features/'
 output = 'salami/'
 DATA = output+'data/'
 #RESULTS = Data(None,
-RESULTS = Data(output+'resultsF15.csv',
+RESULTS = Data(output+'resultsF32.csv',
     columns=['SONG']+list(PARAMS.keys())+['REF', 'METHOD', 'P', 'R', 'L'])
 # RESULTS = Data(output+'lapl.csv',
 #     columns=['SONG', 'LEVELS', 'REF', 'P', 'R', 'L'])
-PLOT_PATH=''#output+'all11/'
+PLOT_PATH=''#output+'all12/'
 graphditty = '/Users/flo/Projects/Code/Kyoto/GraphDitty/SongStructure.py'
 
 PLOT_FRAMES = 2000
@@ -108,13 +136,15 @@ def extract_features(audio):
 def extract_all_features():
     multiprocess('extracting features', extract_features, get_audio_files(), True)
 
-def calculate_fused_matrix(audio):
+def calculate_fused_matrix(audio, force=False):
     filename = audio.split('/')[-1].replace('.mp3', '')
-    if not os.path.isfile(features+filename+'.mat')\
+    if force or not os.path.isfile(features+filename+'.mat')\
             or not os.path.isfile(features+filename+'.json'):
-        subprocess.call(['python', graphditty, '--win_fac', str(-1),
+        subprocess.call(['python', graphditty, '--win_fac', str(-2),#beats
             '--filename', audio, '--matfilename', features+filename+'.mat',
-            '--jsonfilename', features+filename+'.json'])#,
+            '--jsonfilename', features+filename+'.json',
+            '--K', str(3), '--reg_neighbs', str(0.0), '--niters', str(10),
+            '--neigs', str(10), '--wins_per_block', str(2)])#,
             #stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 def calculate_fused_matrices():
@@ -169,15 +199,33 @@ def int_labels(salami_hierarchy):
     return (salami_hierarchy[0],
         [[np.where(uniq_labels == l)[0][0] for l in lev] for lev in labels])
 
-def load_fused_matrix(index, threshold=True):
+def load_fused_matrix(index, params, threshold=True, var_sigma=True):
+    prev = params['SIGMA']
+    # if var_sigma:
+    #     params['SIGMA'] = best_sigma(index)
+    
     m = sio.loadmat(features+str(index)+'.mat')
     j = load_json(features+str(index)+'.json')
     m = np.array(m['Ws']['Fused MFCC/Chroma'][0][0])#['Fused'][0][0])
+    #beats = np.array(j['times'][:len(m)])
+    beats = get_beats(index)
+    factor = round(len(m)/len(beats))
+    m = summarize_matrix(m, factor)
+    # m[m >= 0.05] = 0
+    # plot_hist(np.hstack(m[m > 0.01]), bincount=100, path=PLOT_PATH+str(index)+'-hist.png')
+    
+    #m = np.log2(m)
+    if PLOT_PATH: plot_matrix(m, PLOT_PATH+str(index)+'-m-f.png')
     if threshold:
-        m = threshold_matrix(m, PARAMS['THRESHOLD'])
-    m = np.logical_or(m.T, m)#thresholding may lead to asymmetries (peak picking..)
-    m = np.triu(m, k=1)#now symmetrix so only keep upper triangle
-    beats = np.array(j['times'][:len(m)])
+        if params['THRESHOLD'] == 0:
+            m = peak_threshold(m, params['MEDIAN_LEN'], params['SIGMA'])
+            m = np.logical_or(m.T, m)#thresholding may lead to asymmetries (peak picking..)
+        else:
+            m = threshold_matrix(m, params['THRESHOLD'])
+        m = np.triu(m, k=1)#now symmetrix so only keep upper triangle
+    if len(beats)+1 != len(m):
+        print("BEATS DONT MATCH!!!!", len(beats), len(m))
+    params['SIGMA'] = prev#to maintain uniform data record for experiments
     return m, beats
 
 def get_monotonic_salami():
@@ -240,42 +288,64 @@ def own_chroma_affinity_new(index):
     chroma = MinMaxScaler().fit_transform(chroma)
     
     if PARAMS['MATRIX_TYPE'] == 2:
-        matrix, beats = load_fused_matrix(index, False)
+        matrix, beats = load_fused_matrix(index, PARAMS, False)
     else:
         matrix, beats = ssm(chroma, chroma), get_beats(index)
         
     raw = threshold_matrix(matrix, 1)
     matrix = get_best_segments(matrix, PARAMS['MIN_LEN'],
-        min_dist=PARAMS['MIN_DIST'], threshold=PARAMS['THRESHOLD'], len_emph=PARAMS['MAX_GAP_RATIO'])
+        min_dist=PARAMS['MIN_DIST'], threshold=PARAMS['THRESHOLD'],
+        len_emph=PARAMS['MAX_GAP_RATIO'])
     
     return matrix, raw, beats
 
-def transitive_hierarchy(matrix, unsmoothed, target, beats, groundtruth, index, plot_file):
-    alignment = get_segments_from_matrix(matrix, True, PARAMS['NUM_SEGS'],
-        PARAMS['MIN_LEN'], PARAMS['MIN_DIST'], PARAMS['MAX_GAPS'],
-        PARAMS['MAX_GAP_RATIO'], unsmoothed)
-    
-    if PLOT_PATH: plot_matrix(segments_to_matrix(alignment, matrix.shape), PLOT_PATH+str(index)+'-m1f2.png')
-    #alignment = sorted(matrix_to_segments(matrix), key=lambda s: len(s), reverse=True)#[:PARAMS['NUM_SEGS']]
-    # #TODO STANDARDIZE THIS!!
+def transitive_hierarchy(matrix, raw, target, beats, groundtruth, index, plot_file):
+    # alignment = get_segments_from_matrix(matrix, True, PARAMS['NUM_SEGS'],
+    #     PARAMS['MIN_LEN'], PARAMS['MIN_DIST'], PARAMS['MAX_GAPS'],
+    #     PARAMS['MAX_GAP_RATIO'], raw)
+    alignment = matrix_to_segments(matrix)
+    #TODO STANDARDIZE THIS!!
     # if len(alignment) < 10:
     #     print('alternative matrix!')
-    #     matrix, raw, beats = own_chroma_affinity(index, 3)
-    #     alignment = get_segments_from_matrix(matrix, True, 100, int(MIN_LEN/2),
-    #         MIN_DIST, MAX_GAPS, MAX_GAP_RATIO, raw)
+    #     #matrix, raw, beats = own_chroma_affinity(index, beats)
+    #     thresh = PARAMS['SIGMA']
+    #     PARAMS['SIGMA'] = 0
+    #     matrix, beats = load_fused_matrix(index, PARAMS, var_sigma=False)
+    #     target = matrix.copy()
+    #     #plot_matrix(matrix, PLOT_PATH+str(index)+'-m1f2.png')
+    #     # matrix = double_smooth_matrix(matrix, True, PARAMS['MAX_GAPS'],
+    #     #     PARAMS['MAX_GAP_RATIO'])
+    #     # matrix, target = divide_matrix(index, beats, matrix, target)
+    #     # alignment = get_segments_from_matrix(matrix, True, PARAMS['NUM_SEGS'],
+    #     #     PARAMS['MIN_LEN'], PARAMS['MIN_DIST'], PARAMS['MAX_GAPS'],
+    #     #     PARAMS['MAX_GAP_RATIO'], matrix)
+    #     matrix = get_best_segments(matrix, PARAMS['MIN_LEN'],
+    #         min_dist=PARAMS['MIN_DIST'], min_val=1-PARAMS['MAX_GAP_RATIO'],
+    #         max_gap_len=PARAMS['MAX_GAPS'])
+    #     alignment = matrix_to_segments(matrix)
+    #     PARAMS['SIGMA'] = thresh
+    #     # alignment = get_segments_from_matrix(matrix, True, 100, int(MIN_LEN/2),
+    #     #     MIN_DIST, MAX_GAPS, MAX_GAP_RATIO, raw)
     #     # print(len(alignment))
     #     # plot_matrix(raw, 'm0.png')
     #     # plot_matrix(matrix, 'm1.png')
+    
+    #if PLOT_PATH: plot_matrix(segments_to_matrix(alignment, matrix.shape), PLOT_PATH+str(index)+'-m1f2.png')
+    #alignment = sorted(matrix_to_segments(matrix), key=lambda s: len(s), reverse=True)#[:PARAMS['NUM_SEGS']]
+    
     #matrix = segments_to_matrix(alignment, matrix.shape)
     #seq = matrix[0] if matrix is not None else []
-    #target = unsmoothed#np.where(matrix+unsmoothed > 0, 1, 0)
-    hierarchy = simple_structure(alignment, PARAMS['MIN_LEN2'],
+    #target = raw#np.where(matrix+raw > 0, 1, 0)
+    labels = simple_structure(alignment, PARAMS['MIN_LEN2'],
         PARAMS['MIN_DIST2'], PARAMS['BETA'], target, lexis=PARAMS['LEXIS'] == 1,
         plot_file=plot_file)
+    return labels_to_hierarchy(labels, target, beats, groundtruth)
+    
+def labels_to_hierarchy(labels, target, beats, groundtruth):
     maxtime = np.max(np.concatenate(groundtruth[0][0]))
     beats = beats[:target.shape[0]]#just to make sure
     beat_ints = np.dstack((beats, np.append(beats[1:], maxtime)))[0]
-    return [beat_ints for h in range(len(hierarchy))], hierarchy.tolist()
+    return [beat_ints for h in range(len(labels))], labels.tolist()
 
 def get_groundtruth(index):
     groundtruth = load_salami_hierarchies(index)
@@ -283,14 +353,32 @@ def get_groundtruth(index):
     if PLOT_PATH: plot_groundtruths(groundtruth, index, PLOT_PATH)
     return groundtruth
 
+def divide_matrix(index, beats, matrix, raw):
+    ssm = own_mfcc_affinity(index, beats)[0]
+    #ssm = load_fused_matrix(index, PARAMS, False)[0]
+    boundaries = get_novelty_boundaries(ssm)-1#, kernel_size=PARAMS['MEDIAN_LEN'], sigma=PARAMS['SIGMA'])-1
+    boundaries = boundaries[boundaries >= 0]
+    print(boundaries)
+    if len(boundaries) > 0:
+        matrix[boundaries] = 0
+        matrix.T[boundaries] = 0
+        raw[boundaries] = 0
+        raw.T[boundaries] = 0
+    return matrix, raw
+
 def get_hierarchy(index, hierarchy_buffer=None):
     groundtruth = get_groundtruth(index)
     if PARAMS['MATRIX_TYPE'] is 2:
-        matrix, beats = load_fused_matrix(index)
+        matrix, beats = load_fused_matrix(index, PARAMS)
+        #print(index, np.sum(matrix), len(matrix)**2, np.sum(matrix) / len(matrix)**2)
         raw = matrix.copy()
         if PLOT_PATH: plot_matrix(matrix, PLOT_PATH+str(index)+'-m0f.png')
-        matrix = double_smooth_matrix(matrix, True, PARAMS['MAX_GAPS'],
-            PARAMS['MAX_GAP_RATIO'])
+        # matrix = double_smooth_matrix(matrix, True, PARAMS['MAX_GAPS'],
+        #     PARAMS['MAX_GAP_RATIO'])
+        matrix = get_best_segments(matrix, PARAMS['MIN_LEN'],
+            min_dist=PARAMS['MIN_DIST'], min_val=1-PARAMS['MAX_GAP_RATIO'],
+            max_gap_len=PARAMS['MAX_GAPS'])
+        #matrix, raw = divide_matrix(index, beats, matrix, raw)
         if PLOT_PATH: plot_matrix(matrix, PLOT_PATH+str(index)+'-m1f.png')
     elif PARAMS['MATRIX_TYPE'] is 1:
         matrix, beats = buffered_run(DATA+'mcfee'+str(index),
@@ -298,16 +386,21 @@ def get_hierarchy(index, hierarchy_buffer=None):
         if PLOT_PATH: plot_matrix(matrix, PLOT_PATH+str(index)+'-m1m.png')
     else:
         matrix, raw, beats = buffered_run(DATA+'ownM'+str(index),
-            lambda: own_chroma_mfcc_affinity(index), PARAMS.values())
+            lambda: own_chroma_affinity(index), PARAMS.values())
+        #matrix, raw = divide_matrix(index, beats, matrix, raw)
         if PLOT_PATH: plot_matrix(raw, PLOT_PATH+str(index)+'-m0o.png')
         if PLOT_PATH: plot_matrix(matrix, PLOT_PATH+str(index)+'-m1o.png')
     # matrix, raw, beats = own_chroma_affinity_new(index)
     # if PLOT_PATH: plot_matrix(raw, PLOT_PATH+str(index)+'-m0oN.png')
     # if PLOT_PATH: plot_matrix(matrix, PLOT_PATH+str(index)+'-m1oN.png')
     # #raw = None
+    # mfm, mfb = get_smooth_affinity_matrix(get_audio(index))
+    # if PLOT_PATH: plot_matrix(mfm, PLOT_PATH+str(index)+'-m-mf.png')
+    # print(len(mfb), len(mfm))
+    #print(beats, mfb)
     
     target = raw#matrix
-    #target = load_fused_matrix(index, True)[0]
+    #target = load_fused_matrix(index, PARAMS, True)[0]
     #target = (raw-np.min(raw))/(np.max(raw)-np.min(raw))
     # target = buffered_run(DATA+'own'+str(index),
     #     lambda: own_chroma_affinity(index, beats), PARAMS.values())[1]
@@ -319,6 +412,14 @@ def get_hierarchy(index, hierarchy_buffer=None):
             lambda: transitive_hierarchy(matrix, raw, target, beats, groundtruth, index, plot_file), PARAMS.values())
     else:
         own = transitive_hierarchy(matrix, raw, target, beats, groundtruth, index, plot_file)
+    
+    # #diviiiide
+    # ssm = own_mfcc_affinity(index, beats)[0]
+    # #ssm = load_fused_matrix(index, PARAMS, False)[0]
+    # boundaries = get_novelty_boundaries(ssm)
+    # print(boundaries)
+    # own = divide_hierarchy(boundaries, own)
+    
     if PLOT_PATH: plot_hierarchy(PLOT_PATH, index, 'o'+matrix_type()[0],
         own[0], own[1], groundtruth, force=True)
     return own
@@ -327,6 +428,7 @@ def get_hierarchy(index, hierarchy_buffer=None):
 def own_eval(params):
     global PARAMS
     index, method_name, PARAMS = params
+    #calculate_fused_matrix(get_audio(index), True)
     t = get_hierarchy(index)#, 'ownBUFFER')
     return evaluate(index, method_name, list(PARAMS.values()), t[0], t[1])
 
@@ -366,6 +468,9 @@ def comparative_eval(indices, params=PARAMS):
         for s in multi_eval(indices, 'l', lapl_eval, True, params)]
     own = [np.mean([e[-1] for e in s])
         for s in multi_eval(indices, 't', own_eval, False, params)]
+    print(lapl)
+    print(own)
+    print([o-l for l,o in zip(lapl, own)])
     return np.mean([o-l for l,o in zip(lapl, own)])
 
 def eval_laplacian(index, levels, groundtruth, intervals, labels):
@@ -407,8 +512,9 @@ def plot_laplacian(path='lapl.png'):
 def plot(path=None):
     data = RESULTS.read()
     pd.set_option('display.max_rows',None)
+    #data2 = data[np.isin(data['SONG'], [1099,1179,1210,1431,616,1419,578,749,765,1405,198,1603,1395,1059,696,774,1196,675,1186,1347,458,1648,244,1392,14])]
     print(data.groupby(['SONG','METHOD'])[['P','R','L']].mean())
-    print(nothing)
+    #print(nothing)
     #data = data[1183 <= data['SONG']][data['SONG'] <= 1211]
     #data = data[data['SONG'] <= 333]
     #data = data[data['MIN_LEN'] == 24]
@@ -427,6 +533,50 @@ def plot(path=None):
     #plt.show()
     plt.tight_layout()
     plt.savefig(path, dpi=1000) if path else plt.show()
+
+def analyze(path='analysis'):
+    data = RESULTS.read()
+    data = data[data['METHOD'] == 't']
+    songs = data['SONG'].unique()
+    matrix_sizes = dict(zip(songs, [len(get_beats(s)) for s in songs]))
+    data = data.sort_values('L', ascending=False).drop_duplicates(['SONG','REF'])
+    data['BEATS'] = data['SONG'].map(matrix_sizes)
+    print(data)
+    plot(lambda: data.plot.scatter(x='BEATS', y='L'), path+'L.pdf')
+    plot(lambda: data.plot.scatter(x='BEATS', y='BETA'), path+'BETA.pdf')
+    plot(lambda: data.plot.scatter(x='BEATS', y='SIGMA'), path+'SIGMA.pdf')
+    plot(lambda: data.plot.scatter(x='BEATS', y='MIN_LEN'), path+'MIN_LEN.pdf')
+    plot(lambda: data.plot.scatter(x='BEATS', y='MAX_GAPS'), path+'MAX_GAPS.pdf')
+    plot(lambda: data.plot.scatter(x='BEATS', y='MAX_GAP_RATIO'), path+'MAX_GAP_RATIO.pdf')
+    plot(lambda: data.plot.scatter(x='BEATS', y='MIN_LEN2'), path+'MIN_LEN2.pdf')
+    
+    plot(lambda: data.plot.scatter(x='MAX_GAP_RATIO', y='MAX_GAPS'), path+'_mgr_mg.pdf')
+    plot(lambda: data.plot.scatter(x='BETA', y='SIGMA'), path+'_beta_sigma.pdf')
+    plot(lambda: data.plot.scatter(x='BETA', y='L'), path+'_beta_l.pdf')
+    plot(lambda: data.plot.scatter(x='SIGMA', y='L'), path+'_sigma_l.pdf')
+    plot(lambda: data.plot.scatter(x='SIGMA', y='MAX_GAP_RATIO'), path+'_sigma_mgr.pdf')
+    plot(lambda: data.plot.scatter(x='SIGMA', y='MAX_GAPS'), path+'_sigma_mg.pdf')
+    
+    data = RESULTS.read()
+    # for s in songs:
+    #     data2 = data[(data['METHOD'] == 't') & (data['SONG'] == s)]
+    #     plot(lambda: data2.plot.scatter(x='SIGMA', y='L'), path+'SIGMA'+str(s)+'.pdf')
+    # 
+    # for s in songs:
+    #     data2 = data[(data['METHOD'] == 't') & (data['SONG'] == s)]
+    #     plot(lambda: data2.plot.scatter(x='MAX_GAPS', y='L'), path+'SMGR'+str(s)+'.pdf')
+    for s in songs:
+        data2 = data[(data['METHOD'] == 't') & (data['SONG'] == s)]
+        plot(lambda: data2.plot.scatter(x='BETA', y='L'), path+'BETA'+str(s)+'.pdf')
+    for s in songs:
+        data2 = data[(data['METHOD'] == 't') & (data['SONG'] == s)]
+        plot(lambda: data2.plot.scatter(x='MAX_GAP_RATIO', y='L'), path+'MGR'+str(s)+'.pdf')
+    for s in songs:
+        data2 = data[(data['METHOD'] == 't') & (data['SONG'] == s)]
+        plot(lambda: data2.plot.scatter(x='MIN_LEN', y='L'), path+'ML'+str(s)+'.pdf')
+    for s in songs:
+        data2 = data[(data['METHOD'] == 't') & (data['SONG'] == s)]
+        plot(lambda: data2.plot.scatter(x='MIN_LEN2', y='L'), path+'MLTWO'+str(s)+'.pdf')
 
 #increasing number of possible pairs with same label decreases monotonicity...
 #(denominator gets larger)
@@ -499,51 +649,49 @@ def salami_analysis(path='salami_analysis5'):
     # print("m1hom", np.mean([monotonicity(h) for h in hiers]))
     # print("m2hom", np.mean([monotonicity2(h, b) for h,b in zip(hiers, beats)]))
     # print("m3hom", np.mean([monotonicity3(h, b) for h,b in zip(hiers, beats)]))
-    plott(data.boxplot, path+'.pdf')
-    plott(lambda: data.plot.scatter(x='U_S', y='R'), path+'s.pdf')
-    plott(lambda: data.plot.scatter(x='M_L', y='R'), path+'s2.pdf')
-    plott(lambda: data.plot.scatter(x='M_I', y='M_L'), path+'s3.pdf')
-    plott(lambda: data.plot.scatter(x='U_O', y='U_S'), path+'s4.pdf')
-    plott(lambda: data.plot.scatter(x='M_I', y='U_S'), path+'s5.pdf')
-    plott(lambda: data.plot.scatter(x='M_L', y='U_S'), path+'s6.pdf')
-    plott(lambda: data.plot.scatter(x='M_L', y='U_O'), path+'s7.pdf')
-
-def plott(plot_func, path):
-    plot_func()
-    plt.tight_layout()
-    plt.savefig(path, dpi=1000) if path else plt.show()
-    plt.close()
+    plot(data.boxplot, path+'.pdf')
+    plot(lambda: data.plot.scatter(x='U_S', y='R'), path+'s.pdf')
+    plot(lambda: data.plot.scatter(x='M_L', y='R'), path+'s2.pdf')
+    plot(lambda: data.plot.scatter(x='M_I', y='M_L'), path+'s3.pdf')
+    plot(lambda: data.plot.scatter(x='U_O', y='U_S'), path+'s4.pdf')
+    plot(lambda: data.plot.scatter(x='M_I', y='U_S'), path+'s5.pdf')
+    plot(lambda: data.plot.scatter(x='M_L', y='U_S'), path+'s6.pdf')
+    plot(lambda: data.plot.scatter(x='M_L', y='U_O'), path+'s7.pdf')
 
 def test_mfcc_novelty(index=943):#340 356 (482 574 576)
     ssm = own_chroma_mfcc_affinity(index)[0]
     novelty = get_novelty_boundaries(ssm)
     print(novelty)
+    divide_hierarchy
 
 def objective(trial):
-    t = trial.suggest_int('t', 2, 2, step=1)
-    w = trial.suggest_float('w', 0.5, 0.5)
+    t = trial.suggest_int('t', 2, 2)
+    w = trial.suggest_float('w', 0, 0)
     k = trial.suggest_float('k', 0, 0)#, step=0.5)
+    m = trial.suggest_int('m', 16, 16)
+    #s = trial.suggest_float('s', 0, 0)
+    s = trial.suggest_categorical('s', [0.001,0.002,0.004,0.008,0.016,0.032,0.064,0.128,0.256,0.512,1.024])
     #k = trial.suggest_float('k', 1, 4, step=1)
     #k = trial.suggest_float('k', 98.25, 99.25)#, step=0.5)
     #k = trial.suggest_int('k', 1, 3, step=5)
     n = trial.suggest_int('n', 100, 100)#, step=50)
-    ml = trial.suggest_int('ml', 5, 10)#, step=4)
-    md = trial.suggest_int('md', 1, 5, step=1)
+    ml = trial.suggest_int('ml', 10, 10)#, step=4)
+    md = trial.suggest_int('md', 1, 1, step=1)
     #mg = trial.suggest_int('mg', 6, 8, step=1)
-    mg = trial.suggest_int('mg', 10, 16, step=1)
-    mgr = trial.suggest_float('mgr', .4, .8)#, step=.1)
+    mg = trial.suggest_int('mg', 0, 0, step=1)
+    mgr = trial.suggest_float('mgr', .1, .4)#, step=.1)
     #mgr = trial.suggest_float('mgr', 0.02, 0.05)#, step=.1)
-    ml2 = trial.suggest_int('ml2', 10, 40)#, step=4)
+    ml2 = trial.suggest_int('ml2', 10, 10)#, step=4)
     md2 = trial.suggest_int('md2', 1, 1, step=1)
     lex = trial.suggest_int('lex', 1, 1)
-    beta = trial.suggest_float('beta', .1, .4)#, step=.1)
+    beta = trial.suggest_float('beta', .2, .6)#, step=.1)
     if trial.should_prune():
         raise optuna.TrialPruned()
     #[229, 79, 231, 315, 198] [75, 22, 183, 294, 111]
     #[1270,1461,1375,340,1627,584,1196,443,23,1434] [899,458,811,340,1072,1068,572,310,120,331]
     #[680,95,791,229,1356,236,352,852,384,1168,1132,612,1231,1443,370,794,7,1256,1356,443,1634,791,275,373,332,1098,1186,498,1403,708,1382,616,462,1610,346,578,1266,1654,771,1404,637,344,813,1154,1237,148,618]
     return 100 * comparative_eval([1099,1179,1210,1431,616,1419,578,749,765,1405,198,1603,1395,1059,696,774,1196,675,1186,1347,458,1648,244,1392,14],#get_monotonic_salami()[6:100],
-        {'MATRIX_TYPE': t, 'WEIGHT': w, 'THRESHOLD': k,
+        {'MATRIX_TYPE': t, 'MEDIAN_LEN': m, 'SIGMA': s, 'WEIGHT': w, 'THRESHOLD': k,
         'NUM_SEGS': n, 'MIN_LEN': ml, 'MIN_DIST': md, 'MAX_GAPS': mg,
         'MAX_GAP_RATIO': mgr, 'MIN_LEN2': ml2, 'MIN_DIST2': md2, 'LEXIS': lex,
         'BETA': beta})
@@ -553,11 +701,14 @@ def objective(trial):
 # export LC_CTYPE="en_US.UTF-8"
 
 def study():
-    study = optuna.create_study(direction='maximize', load_if_exists=True, pruner=RepeatPruner())#, sampler=optuna.samplers.GridSampler())
+    #study = optuna.create_study(direction='maximize', load_if_exists=True, pruner=RepeatPruner())#, sampler=optuna.samplers.GridSampler())
+    study = optuna.create_study(direction='maximize', load_if_exists=True, pruner=RepeatPruner(),
+        sampler=optuna.samplers.GridSampler({"s": [0.001,0.002,0.004,0.008,0.016,0.032,0.064,0.128],
+        'beta':[0.6], 'mgr':[0.1,0.2,0.3]}))
     study.optimize(objective, n_trials=100)
     print(study.best_params)
-    params=['mgr','ml','mg','ml2','beta']
-    ext='16fusedNEW3.png'
+    params=['s','mgr','beta']
+    ext='16fusedVARSIG3.png'
     optuna.visualization.plot_slice(study, params=params).write_image(output+'params'+ext)
     optuna.visualization.plot_param_importances(study, params=params).write_image(output+'pimps'+ext)
     optuna.visualization.plot_optimization_history(study).write_image(output+'poptim'+ext)
@@ -572,6 +723,9 @@ def study():
 #     else:
 #         [evaluate_to_table(i) for i in tqdm.tqdm(songs)]
 
+def calc(i):
+    return calculate_fused_matrix(get_audio(i), True)
+
 if __name__ == "__main__":
     #print(np.random.choice(get_available_songs(), 200, replace=False))#[6:100], 5))
     #[880,36,1212,1491,1202,216,1106,1120,1302,715,135,1261,1613,1653,1363,512,1179,1456,376,486,653,340,979,1110,805,1207,983,1454,1630,1127,1479,1038,1069,315,1334,1191,1394,389,1132,613,1307,800,349,356,1112,1054,1311,155,388,1173,587,1291,768,722,261,302,1210,612,626,1379,749,1229,995,1042,1428,1629,1603,1195,327,1388,911,1434,1332,1364,458,735,1242,204,1420,1062,133,1150,1286,1451,330,1048,959,1216,31,1064,374,787,227,751,655,634,1381,509,1282,550]
@@ -585,15 +739,34 @@ if __name__ == "__main__":
     #[264,1397,426,158,1352,485,568,1461,1149,819,1084,988,298,1605,959,365,1301,900,1028,31,932,1152,445,768,229]
     #[63,604,1365,608,787,799,655,36,1406,702,1295,1392,1339,611,1234,640,1148,1314,1431,1621,1315,298,1254,1379,108,1174,708,24,146,1206,1176,994,973,1082,1103,213,594,1253,770,1104,1216,974,615,1019,1340,1251,1127,455,607,1349,662,1053,672,1356,1294,992,819,935,582,1284,520,107,668,1156,400,1422,733,1141,7,1306,1210,814,1150,643,1477,925,1647,1355,1399,307,695,1111,762,468,562,227,1028,1203,1290,22,47,95,1382,790,1119,847,597,565,1059,1248]
     #[584,819,781,280,1152,900,726,780,957,1219,1413,51,767,1340,1066,424,515,583,343,1619,307,799,971,1059,632,1445,805,86,527,1351,611,50,702,1188,1341,1070,26,884,615,772,616,1127,346,1299,1388,636,491,536,31,941,1138,1366,1647,906,980,592,1189,520,944,942,1100,790,379,1620,1406,1018,557,1603,1139,994,1259,549,981,1091,914,861,1234,1104,1120,1347,1047,483,1079,1368,1221,1467,968,996,1300,846,578,1042,811,991,1652,1112,1263,671,366,1124,978,1240,740,478,1157,1342,534,63,244,293,1608,404,988,565,1146,1437,572,1359,1296,1256,1274,725,629,1630,1004,532,1110,501,842,1421,236,1422,661,356,1154,405,620,146,973,1615,958,1435,1416,1008,1272,352,11,613,422,439,1148,1275,1253,466,158,482,1099,518,1151,1394,1284,899,984,887,446,152,828,276,1143,472,384,24,294,1355,1364,651,1381,1356,10,1243,464,682,19,331,1247,1408,1136,1474,813,818,1309,261,566,528,1074,1286,460,1382,956,198]
-    study()
+    #study()
     #laplacian_analysis()
     #extract_all_features()
     #calculate_fused_matrices()
-    #sweep()
     #profile(indie_eval)#indie_eval()
-    #PLOT_PATH=output+'all11/'
-    # own_eval([340, 't', PARAMS])
-    #print(100*comparative_eval([340,356,482,574,576]))
+    
+    PLOT_PATH=output+'all18/'
+    #lapl_eval([14, 'l', PARAMS])
+    #calculate_fused_matrix(get_audio(1210), True)
+    #own_eval([578, 't', PARAMS])#578 1059
+    #profile(lambda: own_eval([14, 't', PARAMS]))#340
+    #matrix_analysis.entropy_experiment(1648, PARAMS, PLOT_PATH, RESULTS)
+    #matrix_analysis.beta_combi_experiment(1648, PARAMS, PLOT_PATH, RESULTS)#1347 1648
+    
+    #multiprocess('fusing matrices', calc, [680,95,791,229,1356,236,352,852,384,1168,1132,612,1231,1443,370,794,7,1256,1356,443,1634,791,275,373,332,1098,1186,498,1403,708,1382,616,462,1610,346,578,1266,1654,771,1404,637,344,813,1154,1237,148,618], True)
+    #print(100*comparative_eval([1099,1179,1210,1431,616,1419,578,749,765,1405,198,1603,1395,1059,696,774,1196,675,1186,1347,458,1648,244,1392,14]))#[14,244,616,749]))#[340,356,482,574,576]))
+    #wf:-2 wpb:2 2.758309140953134
+    #wf:-2 wpb:5 1.044446465454624
+    #wf:-2 wpb:1 -1.7147500601471868
+    #wf:-1 wpb:2 2.6244372339491586
+    
+    #plot()
+    #matrix_analysis.test_sigma(RESULTS, PARAMS, PLOT_PATH)
+    #matrix_analysis.test_beta_combi(RESULTS, PARAMS, PLOT_PATH)
+    matrix_analysis.test_var_sigma_beta(RESULTS, PARAMS, PLOT_PATH)
+    #matrix_analysis([1431,1179])
+    #matrix_analysis([1099,1179,1210,1431,616,1419,578,749,765,1405,198,1603,1395,1059,696,774,1196,675,1186,1347,458,1648,244,1392,14])
+    #matrix_analysis2()
     #print(comparative_eval([1099,1179,1210,1431,616,1419,578,749,765,1405,198,1603,1395,1059,696,774,1196,675,1186,1347,458,1648,244,1392,14]))#get_available_songs()))
     #multi_eval(get_available_songs(), 'l', lapl_eval, True) #[63,604,1365,608,787,799,655,36,1406,702,1295,1392,1339,611,1234,640,1148,1314,1431,1621,1315,298,1254,1379,108,1174,708,24,146,1206,1176,994,973,1082,1103,213,594,1253,770,1104,1216,974,615,1019,1340,1251,1127,455,607,1349,662,1053,672,1356,1294,992,819,935,582,1284,520,107,668,1156,400,1422,733,1141,7,1306,1210,814,1150,643,1477,925,1647,1355,1399,307,695,1111,762,468,562,227,1028,1203,1290,22,47,95,1382,790,1119,847,597,565,1059,1248])#[408, 822, 722, 637, 527])
     #salami_analysis()
