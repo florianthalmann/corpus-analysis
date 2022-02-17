@@ -52,7 +52,7 @@ def process_alignment(self_alignment, min_len, min_dist, beta, target, plot_file
     # #profile(lambda: clean_up(g, seg))
     # self_alignment = matrix_to_segments(np.triu(adjacency_matrix(g2)))
     # plot_matrix(segments_to_matrix(self_alignment, shape), 'est3.png')
-    hierarchy = make_segments_hierarchical(self_alignment, min_len, min_dist, target, beta=beta, verbose=False)#, 'est4')#, 'yoyy')
+    hierarchy = make_segments_hierarchical(self_alignment, min_len, min_dist, target, beta=beta)#, 'est4')#, 'yoyy')
     if plot_file: plot_matrix(segments_to_matrix(hierarchy, target.shape), plot_file)
     
     if put_blocks_back:
@@ -81,6 +81,11 @@ def simple_structure(self_alignment, min_len, min_dist, beta, target=None, lexis
         #plot_matrix(hierarchy)
         #return sections
     return np.array([np.repeat(0, len(target))])
+
+def matrix_to_labels(matrix, lexis=True):
+    g = graph_from_matrix(matrix)[0]
+    comp_labels = component_labels(g)
+    return get_hierarchy_labels([comp_labels], lexis=lexis)[0]
 
 def shared_structure(sequences, pairings, alignments, msa, min_len, min_dist):
     print("ag")

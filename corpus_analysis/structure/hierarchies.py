@@ -678,24 +678,26 @@ def divide_hierarchy(indices, hierarchy):
     segments, labels = hierarchy
     labels = np.array(labels)
     for i in indices:
-        for s,l in zip(segments, labels):
-            #section label at position
-            section = l[i]
-            #locations of section
-            locations = get_section_locs(section, l)
-            #print(locations)
-            #position in section at which to divide
-            offset = int(np.where(i-locations >= 0, i-locations, np.inf).min())
-            #print(offset)
-            nextid = np.max(labels)+1
-            #print(locations[:,None] + (np.arange(offset)))
-            #indices of initial part to be relabeled
-            relabels = np.unique(locations[:,None] + (np.arange(offset)))
-            relabels = relabels[(0 <= relabels) & (relabels < len(l))]
-            #print(relabels)
-            l[relabels.astype(int)] = nextid
+        #check if divisible in all layers
+        locations = [get_section_locs(l[i], l) for l in labels]
+        divisible = all([len(l) == 1 for l in locations])
+        if divisible:
+            for j,l in enumerate(labels[0:], 0):
+                locs = locations[j]
+                #print(i, l[i], j, locs)
+                #position in section at which to divide
+                offset = int(np.where(i-locs >= 0, i-locs, np.inf).min())
+                #print(offset)
+                nextid = np.max(labels)+1
+                #print(locations[:,None] + (np.arange(offset)))
+                #indices of initial part to be relabeled
+                relabels = np.unique(locs[:,None] + (np.arange(offset)))
+                relabels = relabels[(0 <= relabels) & (relabels < len(l))]
+                #print(relabels)
+                l[relabels.astype(int)] = nextid
+    segments.insert(0, segments[0].copy())
+    labels = np.concatenate([[[nextid+1] * len(labels[0])], labels])
     return segments, labels
-    
 
 def group_ungrouped_elements(sequence, sections, occurrences, ignore):
     next_index = max_index(sections)+1
