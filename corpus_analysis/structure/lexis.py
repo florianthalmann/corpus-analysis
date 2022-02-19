@@ -2,6 +2,7 @@ import os, subprocess, json, uuid
 import numpy as np
 from graph_tool.all import graph_draw
 from matplotlib import pyplot as plt
+from ..util import flatten
 
 lexis_path = './corpus_analysis/Lexis/'
 
@@ -37,14 +38,26 @@ def lexis_sections(sequences, ignore_homogenous=False):
     #convert types back
     seqs = [np.array(s)-offset for s in lex[0]]
     sections = {k-offset:np.array(v)-offset for k,v in lex.items() if k != 0}
-    # if ignore_homogenous:
-    #     new_sections = {}
-    #     for k in np.sort(sections.keys())[::-1]:
-    #         if np.all(sections[k] == sections[k][0]):
-    #             for 
-    # 
+    #replace all homogenous sections (consisting of all same subsections)
+    if ignore_homogenous:
+        hom = find_homogenous(sections)
+        while hom is not None:
+            parts = list(sections[hom])
+            seqs = [replace(s, hom, sections[hom]) for s in seqs]
+            sections = {k:replace(p, hom, sections[hom])
+                for k,p in sections.items() if k != hom}
+            hom = find_homogenous(sections)
+    
     occs = np.bincount(np.concatenate(list(sections.values())+seqs)+1)[1:]#ignore -1
     occs = {k:np.repeat(0, occs[k]) if k < len(occs) else 0 for k in sections.keys()}#dummy occs for now
     #print('core', core)
     #print(len(core), len(sections.values()))
     return seqs, sections, occs, core
+
+def find_homogenous(sections):
+    return next((k for k in sections.keys()
+        if np.all(sections[k] == sections[k][0])), None)
+
+#replace all x with array b in array a
+def replace(a, x, b):
+    return np.array(flatten([t if t != x else list(b) for t in a]))
