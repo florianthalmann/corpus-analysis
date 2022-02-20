@@ -132,8 +132,9 @@ def beta_combi_experiment(index, params, plot_path, results=None):
     if results:
         data = read_and_prepare_results(results)
         print('baseline l', data[(data['SONG'] == index) & (data['METHOD'] == 'l')]['L'].iloc[0])
-        print('baseline t', data[(data['SONG'] == index) & (data['MAX_GAP_RATIO'] == 0.2)
-            & (data['SIGMA'] == 0.016) & (data['BETA'] == 0.6)]['L'].iloc[0])
+        print('baseline t', data[(data['SONG'] == index) & (data['METHOD'] == 't')]['L'].iloc[0])
+        # print('baseline t', data[(data['SONG'] == index) & (data['MAX_GAP_RATIO'] == 0.2)
+        #     & (data['SIGMA'] == 0.016) & (data['BETA'] == 0.6)]['L'].iloc[0])
     
     t = salami.labels_to_hierarchy(index, matrix_to_labels(best), best,
         salami.get_beats(index), salami.get_groundtruth(index))
@@ -236,13 +237,17 @@ def var_sigma_beta2(multiparams):
     return var_sigma_beta(*multiparams)
 
 def test_var_sigma_beta(results, params, plot_path):
-    data, bestparams = prepare_and_log_results(results, params)
+    if isinstance(results, list):
+        songs = sorted(results)
+        results = None
+    else:
+        data, bestparams = prepare_and_log_results(results, params)
+        songs = data['SONG'].unique()#[::20]
     
-    multiparams = [(s, params, plot_path, results) for s in data['SONG'].unique()]
-    evals = multiprocess('var sigma beta', var_sigma_beta2, multiparams, True)
+    # multiparams = [(s, params, plot_path, results) for s in songs]
+    # evals = multiprocess('var sigma beta', var_sigma_beta2, multiparams, True)
     
-    # evals = [var_sigma_beta(s, params, plot_path, results)
-    #     for s in data['SONG'].unique()]
+    evals = [var_sigma_beta(s, params, plot_path, results) for s in songs]
     
     print('overall', np.mean([np.mean([r[-1] for r in rs]) for rs in evals]))
 
