@@ -1,9 +1,12 @@
 from math import log
 from itertools import product, chain, combinations
 import numpy as np
+from sklearn.metrics import pairwise_distances
+from sklearn.preprocessing import MinMaxScaler
 from corpus_analysis.util import plot
 from corpus_analysis.alignment.affinity import to_diagonals, matrix_to_segments,\
-    segments_to_matrix, get_best_segments
+    segments_to_matrix, get_best_segments, smooth_matrix, peak_threshold,\
+    get_segments_from_matrix
 from corpus_analysis.alignment.util import strided2D
 from corpus_analysis.structure.structure import matrix_to_labels
 from corpus_analysis.structure.hierarchies import make_segments_hierarchical,\
@@ -105,15 +108,35 @@ def entropy_experiment(index, params, plot_path, results, resolution=10, minlen=
         #np.std(xmeans)/np.mean(xmeans), entropy(xmeans)*var_coeff)
         #print(fractal_dimension(matrix))
 
-def beta_combi_experiment(index, params, plot_path, results=None):
-    betas = np.array([0.2,0.3,0.4,0.5])
+def beta_combi_experiment_fused(index, params, plot_path, results=None):
     matrix = salami.load_fused_matrix(index, params, var_sigma=False)[0]
+    params['MIN_LEN'] = round(matrix.shape[0]/50)
+    params['MIN_LEN2'] = params['MIN_LEN']
+    print(matrix.shape, params['MIN_LEN'])
     segs = matrix_to_segments(get_best_segments(matrix, params['MIN_LEN'],
         min_dist=params['MIN_DIST'], min_val=1-params['MAX_GAP_RATIO'],
         max_gap_len=params['MAX_GAPS']))
+    return beta_combi_experiment(index, matrix, segs, params, plot_path, results)
+
+def beta_combi_experiment_classic(index, params, plot_path, results=None):
+    matrix, raw, beats = salami.own_chroma_affinity(index)
+    # params['MIN_LEN'] = round(matrix.shape[0]/50)
+    # params['MIN_LEN2'] = params['MIN_LEN']
+    # print(matrix.shape, params['MIN_LEN'])
+    segs = get_segments_from_matrix(matrix, True,
+        params['NUM_SEGS'], params['MIN_LEN'], params['MIN_DIST'],
+        params['MAX_GAPS'], params['MAX_GAP_RATIO'], raw)
+    # segs = matrix_to_segments(get_best_segments(matrix, params['MIN_LEN'],
+    #     min_dist=params['MIN_DIST'], min_val=1-params['MAX_GAP_RATIO'],
+    #     max_gap_len=params['MAX_GAPS']))
+    return beta_combi_experiment(index, matrix, segs, params, plot_path, results)
+
+def beta_combi_experiment(index, matrix, segs, params, plot_path, results=None):
+    betas = np.array([0.2,0.3,0.4,0.5])
+    
     transitives = []
     for b in betas:
-        print('transitive', b)
+        print(index, 'transitive', b)
         m = segments_to_matrix(make_segments_hierarchical(segs, params['MIN_LEN'],
             min_dist=params['MIN_DIST'], target=matrix, beta=b, verbose=False), matrix.shape)
         transitives.append(m + m.T)
@@ -127,18 +150,18 @@ def beta_combi_experiment(index, params, plot_path, results=None):
         plot_matrix(combi, plot_path+'ccc'+str(index)+'-'+str(betas[c])+'.png')
         matrixcombis.append(combi)
         combiratings.append(matrix_rating_b(combi))
-        print(betas[c], combiratings[-1])
+        print(index, betas[c], combiratings[-1])
     best = matrixcombis[np.argmax(combiratings)]
     if results:
         data = read_and_prepare_results(results)
-        print('baseline l', data[(data['SONG'] == index) & (data['METHOD'] == 'l')]['L'].iloc[0])
-        print('baseline t', data[(data['SONG'] == index) & (data['METHOD'] == 't')]['L'].iloc[0])
+        print(index, 'baseline l', data[(data['SONG'] == index) & (data['METHOD'] == 'l')]['L'].iloc[0])
+        print(index, 'baseline t', data[(data['SONG'] == index) & (data['METHOD'] == 't')]['L'].iloc[0])
         # print('baseline t', data[(data['SONG'] == index) & (data['MAX_GAP_RATIO'] == 0.2)
         #     & (data['SIGMA'] == 0.016) & (data['BETA'] == 0.6)]['L'].iloc[0])
     
     t = salami.labels_to_hierarchy(index, matrix_to_labels(best), best,
         salami.get_beats(index), salami.get_groundtruth(index))
-    print('best', betacombis[np.argmax(combiratings)])
+    print(index, 'best', betacombis[np.argmax(combiratings)])
     return salami.evaluate(index, 'combi', list(params.values()), t[0], t[1])
 
 def powerset(iterable):
@@ -152,11 +175,20 @@ def best_sigma(index, params, buffer=None, plot_path=None):#='salami/sigmas.json
         if sigmas and str(index) in sigmas:
             return sigmas[str(index)]
     #values = np.round(np.arange(0.001,0.011,0.001), 3)
-    values = [0.001,0.002,0.004,0.008,0.016,0.032,0.064]#,0.128]#,0.256,0.512,1.024]
+    values = [0.001,0.002,0.004,0.008,0.016,0.032,0.064,0.128,0.256,0.512,1.024]
     measures = []
     for v in values:
         params['SIGMA'] = v
         matrix = salami.load_fused_matrix(index, params, var_sigma=False)[0]
+        # chroma = salami.get_beatwise_chroma(index)
+        # chroma = MinMaxScaler().fit_transform(chroma)
+        # matrix = 1-pairwise_distances(chroma, chroma, metric="cosine")
+        # matrix = smooth_matrix(matrix, False, 2)
+        # #matrix = matrix + matrix.T
+        # matrix = peak_threshold(matrix, params['MEDIAN_LEN'], params['SIGMA'])
+        # matrix = np.logical_or(matrix.T, matrix)
+        # #matrix = salami.own_chroma_affinity(index)[1]#raw
+        # #matrix = smooth_matrix(matrix, True, 1)
         matrix = matrix + matrix.T
         measures.append(matrix_rating_s(matrix))
         if plot_path: plot_matrix(matrix, plot_path+'eee'+str(index)+'-'+str(v)+'.png')
@@ -248,6 +280,20 @@ def test_var_sigma_beta(results, params, plot_path):
     # evals = multiprocess('var sigma beta', var_sigma_beta2, multiparams, True)
     
     evals = [var_sigma_beta(s, params, plot_path, results) for s in songs]
+    
+    print('overall', np.mean([np.mean([r[-1] for r in rs]) for rs in evals]))
+
+def beta_combi_experiment_classic2(multiparams):
+    return beta_combi_experiment_classic(*multiparams)
+
+def test_classic_beta(results, params, plot_path):
+    data, bestparams = prepare_and_log_results(results, params)
+    songs = data['SONG'].unique()#[::20]
+    
+    multiparams = [(s, params, plot_path, results) for s in songs]
+    evals = multiprocess('var beta', beta_combi_experiment_classic2, multiparams, True)
+    
+    #evals = [beta_combi_experiment_classic(s, params, plot_path, results) for s in songs]
     
     print('overall', np.mean([np.mean([r[-1] for r in rs]) for rs in evals]))
 

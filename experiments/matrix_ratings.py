@@ -8,14 +8,15 @@ def matrix_rating_s(matrix, resolution=10, minlen=9):
     #np.fill_diagonal(matrix, 0)
     if np.sum(matrix) == 0: return 0
     #matrix = segments_to_matrix([s for s in matrix_to_segments(matrix) if len(s) > 1])
-    diagonals = to_diagonals(matrix)
-    antidiagonals = to_diagonals(np.flip(matrix, axis=0))
+    # diagonals = to_diagonals(matrix)
+    # antidiagonals = to_diagonals(np.flip(matrix, axis=0))
     xmeans, xvar, xent = distribution_measures(matrix, resolution)
     # dmeans, dvar, dent = distribution_measures(diagonals, resolution)
     # admeans, advar, adent = distribution_measures(antidiagonals, resolution)
     nonzero = len([x for x in xmeans if np.sum(x) > 0]) / len(xmeans)
     decent = len([x for x in xmeans if 2 < np.sum(x) < 0.1*len(xmeans)]) / len(xmeans)
     segs = [len(s) for s in matrix_to_segments(matrix)]
+    ones = (len([s for s in segs if s < round(matrix.shape[0]/50)])+1)/len(segs)
     segs = [s for s in segs if 4 < s < 10]
     segs = [0] if len(segs) == 0 else segs
     meanseglen, maxseglen, minseglen = np.mean(segs), np.max(segs), np.min(segs)
@@ -55,7 +56,8 @@ def matrix_rating_s(matrix, resolution=10, minlen=9):
     #return xvar*nonzero*meanseglen if maxseglen >= minlen else 0 #0.5173722584948066 0.5350565320835667
     #return xvar*nonzero*maxseglen #0.5088370030634288 0.5312888863716688
     #return xdiffvar*nonzero if maxseglen >= minlen else 0 #0.47609386764634976 0.5217101857451909 !!
-    return meanseglen*nonzero*xvar if maxseglen >= minlen else 0#*nonzero*xvar if maxseglen >= minlen else 0 #0.5298230209053344 0.5513507689993286
+    #return meanseglen*nonzero*xvar if maxseglen >= minlen else 0#*nonzero*xvar if maxseglen >= minlen else 0 #0.5298230209053344 0.5513507689993286
+    return nonzero/ones*xvar
     #return  if maxseglen >= minlen else 0 #6
     #return nonzero/pent if maxseglen >= minlen else 0
     #return decent*xvar if maxseglen >= minlen else 0#xent*xvar
