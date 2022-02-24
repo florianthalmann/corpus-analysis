@@ -512,6 +512,13 @@ def to_hierarchy(sequence, sections):
     sequence = [sections[s].tolist() if s in sections else s for s in sequence]
     return [to_hierarchy(s, sections) if isinstance(s, list) else s for s in sequence]
 
+#only unpacks sections of a minimum depth (distance to leaves)
+def to_hierarchy_d(sequence, sections, depths, min_depth):
+    sequence = [sections[s].tolist() if s in sections and depths[s] >= min_depth
+        else s for s in sequence]
+    return [to_hierarchy_d(s, sections, depths, min_depth)
+        if isinstance(s, list) else s for s in sequence]
+
 def flatten(hierarchy):
     if type(hierarchy) == list:
         return [a for h in hierarchy for a in flatten(h)]
@@ -561,17 +568,26 @@ def replace_lowest_level(hierarchy, sections):
         sections[tuple(h)] if all([isint(e) for e in h])
         else replace_lowest_level(h, sections) for h in hierarchy]
 
-def to_labels2(sequences, sections, section_lengths):
+def section_depth(section, sections):
+    depths = [section_depth(sections[e], sections) if e in sections
+        else 0 for e in section]
+    print(depths)
+    return max(depths)+1
+
+def to_labels2(sequences, sections):
     #merge sequences and treat together
-    hierarchy = to_hierarchy(np.hstack(sequences), sections)
-    #print(hierarchy)
-    sections_ids = {tuple(v):k for k,v in sections.items()}
+    stacked = np.hstack(sequences)
+    
+    #build layers one by one by unpacking shallow parts last
+    section_lengths = {k:len(flatten((to_hierarchy(np.array([k]), sections))))
+        for k in sections.keys()}
+    section_depths = {k:section_depth(s, sections) for k,s in sections.items()}
     layers = []
-    layers.append(np.array(flatten(hierarchy)))
-    while not all([isint(h) for h in hierarchy]):
-        hierarchy = replace_lowest_level(hierarchy, sections_ids)
-        layers.insert(0, np.concatenate([np.repeat(h, section_lengths[h])
+    for d in range(max(section_depths.values())+1, 0, -1):
+        hierarchy = to_hierarchy_d(stacked, sections, section_depths, d)
+        layers.append(np.concatenate([np.repeat(h, section_lengths[h])
             if h in sections else [h] for h in flatten(hierarchy)]))
+    
     #add overarching main section
     next_id = max(list(sections.keys()))+1 if len(sections.keys()) > 0 else int(np.max(np.hstack(sequences))+1)
     layers.insert(0, np.repeat(next_id, len(layers[0])))
@@ -677,11 +693,15 @@ def get_section_locs(id, labels):
 def divide_hierarchy(indices, hierarchy):
     segments, labels = hierarchy
     labels = np.array(labels)
+    divided = False
     for i in indices:
         #check if divisible in all layers
         locations = [get_section_locs(l[i], l) for l in labels]
         divisible = all([len(l) == 1 for l in locations])
+        #print(i, divisible, locations)
         if divisible:
+            divided = True
+            print('divide', i)
             for j,l in enumerate(labels[0:], 0):
                 locs = locations[j]
                 #print(i, l[i], j, locs)
@@ -695,8 +715,9 @@ def divide_hierarchy(indices, hierarchy):
                 relabels = relabels[(0 <= relabels) & (relabels < len(l))]
                 #print(relabels)
                 l[relabels.astype(int)] = nextid
-    segments.insert(0, segments[0].copy())
-    labels = np.concatenate([[[nextid+1] * len(labels[0])], labels])
+    if divided:
+        segments.insert(0, segments[0].copy())
+        labels = np.concatenate([[[nextid+1] * len(labels[0])], labels])
     return segments, labels
 
 def group_ungrouped_elements(sequence, sections, occurrences, ignore):
@@ -731,9 +752,7 @@ def get_hierarchy_labels(sequences, ignore=[], lexis=False):
     return to_hierarchy_labels(seqs, secs)
 
 def to_hierarchy_labels(sequences, sections):
-    section_lengths = {k:len(flatten((to_hierarchy(np.array([k]), sections))))
-        for k in sections.keys()}
-    return to_labels2(sequences, sections, section_lengths)
+    return to_labels2(sequences, sections)
 
 def get_recurring_subseqs(sequences):
     sequences, sections, occs = find_sections_bottom_up(sequences)
@@ -832,3 +851,4 @@ def get_hierarchy_sections(sequences):
 # reindex2(np.array([[0,0,1,1,1,1],[2,2,4,4,5,5],[7,6,7,8,10,9]]))
 #print(get_section_locs(2, [2,2,1,1,2,2,2,3,2]))
 #print(divide_hierarchy_labels([1], np.array([[2,2,2,1,2,2,2,3,2,2,2],[3,3,1,5,5,2,2,3,3,3,4]])))
+#print(to_labels2([np.array([1,2,3,2,2])], {1:np.array([2,4,3]),2:np.array([3,3,5])}))
