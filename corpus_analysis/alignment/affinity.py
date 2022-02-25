@@ -21,7 +21,7 @@ def fill_gaps(a, gap_size, gap_ratio):
         for i,s in enumerate(segs)])
 
 #smooth with a median filter
-def smooth_matrix(matrix, symmetric, max_gaps, max_gap_ratio):
+def smooth_matrix(matrix, symmetric, max_gaps, max_gap_ratio=None):
     func = lambda d: median_filter(d, max_gaps)
     #func = lambda d: fill_gaps(d, max_gaps, max_gap_ratio)
     diagonals = to_diagonals(matrix)
@@ -224,6 +224,7 @@ def get_best_segments(matrix, min_len=20, max_len=44, min_dist=1, threshold=0,#9
     #print([[matrix[tuple(ii)] for ii in i] for i in indices])
     segs = [diagonals[b[0]][b[1]:b[1]+b[2]+min_len] for b in best]
     segs = [remove_outer_gaps(s, matrix) for s in segs]
+    segs = [s for s in segs if len(s) >= min_len]
     if max_gap_len > 0:
         segs = [s for s in segs if max_gap_length(s, matrix) <= max_gap_len]
     #print(sum([len(s) for s in segs]), matrix.shape[0]**2)

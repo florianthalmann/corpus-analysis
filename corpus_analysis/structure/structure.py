@@ -43,7 +43,7 @@ def remove_blocks(alignment, shape, min_len):
     return alignment, block_segs
 
 #clean up and make transitive and hierarchical
-def process_alignment(self_alignment, min_len, min_dist, beta, target, plot_file=None, put_blocks_back=False):
+def process_alignment(self_alignment, min_len, min_dist, beta, target, put_blocks_back=False):
     #self_alignment, blocks = remove_blocks(self_alignment, shape, min_len)
     #plot_matrix(segments_to_matrix(self_alignment, shape), 'est2.png')
     
@@ -53,7 +53,6 @@ def process_alignment(self_alignment, min_len, min_dist, beta, target, plot_file
     # self_alignment = matrix_to_segments(np.triu(adjacency_matrix(g2)))
     # plot_matrix(segments_to_matrix(self_alignment, shape), 'est3.png')
     hierarchy = make_segments_hierarchical(self_alignment, min_len, min_dist, target, beta=beta)#, 'est4')#, 'yoyy')
-    if plot_file: plot_matrix(segments_to_matrix(hierarchy, target.shape), plot_file)
     
     if put_blocks_back:
         hierarchy += blocks
@@ -65,10 +64,13 @@ def simple_structure(self_alignment, min_len, min_dist, beta, target=None, lexis
         #print(sequence)
         #plot_matrix(segments_to_matrix(self_alignment, (len(sequence),len(sequence))), 'est1.png')
         
-        hierarchy = process_alignment(self_alignment, min_len, min_dist, beta, target, plot_file)
+        #hierarchy = process_alignment(self_alignment, min_len, min_dist, beta, target)
+        hmatrix = make_segments_hierarchical(self_alignment, min_len, min_dist, target, beta=beta)
+        if plot_file: plot_matrix(hmatrix, plot_file)
+        hsegments = matrix_to_segments(hmatrix)
         
         #connected component labels for each position in sequence
-        ag, s, i, a, seg = alignment_graph([target.shape[0]], [[0, 0]], [hierarchy])
+        ag, s, i, a, seg = alignment_graph([target.shape[0]], [[0, 0]], [hsegments])
         comp_labels = component_labels(ag)
         # #replace sequence with most frequent value in sequence for each component
         # comp_values = np.array([mode(sequence[np.where(comp_labels == l)])
@@ -76,11 +78,11 @@ def simple_structure(self_alignment, min_len, min_dist, beta, target=None, lexis
         # improved_sequence = comp_values[comp_labels]
         labels = get_hierarchy_labels([comp_labels], lexis=lexis)[0]
         #plot_sequences(labels, 'hierarchy62.png')
-        return labels#np.append(labels, [improved_sequence], axis=0)
+        return labels, hmatrix#np.append(labels, [improved_sequence], axis=0)
         
         #plot_matrix(hierarchy)
         #return sections
-    return np.array([np.repeat(0, len(target))])
+    return np.array([np.repeat(0, len(target))]), target
 
 def matrix_to_labels(matrix, lexis=True):
     g = graph_from_matrix(matrix)[0]

@@ -192,7 +192,7 @@ def make_segments_hierarchical(segments, min_len, min_dist, target,
     
     # # if verbose: plot_matrix(matrix, 'new'+str(i)+'.png')
     # if verbose: print(dist_func(matrix, target, segments))
-    return matrix_to_segments(matrix)
+    return matrix
 
 def best_transitive(matrices, target, beta, verbose, last_best=False):
     matrices = [np.triu(add_transitivity_to_matrix(m), k=1) for m in matrices]
@@ -571,7 +571,6 @@ def replace_lowest_level(hierarchy, sections):
 def section_depth(section, sections):
     depths = [section_depth(sections[e], sections) if e in sections
         else 0 for e in section]
-    print(depths)
     return max(depths)+1
 
 def to_labels2(sequences, sections):
@@ -583,7 +582,8 @@ def to_labels2(sequences, sections):
         for k in sections.keys()}
     section_depths = {k:section_depth(s, sections) for k,s in sections.items()}
     layers = []
-    for d in range(max(section_depths.values())+1, 0, -1):
+    max_depth = max(section_depths.values()) if len(sections) > 0 else 0
+    for d in range(max_depth+1, 0, -1):
         hierarchy = to_hierarchy_d(stacked, sections, section_depths, d)
         layers.append(np.concatenate([np.repeat(h, section_lengths[h])
             if h in sections else [h] for h in flatten(hierarchy)]))
@@ -852,3 +852,4 @@ def get_hierarchy_sections(sequences):
 #print(get_section_locs(2, [2,2,1,1,2,2,2,3,2]))
 #print(divide_hierarchy_labels([1], np.array([[2,2,2,1,2,2,2,3,2,2,2],[3,3,1,5,5,2,2,3,3,3,4]])))
 #print(to_labels2([np.array([1,2,3,2,2])], {1:np.array([2,4,3]),2:np.array([3,3,5])}))
+#print(to_labels2([np.array([1,2,3,2,2])], {}))

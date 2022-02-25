@@ -1,4 +1,4 @@
-import os, json, cProfile, math, tqdm, optuna
+import os, json, cProfile, math, tqdm, optuna, gc, matplotlib
 from functools import reduce
 from collections import defaultdict
 from multiprocessing import Pool, cpu_count
@@ -64,9 +64,13 @@ def argmax(a):
     return max(enumerate(a), key=lambda x: x[1])[0]
 
 def plot_matrix(matrix, path=None):
+    matplotlib.interactive(False)
     sns.heatmap(matrix, xticklabels=False, yticklabels=False, cmap=sns.cm.rocket_r)
     plt.savefig(path, dpi=1000) if path else plt.show()
-    plt.close()
+    plt.cla() 
+    plt.clf() 
+    plt.close('all')
+    gc.collect()
 
 def plot_hist(data, path=None, bincount=None, binwidth=1):
     if bincount:
