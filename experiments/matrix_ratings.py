@@ -66,26 +66,26 @@ def matrix_rating_s(matrix, resolution=10, minlen=9):
 def matrix_rating_b(matrix, resolution=10, minlen=10):
     #np.fill_diagonal(matrix, 0)
     if np.sum(matrix) == 0: return 0
-    diagonals = to_diagonals(matrix)
-    antidiagonals = to_diagonals(np.flip(matrix, axis=0))
+    # diagonals = to_diagonals(matrix)
+    # antidiagonals = to_diagonals(np.flip(matrix, axis=0))
     xmeans, xvar, xent = distribution_measures(matrix, resolution)
-    dmeans, dvar, dent = distribution_measures(diagonals, resolution)
-    admeans, advar, adent = distribution_measures(antidiagonals, resolution)
+    # dmeans, dvar, dent = distribution_measures(diagonals, resolution)
+    # admeans, advar, adent = distribution_measures(antidiagonals, resolution)
     nonzero = len([x for x in xmeans if np.sum(x) > 0]) / len(xmeans)
-    decent = len([x for x in xmeans if 2 < np.sum(x) < 0.1*len(xmeans)]) / len(xmeans)
-    segs = [len(s) for s in matrix_to_segments(matrix)]
-    segs = [s for s in segs if s > 4]
-    segs = [0] if len(segs) == 0 else segs
-    meanseglen, maxseglen, minseglen = np.mean(segs), np.max(segs), np.min(segs)
-    pent = entropy(matrix_to_endpoint_vector(matrix))
-    mindist = min_dist_between_nonzero(dmeans)
+    # decent = len([x for x in xmeans if 2 < np.sum(x) < 0.1*len(xmeans)]) / len(xmeans)
+    # segs = [len(s) for s in matrix_to_segments(matrix)]
+    # segs = [s for s in segs if s > 4]
+    # segs = [0] if len(segs) == 0 else segs
+    # meanseglen, maxseglen, minseglen = np.mean(segs), np.max(segs), np.min(segs)
+    # pent = entropy(matrix_to_endpoint_vector(matrix))
+    # mindist = min_dist_between_nonzero(dmeans)
     xdiff = np.abs(np.diff(xmeans))
     xdiffent = entropy(xdiff)
-    xdiffvar = np.std(xdiff)/np.mean(xdiff)
-    addiff = np.abs(np.diff(admeans))
-    addiffent = entropy(addiff)
-    addiffvar = np.std(addiff)/np.mean(addiff)
-    dotprop = len([s for s in segs if s == 1])/len(segs)
+    # xdiffvar = np.std(xdiff)/np.mean(xdiff)
+    # addiff = np.abs(np.diff(admeans))
+    # addiffent = entropy(addiff)
+    # addiffvar = np.std(addiff)/np.mean(addiff)
+    # dotprop = len([s for s in segs if s == 1])/len(segs)
     #windows = np.concatenate(strided2D(matrix, 5))
     #print(len(windows), windows[0])
     # summary = summarize_matrix(matrix.astype(int), 50)

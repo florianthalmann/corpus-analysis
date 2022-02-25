@@ -1,5 +1,7 @@
+import tqdm
 from math import log
 from itertools import product, chain, combinations
+from multiprocessing import Pool, cpu_count
 import numpy as np
 from sklearn.metrics import pairwise_distances
 from sklearn.preprocessing import MinMaxScaler
@@ -11,9 +13,12 @@ from corpus_analysis.alignment.util import strided2D
 from corpus_analysis.structure.structure import matrix_to_labels
 from corpus_analysis.structure.hierarchies import make_segments_hierarchical,\
     add_transitivity_to_matrix
-from corpus_analysis.util import plot_matrix, load_json, save_json, multiprocess
+from corpus_analysis.util import plot_matrix, load_json, save_json, multiprocess,\
+    buffered_run
 import salami
 from experiments.matrix_ratings import matrix_rating_s, matrix_rating_b
+
+BUFFER = 'salami/buffer/'
 
 def analyze_matrix(params):
     index, value, param = params
@@ -25,6 +30,7 @@ def analyze_matrix(params):
     #ENTROPY!!!!!
     return [index, value, mean, meanlen, l]
 
+#set up dataset for statistical matrix analysis
 def matrix_analysis(songids):
     param, values = 'SIGMA', np.arange(0.006,0.01,0.001)
     #param, values = 'THRESHOLD', np.arange(0.2,4,0.2)
@@ -37,6 +43,7 @@ def matrix_analysis(songids):
                 total=len(params), desc='analyzing matrices'):
             results.add_rows([r])
 
+#statistical matrix analysis
 def matrix_analysis2(file='salami/matricesH.csv'):
     path = 'salami/matrices'
     data = Data(file).read()
@@ -68,68 +75,40 @@ def matrix_analysis2(file='salami/matricesH.csv'):
         # plot(lambda: data2.plot.scatter(x='MEANLEN', y='L'), path+'-MLL'+str(s)+'.pdf')
         # plot(lambda: data2.plot.scatter(x='MLM', y='L'), path+'-MLML'+str(s)+'.pdf')
 
-def entropy_experiment(index, params, plot_path, results, resolution=10, minlen=8):
-    data = read_and_prepare_results(results)
-    #param, values = 'SIGMA', np.round(np.arange(0.001,0.011,0.001), 3)
-    #param, values = 'SIGMA', np.round(np.arange(0.01,0.11,0.01), 2)
-    #param, values = 'SIGMA', [0.0001,0.001,0.005,0.01,0.1,1,10]
-    param, values = 'SIGMA', [0.001,0.002,0.004,0.008,0.016,0.032,0.064,0.128]#,0.256,0.512,1.024]
-    #param, values = 'BETA', [0.2,0.3,0.4,0.5]
-    if param == 'BETA':
-        data = data[(data['MAX_GAP_RATIO'] == 0.2) & (data['SIGMA'] == 0.016)]
-    else:
-        data = data[(data['MAX_GAP_RATIO'] == 0.2) & (data['BETA'] == 0.5)]
-    matrix = None
-    for v in values:
-        params[param] = v
-        m = salami.load_fused_matrix(index, params, var_sigma=False)[0]
-        if param == 'BETA':
-            segs = matrix_to_segments(get_best_segments(m, params['MIN_LEN'],
-                min_dist=params['MIN_DIST'], min_val=1-params['MAX_GAP_RATIO'],
-                max_gap_len=params['MAX_GAPS']))
-            m = segments_to_matrix(make_segments_hierarchical(segs, params['MIN_LEN'],
-                min_dist=params['MIN_DIST'], target=m, beta=params['BETA'], verbose=False), m.shape)
-        m = m + m.T
-        if param == 'BETA' and matrix is not None:
-            matrix = add_transitivity_to_matrix(np.logical_or(matrix, m))
-        else: matrix = m
-        plot_matrix(matrix, plot_path+'eee'+str(index)+'-'+str(v)+'.png')
-        #plot_matrix(blockmodel(matrix), plot_path+'e'+str(index)+'-'+str(v)+'*.png')
-        
-        print(v)
-        rating = matrix_rating_s(matrix)
-        print(rating)
-        print(data[(data['SONG'] == index) & (data[param] == v)]['L'].iloc[0])
-        
-        if param == 'BETA':
-            t = salami.labels_to_hierarchy(index, matrix_to_labels(matrix), matrix,
-                salami.get_beats(index), salami.get_groundtruth(index))
-            salami.evaluate(index, param, list(params.values()), t[0], t[1])
-        #np.std(xmeans)/np.mean(xmeans), entropy(xmeans)*var_coeff)
-        #print(fractal_dimension(matrix))
+def powerset(iterable):
+    s = list(iterable)
+    ps = chain.from_iterable(combinations(s, r) for r in range(len(s)+1))
+    return [np.array(list(e)) for e in ps]
 
-def beta_combi_experiment_fused(index, params, plot_path, results=None):
-    matrix = salami.load_fused_matrix(index, params, var_sigma=False)[0]
-    params['MIN_LEN'] = round(matrix.shape[0]/50)
-    params['MIN_LEN2'] = params['MIN_LEN']
-    print(matrix.shape, params['MIN_LEN'])
-    segs = matrix_to_segments(get_best_segments(matrix, params['MIN_LEN'],
+def transitive_matrix(matrix, segs, params):
+    m = segments_to_matrix(make_segments_hierarchical(segs, params['MIN_LEN'],
+        min_dist=params['MIN_DIST'], target=matrix, beta=params['BETA'],
+        verbose=False), matrix.shape)
+    return m + m.T
+
+def fused_matrix_and_segs(index, params):
+    m = salami.load_fused_matrix(index, params, var_sigma=False)[0]
+    segs = matrix_to_segments(get_best_segments(m, params['MIN_LEN'],
         min_dist=params['MIN_DIST'], min_val=1-params['MAX_GAP_RATIO'],
         max_gap_len=params['MAX_GAPS']))
-    return beta_combi_experiment(index, matrix, segs, params, plot_path, results)
+    return m, segs
 
-def beta_combi_experiment_classic(index, params, plot_path, results=None):
-    matrix, raw, beats = salami.own_chroma_affinity(index)
-    # params['MIN_LEN'] = round(matrix.shape[0]/50)
-    # params['MIN_LEN2'] = params['MIN_LEN']
-    # print(matrix.shape, params['MIN_LEN'])
-    segs = get_segments_from_matrix(matrix, True,
-        params['NUM_SEGS'], params['MIN_LEN'], params['MIN_DIST'],
-        params['MAX_GAPS'], params['MAX_GAP_RATIO'], raw)
-    # segs = matrix_to_segments(get_best_segments(matrix, params['MIN_LEN'],
-    #     min_dist=params['MIN_DIST'], min_val=1-params['MAX_GAP_RATIO'],
-    #     max_gap_len=params['MAX_GAPS']))
-    return beta_combi_experiment(index, matrix, segs, params, plot_path, results)
+def fused_transitive_matrix(index, params):
+    m, segs = buffered_run(BUFFER+'fusedsegs'+str(index),
+        lambda: fused_matrix_and_segs(index, params),
+        [params[p] for p in params if p != 'BETA'])
+    m = segments_to_matrix(make_segments_hierarchical(segs, params['MIN_LEN'],
+        min_dist=params['MIN_DIST'], target=m, beta=params['BETA'],
+        verbose=False), m.shape)
+    return m + m.T
+
+def fused_transitive_rating(args):
+    index, beta, params = args
+    params['BETA'] = beta
+    matrix = buffered_run(BUFFER+'fusedtrans'+str(index),
+        lambda: fused_transitive_matrix(index, params), params.values())
+    rating = matrix_rating_b(matrix)
+    return rating, args
 
 def beta_combi_experiment(index, matrix, segs, params, plot_path, results=None):
     betas = np.array([0.2,0.3,0.4,0.5])
@@ -137,9 +116,8 @@ def beta_combi_experiment(index, matrix, segs, params, plot_path, results=None):
     transitives = []
     for b in betas:
         print(index, 'transitive', b)
-        m = segments_to_matrix(make_segments_hierarchical(segs, params['MIN_LEN'],
-            min_dist=params['MIN_DIST'], target=matrix, beta=b, verbose=False), matrix.shape)
-        transitives.append(m + m.T)
+        params['BETA'] = b
+        transitives.append(transitive_matrix(matrix, segs, params))
     combis = powerset(np.arange(len(betas)))[1:]#ignore empty set
     betacombis = [betas[c] for c in combis]
     matrixcombis = []
@@ -164,10 +142,28 @@ def beta_combi_experiment(index, matrix, segs, params, plot_path, results=None):
     print(index, 'best', betacombis[np.argmax(combiratings)])
     return salami.evaluate(index, 'combi', list(params.values()), t[0], t[1])
 
-def powerset(iterable):
-    s = list(iterable)
-    ps = chain.from_iterable(combinations(s, r) for r in range(len(s)+1))
-    return [np.array(list(e)) for e in ps]
+def beta_combi_experiment_fused(index, params, plot_path, results=None):
+    matrix = salami.load_fused_matrix(index, params, var_sigma=False)[0]
+    params['MIN_LEN'] = round(matrix.shape[0]/50)
+    params['MIN_LEN2'] = params['MIN_LEN']
+    print(matrix.shape, params['MIN_LEN'])
+    segs = matrix_to_segments(get_best_segments(matrix, params['MIN_LEN'],
+        min_dist=params['MIN_DIST'], min_val=1-params['MAX_GAP_RATIO'],
+        max_gap_len=params['MAX_GAPS']))
+    return beta_combi_experiment(index, matrix, segs, params, plot_path, results)
+
+def beta_combi_experiment_classic(index, params, plot_path, results=None):
+    matrix, raw, beats = salami.own_chroma_affinity(index)
+    # params['MIN_LEN'] = round(matrix.shape[0]/50)
+    # params['MIN_LEN2'] = params['MIN_LEN']
+    # print(matrix.shape, params['MIN_LEN'])
+    segs = get_segments_from_matrix(matrix, True,
+        params['NUM_SEGS'], params['MIN_LEN'], params['MIN_DIST'],
+        params['MAX_GAPS'], params['MAX_GAP_RATIO'], raw)
+    # segs = matrix_to_segments(get_best_segments(matrix, params['MIN_LEN'],
+    #     min_dist=params['MIN_DIST'], min_val=1-params['MAX_GAP_RATIO'],
+    #     max_gap_len=params['MAX_GAPS']))
+    return beta_combi_experiment(index, matrix, segs, params, plot_path, results)
 
 def best_sigma(index, params, buffer=None, plot_path=None):#='salami/sigmas.json'):
     if buffer:
@@ -296,5 +292,30 @@ def test_classic_beta(results, params, plot_path):
     #evals = [beta_combi_experiment_classic(s, params, plot_path, results) for s in songs]
     
     print('overall', np.mean([np.mean([r[-1] for r in rs]) for rs in evals]))
+
+def test_beta_measure(results, params, plot_path):
+    data, bestparams = prepare_and_log_results(results, params)
+    data = data[(data['SIGMA'] == bestparams[0])
+        & (data['MAX_GAP_RATIO'] == bestparams[1])]
+    print("check filter:", np.mean(data[(data['BETA'] == bestparams[2])]
+        .groupby(['SONG']).max()['L']))
+    
+    params['SIGMA'] = bestparams[0]
+    params['MAX_GAP_RATIO'] = bestparams[1]
+    
+    multiparams = [(i, b, params.copy()) for b in data['BETA'].unique()
+        for i in data['SONG'].unique()]
+    
+    ratings = {}
+    with Pool(processes=cpu_count()-2) as pool:
+        for r in tqdm.tqdm(pool.imap_unordered(fused_transitive_rating, multiparams),
+                total=len(multiparams), desc='ratings'):
+            index, beta, rating = r[1][0], r[1][1], r[0]
+            print(index, beta, rating)
+            ratings[(index, beta)] = rating
+    
+    data['RATING'] = data.apply(lambda d: ratings[(d['SONG'], d['BETA'])], axis=1)
+    
+    plot(lambda: data.plot.scatter(x='RATING', y='L'), 'salami/RATINGS.png')
 
 #print(matrix_to_endpoint_vector(np.array([[0,1,0,1],[1,0,1,0],[0,1,0,1],[0,0,1,1]])))
