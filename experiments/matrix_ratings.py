@@ -67,10 +67,10 @@ def matrix_rating_b(matrix, resolution=10, minlen=10):
     #np.fill_diagonal(matrix, 0)
     if np.sum(matrix) == 0: return 0
     # diagonals = to_diagonals(matrix)
-    # antidiagonals = to_diagonals(np.flip(matrix, axis=0))
+    antidiagonals = to_diagonals(np.flip(matrix, axis=0))
     xmeans, xvar, xent = distribution_measures(matrix, resolution)
     # dmeans, dvar, dent = distribution_measures(diagonals, resolution)
-    # admeans, advar, adent = distribution_measures(antidiagonals, resolution)
+    admeans, advar, adent = distribution_measures(antidiagonals, resolution)
     nonzero = len([x for x in xmeans if np.sum(x) > 0]) / len(xmeans)
     # decent = len([x for x in xmeans if 2 < np.sum(x) < 0.1*len(xmeans)]) / len(xmeans)
     # segs = [len(s) for s in matrix_to_segments(matrix)]
@@ -115,8 +115,16 @@ def matrix_rating_b(matrix, resolution=10, minlen=10):
     #return  if maxseglen >= minlen else 0 #6
     #return nonzero/pent if maxseglen >= minlen else 0
     #return decent*xvar if maxseglen >= minlen else 0#xent*xvar
-    return nonzero/xent*xdiffent#if mindist > minlen else 0 #*log(len(segs))#/minseglen #if maxseglen >= minlen else 0
+    #return nonzero/xent*xdiffent#if mindist > minlen else 0 #*log(len(segs))#/minseglen #if maxseglen >= minlen else 0
+    return nonzero
     #return nonzero*xvar if maxseglen >= minlen else 0
+    
+    #nonzero:   .519 .479   .462 .450
+    #xent:      .505 .502   .456 .455
+    #xdiffent:  .498 .506   .456 .457
+    #xvar:      .481 .509   .453 .461
+    #n/xv:      .512 .485   .461 .453
+    #n/xde:     .512 .489   .455 .455
 
 #def simple_rich_matrix
 
