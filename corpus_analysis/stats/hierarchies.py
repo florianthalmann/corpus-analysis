@@ -5,15 +5,33 @@ from ..alignment.smith_waterman import smith_waterman
 
 #one layer contains repetition
 def auto_labeled(hierarchy):
+    hierarchy = remove_silence(hierarchy)
+    if min([len(h) for h in hierarchy[0]]) == 0:#empty layers are also auto-labeled...
+        return False
     h = to_int_labels(hierarchy)[1]
-    all_diff = lambda l: len(np.unique(l)) == len(l)
-    #return all_diff(h[0]) != all_diff(h[1])
-    return all_diff(h[1]) or all_diff(h[0]) #top level repeats, bottom not
+    merged = lambda l: l[np.hstack(([0], np.where(np.diff(l) != 0)[0]+1))]
+    all_diff = lambda l: len(np.unique(l)) == len(merged(l))
+    return all_diff(h[0]) != all_diff(h[1])
+    #return all_diff(h[1]) or all_diff(h[0]) #top level repeats, bottom not
 
+def remove_silence(hierarchy):
+    rem = [tuple(zip(*[s for s in zip(*l) if s[1] != 'Silence']))
+        for l in zip(*hierarchy)]
+    rem = [r if len(r) > 0 else (np.array([]), []) for r in rem]#deal with entirely silent levels
+    rem = tuple(zip(*rem))
+    return (tuple([np.vstack(r) if len(r) > 0 else np.array([]) for r in rem[0]]), rem[1])
+
+#def replace_second_silence()
+
+#proportion of label reusage
 def repetitiveness(hierarchy):
     h = to_int_labels(hierarchy)[1]
     return np.mean([(len(l)-len(np.unique(l))) / (len(l)-1) if len(l) > 1 else 1
         for l in h])
+
+def complexity(hierarchy):
+    h = to_int_labels(hierarchy)[1]
+    return np.mean([len(l) for l in h])
 
 #boolean monotonicity: all interval times of lower levels are contained in higher levels
 def monotonicity(hierarchy):

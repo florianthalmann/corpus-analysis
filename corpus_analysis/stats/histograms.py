@@ -26,10 +26,14 @@ def frequency_histograms(sequences, relative):
     return np.array([frequency_histogram(s, num_ids, relative) for s in idseqs])
 
 def transition_histograms(sequences, relative, ignore_same=False):
-    pairs = [np.vstack([s[:-1], s[1:]]).T for s in sequences]
-    if ignore_same:
-        pairs = [np.array([p for p in ps if p[0] != p[1]]) for ps in pairs]
-    return frequency_histograms(pairs, relative)
+    return tuple_histograms(sequences, relative, 2, ignore_same)
+
+def tuple_histograms(sequences, relative, size=2, ignore_uniform=False):
+    tuples = [np.vstack([s[i:-size+i+1] if i < size-1 else s[i:]
+        for i in range(size)]).T for s in sequences]
+    if ignore_uniform and size > 1:
+        tuples = [np.array([t for t in ts if np.all(t == t[0])]) for ts in tuples]
+    return frequency_histograms(tuples, relative)
 
 #element frequency and non-equal transition frequency histogram
 def freq_trans_hists(sequences, relative, ignore_same=False):
