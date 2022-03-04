@@ -293,8 +293,7 @@ def test_beta_measure(results, params, plot_path):
 
 def test_sigma_measure(results, params, plot_path):
     data, bestparams = prepare_and_log_results(results, params, 'SIGMA')
-    data = data[(data['BETA'] == bestparams[2])
-        & (data['MAX_GAP_RATIO'] == bestparams[1])
+    data = data[(data['MAX_GAP_RATIO'] == bestparams[1])
         & (data['SONG'].isin(data['SONG'].unique()[:]))
         ]
     print("check filter:", np.mean(data[(data['SIGMA'] == bestparams[0])]
@@ -319,9 +318,19 @@ def test_sigma_measure(results, params, plot_path):
     data['RATING'] = data.apply(lambda d: ratings[(d['SONG'], d['SIGMA'])], axis=1)
     data['SRATING'] = data.apply(lambda d: sratings[(d['SONG'], d['SIGMA'])], axis=1)
     
-    plot(lambda: data.plot.scatter(x='RATING', y='L', c='SONG', colormap='tab20'), 'salami/RATINGS_S.png')
-    plot(lambda: data.plot.scatter(x='SRATING', y='L', c='SONG', colormap='tab20'), 'salami/SRATINGS_S.png')
-    print(data.loc[data.groupby('SONG')['RATING'].idxmax()]['L'].mean())
-    print(data.loc[data.groupby('SONG')['SRATING'].idxmax()]['L'].mean())
+    fixedbeta = data[(data['BETA'] == bestparams[2])]
+    plot(lambda: fixedbeta.plot.scatter(x='RATING', y='L', c='SONG', colormap='tab20'), 'salami/RATINGS_S.png')
+    plot(lambda: fixedbeta.plot.scatter(x='SRATING', y='L', c='SONG', colormap='tab20'), 'salami/SRATINGS_S.png')
+    
+    bestsigmas_r = data.loc[data.groupby('SONG')['RATING'].idxmax()][['SONG','SIGMA']].reset_index()
+    bestsigmas_r = data.merge(bestsigmas_r[['SONG','SIGMA']], how='inner')
+    bestsigmas_rs = data.loc[data.groupby('SONG')['SRATING'].idxmax()][['SONG','SIGMA']].reset_index()
+    bestsigmas_rs = data.merge(bestsigmas_rs[['SONG','SIGMA']], how='inner')
+    r = fixedbeta.loc[fixedbeta.groupby('SONG')['RATING'].idxmax()]['L']
+    rmax = bestsigmas_r.loc[bestsigmas_r.groupby('SONG')['L'].idxmax()]['L']
+    rs = fixedbeta.loc[fixedbeta.groupby('SONG')['SRATING'].idxmax()]['L']
+    rsmax = bestsigmas_rs.loc[bestsigmas_rs.groupby('SONG')['L'].idxmax()]['L']
+    print('feature matrix rating', r.mean(), rmax.mean())
+    print('segment matrix rating', rs.mean(), rsmax.mean())
 
 #print(matrix_to_endpoint_vector(np.array([[0,1,0,1],[1,0,1,0],[0,1,0,1],[0,0,1,1]])))

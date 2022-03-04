@@ -58,10 +58,17 @@ def matrix_rating_s(matrix, resolution=10, minlen=9):
     #return xdiffvar*nonzero if maxseglen >= minlen else 0 #0.47609386764634976 0.5217101857451909 !!
     #return meanseglen*nonzero*xvar if maxseglen >= minlen else 0#*nonzero*xvar if maxseglen >= minlen else 0 #0.5298230209053344 0.5513507689993286
     return nonzero/ones*xvar
+    #return 1/ones
     #return  if maxseglen >= minlen else 0 #6
     #return nonzero/pent if maxseglen >= minlen else 0
     #return decent*xvar if maxseglen >= minlen else 0#xent*xvar
     #return nonzero/xent*xdiffent#if mindist > minlen else 0 #*log(len(segs))#/minseglen #if maxseglen >= minlen else 0
+    #           mat     smat
+    #nonzero:   .386    .392
+    #xvar:      .460    .468
+    #1/ones:      .457    .407
+    
+    
 
 def matrix_rating_b(matrix, resolution=10, minlen=10):
     #np.fill_diagonal(matrix, 0)
