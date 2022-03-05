@@ -294,10 +294,8 @@ def test_beta_measure(results, params, plot_path):
 def test_sigma_measure(results, params, plot_path):
     data, bestparams = prepare_and_log_results(results, params, 'SIGMA')
     data = data[(data['MAX_GAP_RATIO'] == bestparams[1])
-        & (data['SONG'].isin(data['SONG'].unique()[:]))
+        & (data['SONG'].isin(data['SONG'].unique()[:10]))
         ]
-    print("check filter:", np.mean(data[(data['SIGMA'] == bestparams[0])]
-        .groupby(['SONG']).max()['L']))
     
     params['BETA'] = bestparams[2]
     params['MAX_GAP_RATIO'] = bestparams[1]
@@ -318,11 +316,17 @@ def test_sigma_measure(results, params, plot_path):
     data['RATING'] = data.apply(lambda d: ratings[(d['SONG'], d['SIGMA'])], axis=1)
     data['SRATING'] = data.apply(lambda d: sratings[(d['SONG'], d['SIGMA'])], axis=1)
     
+    
+    real_best = data.loc[data.groupby('SONG')['L'].idxmax()][['SONG','SIGMA','L']]
+    # print(data[data['SONG'] == 108])
+    print(real_best)
+    
     fixedbeta = data[(data['BETA'] == bestparams[2])]
     plot(lambda: fixedbeta.plot.scatter(x='RATING', y='L', c='SONG', colormap='tab20'), 'salami/RATINGS_S.png')
     plot(lambda: fixedbeta.plot.scatter(x='SRATING', y='L', c='SONG', colormap='tab20'), 'salami/SRATINGS_S.png')
     
     bestsigmas_r = data.loc[data.groupby('SONG')['RATING'].idxmax()][['SONG','SIGMA']].reset_index()
+    print(data.loc[data.groupby('SONG')['RATING'].idxmax()][['SONG','SIGMA','L']].reset_index())
     bestsigmas_r = data.merge(bestsigmas_r[['SONG','SIGMA']], how='inner')
     bestsigmas_rs = data.loc[data.groupby('SONG')['SRATING'].idxmax()][['SONG','SIGMA']].reset_index()
     bestsigmas_rs = data.merge(bestsigmas_rs[['SONG','SIGMA']], how='inner')

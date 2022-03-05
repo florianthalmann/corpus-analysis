@@ -1,37 +1,45 @@
+import math
 import numpy as np
 from corpus_analysis.alignment.affinity import to_diagonals, matrix_to_segments,\
     segments_to_matrix
 from corpus_analysis.util import plot_matrix, flatten, summarize_matrix
-from corpus_analysis.stats.util import entropy
+from corpus_analysis.stats.util import entropy, entropy2
 
 def matrix_rating_s(matrix, resolution=10, minlen=9):
     #np.fill_diagonal(matrix, 0)
     if np.sum(matrix) == 0: return 0
     #matrix = segments_to_matrix([s for s in matrix_to_segments(matrix) if len(s) > 1])
-    # diagonals = to_diagonals(matrix)
+    #diagonals = to_diagonals(matrix)
     # antidiagonals = to_diagonals(np.flip(matrix, axis=0))
     xmeans, xvar, xent = distribution_measures(matrix, resolution)
-    # dmeans, dvar, dent = distribution_measures(diagonals, resolution)
+    #dmeans, dvar, dent = distribution_measures(diagonals, resolution)
     # admeans, advar, adent = distribution_measures(antidiagonals, resolution)
-    nonzero = len([x for x in xmeans if np.sum(x) > 0]) / len(xmeans)
-    decent = len([x for x in xmeans if 2 < np.sum(x) < 0.1*len(xmeans)]) / len(xmeans)
+    nonzero = len([x for x in xmeans if 0 < x < resolution-1]) / len(matrix)
+    rnonzero = len([x for x in matrix if 0 < np.sum(x)]) / len(matrix)
+    #print(np.min([np.sum(x) for x in matrix]), np.max([np.sum(x) for x in matrix]))
+    #nonzero = len([x for x in matrix if np.sum(x) > 0]) / len(matrix)
+    #decent = len([x for x in xmeans if 2 < np.sum(x) < 0.2*len(xmeans)]) / len(xmeans)
+    decent = len([x for x in matrix if np.sum(x) < 0.1*len(matrix)]) / len(matrix)
     segs = [len(s) for s in matrix_to_segments(matrix)]
-    ones = (len([s for s in segs if s < round(matrix.shape[0]/50)])+1)/len(segs)
-    segs = [s for s in segs if 4 < s < 10]
+    #ones = (len([s for s in segs if s < round(matrix.shape[0]/50)])+1)/len(segs)
+    #ones = (len([s for s in segs if s == 1])+1)/len(segs)
+    short = (len([s for s in segs if s < 4])+1)/len(segs)
+    segs = [s for s in segs if 2 < s < 30]
     segs = [0] if len(segs) == 0 else segs
     meanseglen, maxseglen, minseglen = np.mean(segs), np.max(segs), np.min(segs)
-    # pent = entropy(matrix_to_endpoint_vector(matrix))
+    #pent = entropy(matrix_to_endpoint_vector(matrix))
     # mindist = min_dist_between_nonzero(dmeans)
-    # xdiff = np.abs(np.diff(xmeans))
+    xdiff = np.abs(np.diff([np.sum(x) for x in matrix]))
+    #xdiff = np.abs(np.diff(xmeans))
     # xdiffent = entropy(xdiff)
-    # xdiffvar = np.std(xdiff)/np.mean(xdiff)
+    xdiffvar = np.std(xdiff)/np.mean(xdiff)
     # addiff = np.abs(np.diff(admeans))
     # addiffent = entropy(addiff)
     # addiffvar = np.std(addiff)/np.mean(addiff)
     # dotprop = len([s for s in segs if s == 1])/len(segs)
     #windows = np.concatenate(strided2D(matrix, 5))
     #print(len(windows), windows[0])
-    # summary = summarize_matrix(matrix.astype(int), 50)
+    #summary = summarize_matrix(matrix.astype(int), 50)
     # #maxsummary = np.percentile(summary, 75)#np.std(smoothed)#/np.mean(smoothed)
     # maxsummary = np.max(summary)
     #print(np.histogram(admeans)[0], np.histogram(dmeans)[0], np.histogram(xmeans)[0])
@@ -57,18 +65,37 @@ def matrix_rating_s(matrix, resolution=10, minlen=9):
     #return xvar*nonzero*maxseglen #0.5088370030634288 0.5312888863716688
     #return xdiffvar*nonzero if maxseglen >= minlen else 0 #0.47609386764634976 0.5217101857451909 !!
     #return meanseglen*nonzero*xvar if maxseglen >= minlen else 0#*nonzero*xvar if maxseglen >= minlen else 0 #0.5298230209053344 0.5513507689993286
-    return nonzero/ones*xvar
-    #return 1/ones
+    #return nonzero/ones*xvar
+    return xvar if rnonzero >= 0.3 else 0
     #return  if maxseglen >= minlen else 0 #6
     #return nonzero/pent if maxseglen >= minlen else 0
     #return decent*xvar if maxseglen >= minlen else 0#xent*xvar
     #return nonzero/xent*xdiffent#if mindist > minlen else 0 #*log(len(segs))#/minseglen #if maxseglen >= minlen else 0
-    #           mat     smat
-    #nonzero:   .386    .392
-    #xvar:      .460    .468
-    #1/ones:      .457    .407
+    #                   mat         smat
+    #nonzero            .386 .440   .392 .442
+    #xvar               .460 .472   .468 .482
+    #1/ones             .457 .467   .407 .451
+    #nonzero/ones*xvar  .461 .472   .400 .445
+    #1/xent             .448 .464   .464 .477
+    #xvar/xent          .452 .467   .470 .481
     
+    #mat
+    #xvar                       .472 .485 (if rnonzero >= 0.3 else 0)
+    #xvar*xdiffvar              .471 .483 (if rnonzero >= 0.3 else 0)
+    #xvar*xdiffvar*nonzero      .465 .477 (real xdiffvar!)
+    #xvar*xdiffvar*nonzero      .463 .475
+    #nonzero/ones*xvar          .461 .472
+    #xvar                       .460 .472
+    #meanseglen*nonzero*xvar    .462 .471 (2 < s < 30)
+    #xvar/ones                  .461 .471
+    #1/ones                     .457 .467
     
+    #smat
+    #xvar               .468 .482
+    #xvar/xent          .470 .481
+    #xvar*advar         .467 .478
+    #1/xent             .464 .477
+    #advar              .466 .473
 
 def matrix_rating_b(matrix, resolution=10, minlen=10):
     #np.fill_diagonal(matrix, 0)
