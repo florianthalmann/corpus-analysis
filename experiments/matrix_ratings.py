@@ -8,7 +8,7 @@ from corpus_analysis.stats.util import entropy, entropy2
 def matrix_rating_s(matrix, resolution=10, minlen=9):
     #np.fill_diagonal(matrix, 0)
     if np.sum(matrix) == 0: return 0
-    #matrix = segments_to_matrix([s for s in matrix_to_segments(matrix) if len(s) > 1])
+    matrix = segments_to_matrix([s for s in matrix_to_segments(matrix) if len(s) > 1])
     #diagonals = to_diagonals(matrix)
     # antidiagonals = to_diagonals(np.flip(matrix, axis=0))
     xmeans, xvar, xent = distribution_measures(matrix, resolution)
@@ -22,9 +22,9 @@ def matrix_rating_s(matrix, resolution=10, minlen=9):
     decent = len([x for x in matrix if np.sum(x) < 0.1*len(matrix)]) / len(matrix)
     segs = [len(s) for s in matrix_to_segments(matrix)]
     #ones = (len([s for s in segs if s < round(matrix.shape[0]/50)])+1)/len(segs)
-    #ones = (len([s for s in segs if s == 1])+1)/len(segs)
+    ones = (len([s for s in segs if s == 1])+1)/len(segs)
     short = (len([s for s in segs if s < 4])+1)/len(segs)
-    segs = [s for s in segs if 2 < s < 30]
+    segs = [s for s in segs if 2 < s]# < 30]
     segs = [0] if len(segs) == 0 else segs
     meanseglen, maxseglen, minseglen = np.mean(segs), np.max(segs), np.min(segs)
     #pent = entropy(matrix_to_endpoint_vector(matrix))
@@ -66,7 +66,7 @@ def matrix_rating_s(matrix, resolution=10, minlen=9):
     #return xdiffvar*nonzero if maxseglen >= minlen else 0 #0.47609386764634976 0.5217101857451909 !!
     #return meanseglen*nonzero*xvar if maxseglen >= minlen else 0#*nonzero*xvar if maxseglen >= minlen else 0 #0.5298230209053344 0.5513507689993286
     #return nonzero/ones*xvar
-    return xvar if rnonzero >= 0.3 else 0
+    return xvar if rnonzero >= 0.4 and len(segs) > 10 else 0 #*math.log(len(segs))/ones
     #return  if maxseglen >= minlen else 0 #6
     #return nonzero/pent if maxseglen >= minlen else 0
     #return decent*xvar if maxseglen >= minlen else 0#xent*xvar
@@ -80,6 +80,7 @@ def matrix_rating_s(matrix, resolution=10, minlen=9):
     #xvar/xent          .452 .467   .470 .481
     
     #mat
+    #xvar                       .474 .489 (if rnonzero >= 0.3 else 0) segs > 1
     #xvar                       .472 .485 (if rnonzero >= 0.3 else 0)
     #xvar*xdiffvar              .471 .483 (if rnonzero >= 0.3 else 0)
     #xvar*xdiffvar*nonzero      .465 .477 (real xdiffvar!)
@@ -100,21 +101,24 @@ def matrix_rating_s(matrix, resolution=10, minlen=9):
 def matrix_rating_b(matrix, resolution=10, minlen=10):
     #np.fill_diagonal(matrix, 0)
     if np.sum(matrix) == 0: return 0
-    # diagonals = to_diagonals(matrix)
+    diagonals = to_diagonals(matrix)
     antidiagonals = to_diagonals(np.flip(matrix, axis=0))
     xmeans, xvar, xent = distribution_measures(matrix, resolution)
-    # dmeans, dvar, dent = distribution_measures(diagonals, resolution)
+    dmeans, dvar, dent = distribution_measures(diagonals, resolution)
     admeans, advar, adent = distribution_measures(antidiagonals, resolution)
     nonzero = len([x for x in xmeans if np.sum(x) > 0]) / len(xmeans)
-    # decent = len([x for x in xmeans if 2 < np.sum(x) < 0.1*len(xmeans)]) / len(xmeans)
-    # segs = [len(s) for s in matrix_to_segments(matrix)]
+    rnonzero = len([x for x in matrix if 0 < np.sum(x)]) / len(matrix)
+    decent = len([x for x in matrix if 2 < np.sum(x) < 0.1*len(matrix)]) / len(xmeans)
+    segs = [len(s) for s in matrix_to_segments(matrix)]
     # segs = [s for s in segs if s > 4]
     # segs = [0] if len(segs) == 0 else segs
-    # meanseglen, maxseglen, minseglen = np.mean(segs), np.max(segs), np.min(segs)
+    meanseglen, maxseglen, minseglen = np.mean(segs), np.max(segs), np.min(segs)
     # pent = entropy(matrix_to_endpoint_vector(matrix))
     # mindist = min_dist_between_nonzero(dmeans)
     xdiff = np.abs(np.diff(xmeans))
     xdiffent = entropy(xdiff)
+    dists = np.diff(np.where(np.hstack(matrix))[0])
+    meandist, mindist = np.mean(dists), np.min(dists)
     # xdiffvar = np.std(xdiff)/np.mean(xdiff)
     # addiff = np.abs(np.diff(admeans))
     # addiffent = entropy(addiff)
@@ -150,7 +154,7 @@ def matrix_rating_b(matrix, resolution=10, minlen=10):
     #return nonzero/pent if maxseglen >= minlen else 0
     #return decent*xvar if maxseglen >= minlen else 0#xent*xvar
     #return nonzero/xent*xdiffent#if mindist > minlen else 0 #*log(len(segs))#/minseglen #if maxseglen >= minlen else 0
-    return nonzero
+    return decent*math.log(mindist)#*(meanseglen/len(matrix))*xvar#rnonzero/adent*xvar*dent #if rnonzero > 0.5 else 0
     #return nonzero*xvar if maxseglen >= minlen else 0
     
     #nonzero:   .519 .479   .462 .450

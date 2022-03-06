@@ -89,6 +89,10 @@ def transitive_matrix_rating(args):
     index, beta, params = args
     params['BETA'] = beta
     matrix = salami.get_hierarchy_buf(index, params)[2]
+    # ms = salami.get_matrices_buf(index, params)
+    # plot_matrix(ms[1], 'salami/betas39/'+str(index)+'-*.png')
+    # plot_matrix(ms[0], 'salami/betas39/'+str(index)+'-*s.png')
+    # plot_matrix(matrix, 'salami/betas39/'+str(index)+'-'+str(beta)+'.png')
     rating = matrix_rating_b(matrix)
     return rating, args
 
@@ -263,16 +267,16 @@ def test_beta(results, params, plot_path):
     
     print('overall', np.mean([np.mean([r[-1] for r in rs]) for rs in evals]))
 
-def test_beta_measure(results, params, plot_path):
-    data, bestparams = prepare_and_log_results(results, params, 'THRESHOLD')
-    data = data[(data['THRESHOLD'] == bestparams[0])
+def test_beta_measure(results, params, plot_path, threshold='SIGMA'):
+    data, bestparams = prepare_and_log_results(results, params, threshold)
+    data = data[(data[threshold] == bestparams[0])
         & (data['MAX_GAP_RATIO'] == bestparams[1])
         & (data['SONG'].isin(data['SONG'].unique()[:]))
         ]
     print("check filter:", np.mean(data[(data['BETA'] == bestparams[2])]
         .groupby(['SONG']).max()['L']))
     
-    params['THRESHOLD'] = bestparams[0]
+    params[threshold] = bestparams[0]
     params['MAX_GAP_RATIO'] = bestparams[1]
     
     multiparams = [(i, b, params.copy()) for b in data['BETA'].unique()
@@ -286,7 +290,15 @@ def test_beta_measure(results, params, plot_path):
             #print(index, beta, rating)
             ratings[(index, beta)] = rating
     
+    real_best = data.loc[data.groupby('SONG')['L'].idxmax()][['SONG','BETA','L']]
+    print(real_best)
+    
     data['RATING'] = data.apply(lambda d: ratings[(d['SONG'], d['BETA'])], axis=1)
+    
+    bestbetas = data.loc[data.groupby('SONG')['RATING'].idxmax()][['SONG','BETA']].reset_index()
+    #print(data.loc[data.groupby('SONG')['RATING'].idxmax()][['SONG','SIGMA','L']].reset_index())
+    bestbetas = data.merge(bestbetas[['SONG','BETA']], how='inner')
+    print(bestbetas.groupby('SONG')[['BETA','L']].max())
     
     plot(lambda: data.plot.scatter(x='RATING', y='L', c='SONG', colormap='tab20'), 'salami/RATINGS.png')
     print(data.loc[data.groupby('SONG')['RATING'].idxmax()]['L'].mean())
@@ -294,7 +306,7 @@ def test_beta_measure(results, params, plot_path):
 def test_sigma_measure(results, params, plot_path):
     data, bestparams = prepare_and_log_results(results, params, 'SIGMA')
     data = data[(data['MAX_GAP_RATIO'] == bestparams[1])
-        & (data['SONG'].isin(data['SONG'].unique()[:10]))
+        & (data['SONG'].isin(data['SONG'].unique()[:]))
         ]
     
     params['BETA'] = bestparams[2]
@@ -318,7 +330,6 @@ def test_sigma_measure(results, params, plot_path):
     
     
     real_best = data.loc[data.groupby('SONG')['L'].idxmax()][['SONG','SIGMA','L']]
-    # print(data[data['SONG'] == 108])
     print(real_best)
     
     fixedbeta = data[(data['BETA'] == bestparams[2])]
@@ -326,8 +337,9 @@ def test_sigma_measure(results, params, plot_path):
     plot(lambda: fixedbeta.plot.scatter(x='SRATING', y='L', c='SONG', colormap='tab20'), 'salami/SRATINGS_S.png')
     
     bestsigmas_r = data.loc[data.groupby('SONG')['RATING'].idxmax()][['SONG','SIGMA']].reset_index()
-    print(data.loc[data.groupby('SONG')['RATING'].idxmax()][['SONG','SIGMA','L']].reset_index())
+    #print(data.loc[data.groupby('SONG')['RATING'].idxmax()][['SONG','SIGMA','L']].reset_index())
     bestsigmas_r = data.merge(bestsigmas_r[['SONG','SIGMA']], how='inner')
+    print(bestsigmas_r.groupby('SONG')[['SIGMA','L']].max())
     bestsigmas_rs = data.loc[data.groupby('SONG')['SRATING'].idxmax()][['SONG','SIGMA']].reset_index()
     bestsigmas_rs = data.merge(bestsigmas_rs[['SONG','SIGMA']], how='inner')
     r = fixedbeta.loc[fixedbeta.groupby('SONG')['RATING'].idxmax()]['L']
