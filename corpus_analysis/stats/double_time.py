@@ -6,29 +6,37 @@ from ..util import plot_sequences, plot_matrix, multiprocess, odd
 from .histograms import freq_trans_hists, frequency_histograms, tuple_histograms
 from .util import chiSquared
 
-def check_double_time2(sequences, beats, window=4):
-    tempos = [60/np.mean(b[1:]-b[:-1]) for b in beats]
+def check_double_time2(sequences, factors=None):
+    factors = factors if factors is not None else [1 for s in sequences]
+    sequences = [adjust_sequence(s, f) for s,f in zip(sequences, factors)]
     doubles = np.array([odd(s) for s in sequences])
     halves = np.array([np.repeat(s, 2) for s in sequences], dtype='object')
     
-    btempos = best_combo([[np.array([-1,0,1])[np.argmin(np.abs([u/2-t,u-t,2*u-t]))]
-        for u in tempos] for t in tempos])
-    
     stacked = np.hstack((sequences, doubles, halves))
-    relative = False
-    ignore_uniform = False
-    hists = [best_hist_combo(tuple_histograms(stacked, relative, i, ignore_uniform))
-        for i in range(1, 8, 2)]
-    b = np.mean(np.vstack((btempos, *hists)), axis=0)
-    plot_matrix(np.vstack((btempos, *hists)), 'results/*-.png')
-    t = 0.8
-    print('adjusted', [b for b in [(i,-1) if b[i] <= -t else (i,1) if b[i] >= t else None
+    hists = [best_hist_combo(tuple_histograms(stacked, False, i))
+        for i in [1,4,8]]
+    
+    plot_matrix(np.vstack(hists), 'results/*-.png')
+    best = np.mean(np.vstack(hists), axis=0)
+    t = 1 #all parts have to agree
+    print('adjusted', [b for b in [(i,-1) if best[i] <= -t else (i,1) if best[i] >= t else None
         for i,s in enumerate(sequences)] if b is not None])
-    sequences = [halves[i] if b[i] <= -t else doubles[i] if b[i] >= t else s
+    sequences = [halves[i] if best[i] <= -t else doubles[i] if best[i] >= t else s
         for i,s in enumerate(sequences)]
-    beats = [interpolate(s) if b[i] <= -t else odd(s) if b[i] >= t else s
-        for i,s in enumerate(beats)]
-    return sequences, beats
+    factors = [0.5*f if b <= -t else 2*f if b >= t else f
+        for f,b in zip(factors, best)]
+    # beats = [interpolate(s) if b[i] <= -t else odd(s) if b[i] >= t else s
+    #     for i,s in enumerate(beats)]
+    return sequences, factors #don't reuse these sequences as quality may decline!
+
+def adjust_sequence(sequence, factor):
+    while factor > 1:
+        sequence = odd(sequence)
+        factor /= 2
+    while factor < 1:
+        sequence = np.repeat(sequence, 2)
+        factor *= 2
+    return sequence
 
 #returns a copy of a interpolated with means and with an added interval equal to the last
 def interpolate(a):
@@ -81,6 +89,6 @@ def best_hist_combo(hists):
 
 def best_combo(dist_matrix, threshold=0.33):
     means = (np.mean(dist_matrix, axis=1) - np.mean(dist_matrix, axis=0)) / 2
-    return np.array([-1 if m <= -0.33 else 1 if m >= 0.33 else 0 for m in means])
+    return np.array([-1 if m < -0.5 else 1 if m > 0.5 else 0 for m in means])
 
 #print(interpolate(np.array([1,3,6,7])))

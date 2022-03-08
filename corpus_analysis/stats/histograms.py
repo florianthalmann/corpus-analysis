@@ -44,9 +44,9 @@ def freq_trans_hists(sequences, relative, ignore_same=False):
     return hists
 
 #returns indices of clustered and unclustered hists
-def clusters(hists):
+def clusters(hists, metric=None):
     if (len(hists) > 1):
-        cluster_labels = OPTICS(min_samples=min(len(hists),5)).fit(hists).labels_
+        cluster_labels = OPTICS(min_samples=min(len(hists),5), metric=metric).fit(hists).labels_
         clustered = [i for i in range(len(hists)) if cluster_labels[i] != -1]
         unclustered = [i for i in range(len(hists)) if cluster_labels[i] == -1]
         return group_by(clustered, lambda i: cluster_labels[i]), unclustered
