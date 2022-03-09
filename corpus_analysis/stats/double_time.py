@@ -19,8 +19,8 @@ def check_double_time2(sequences, factors=None):
     plot_matrix(np.vstack(hists), 'results/*-.png')
     best = np.mean(np.vstack(hists), axis=0)
     t = 1 #all parts have to agree
-    print('adjusted', [b for b in [(i,-1) if best[i] <= -t else (i,1) if best[i] >= t else None
-        for i,s in enumerate(sequences)] if b is not None])
+    # print('adjusted', [b for b in [(i,-1) if best[i] <= -t else (i,1) if best[i] >= t else None
+    #     for i,s in enumerate(sequences)] if b is not None])
     sequences = [halves[i] if best[i] <= -t else doubles[i] if best[i] >= t else s
         for i,s in enumerate(sequences)]
     factors = [0.5*f if b <= -t else 2*f if b >= t else f

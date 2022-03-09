@@ -5,25 +5,26 @@ import graph_tool
 from corpus_analysis.features import get_summarized_chords, to_multinomial, extract_essentia,\
     load_leadsheets, get_summarized_chords2, get_beat_summary, get_summarized_chroma,\
     get_summarized_mfcc, extract_chords, load_essentia
-from corpus_analysis.stats.double_time import check_double_time
-from corpus_analysis.stats.outliers import remove_outliers
+from corpus_analysis.stats.double_time import check_double_time2
+from corpus_analysis.stats.outliers import remove_outliers, split_into_songs
 from corpus_analysis.alignment.affinity import get_alignment_segments, get_affinity_matrix,\
     get_alignment_matrix, segments_to_matrix
 from corpus_analysis.alignment.multi_alignment import align_sequences
 from corpus_analysis.alignment.smith_waterman import smith_waterman
 from corpus_analysis.util import profile, plot_matrix, plot_hist, plot,\
     buffered_run, multiprocess, plot_graph, boxplot, plot_sequences, flatten,\
-    load_json, save_json
+    load_json, save_json, plot_multi
 from corpus_analysis.structure.hcomparison import get_relative_meet_triples, get_meet_matrix
 from corpus_analysis.structure.structure import shared_structure, simple_structure,\
-    new_shared_structure, get_old_eval, get_new_eval, get_msa_eval
+    new_shared_structure, get_old_eval, get_new_eval, get_msa_eval,\
+    layered_super_alignment_graph
 from corpus_analysis.structure.laplacian import get_laplacian_struct_from_affinity,\
     get_laplacian_struct_from_audio
 from corpus_analysis.structure.graphs import graph_from_matrix, adjacency_matrix, alignment_graph
 from corpus_analysis.structure.pattern_graph import PatternGraph, super_alignment_graph
 from corpus_analysis.structure.eval import evaluate_hierarchy_varlen
 from corpus_analysis.structure.hierarchies import get_hierarchy_labels, get_most_salient_labels
-from gd import get_versions_by_date, get_paths, SONGS, get_chord_sequences
+from gd import get_versions_by_date, get_paths, SONGS, get_chord_sequences, get_beats
 
 DATA = 'data/'
 RESULTS = 'resultsNN/'
@@ -49,13 +50,13 @@ def get_self_alignment(sequence):
 def get_self_alignments(sequences):
     return multiprocess('self-alignments', get_self_alignment, sequences)
 
-def get_pairings(sequences, num_mutual=NUM_MUTUAL):
+def get_pairings(sequences):
     matrix = np.ones((len(sequences),len(sequences)), dtype=int)
     np.fill_diagonal(matrix, 0)
     for i in range(len(matrix)-1):
-        places = np.where(np.sum(matrix, axis=0) > num_mutual)[0]
+        places = np.where(np.sum(matrix, axis=0) > NUM_MUTUAL)[0]
         places = places[places > i]
-        num = min(np.sum(matrix[i])-num_mutual, len(places))
+        num = min(np.sum(matrix[i])-NUM_MUTUAL, len(places))
         if num > 0:
             choice = np.random.choice(places, num, replace=False)
             matrix[i,choice] = matrix[choice,i] = 0
@@ -70,14 +71,40 @@ def get_mutual_alignments(sequences, pairings):
     return multiprocess('mutual alignments', get_mutual_alignment,
         [(p, sequences) for p in pairings])
 
-def preprocess_sequences(sequences):
+def preprocess_sequences(sequences, plot_path=None):
+    if plot_path: plot_sequences(sequences, plot_path+'-00.png')
+    original_length = len(sequences)
     previous = [np.hstack(sequences)]
-    sequences = remove_outliers(check_double_time(sequences))
-    while not any([np.array_equal(s, np.hstack(sequences)) for s in previous]):
-        #plot_sequences(sequences, str(len(previous))+'.png')
-        previous.append(np.hstack(sequences))
-        sequences = remove_outliers(check_double_time(sequences, 50), 5)
-    return sequences
+    split, removed = split_into_songs(sequences)
+    if plot_path: print('SPLIT', split)
+    sequences = [sequences[i] for i in split[0]]#keep first cluster
+    if plot_path: plot_sequences(sequences, plot_path+'-01.png')
+    original_ids = split[0]
+    sequences, removed = remove_outliers(sequences)
+    original_ids = [o for i,o in enumerate(original_ids) if i not in removed]
+    if plot_path: print('REMOVED', removed)
+    if plot_path: plot_sequences(sequences, plot_path+'-02.png')
+    tempseqs, factors = check_double_time2(sequences)
+    if plot_path: print('FACTORS', factors)
+    if plot_path: plot_sequences(tempseqs, plot_path+'-03.png')
+    k = 1
+    while not any([np.array_equal(s, np.hstack(tempseqs)) for s in previous]):
+        previous.append(np.hstack(tempseqs))
+        tempseqs, r = remove_outliers(tempseqs)
+        if plot_path: plot_sequences(tempseqs, plot_path+'-'+str(k)+'2.png')
+        factors = [f for i,f in enumerate(factors) if i not in r]
+        original_ids = [o for i,o in enumerate(original_ids) if i not in r]
+        #always keep sequences as real reference
+        sequences = [s for i,s in enumerate(sequences) if i not in r]
+        if plot_path: print('REMOVED', r)
+        tempseqs, factors = check_double_time2(sequences, factors)
+        if plot_path: plot_sequences(tempseqs, plot_path+'-'+str(k)+'3.png')
+        if plot_path: print('FACTORS', factors)
+        k += 1
+    sequences = [None for i in range(original_length)]
+    for i,o in enumerate(original_ids):
+        sequences[o] = tempseqs[i]
+    return sequences #ok to return tempseqs in the end
 
 def get_preprocessed_seqs(song):
     sequences = buffered_run(DATA+song+'-chords',
@@ -95,8 +122,10 @@ def get_alignments(name, sequences, preprocess=False):
         lambda: get_self_alignments(sequences),
         [SEG_COUNT, MAX_GAPS, MAX_GAP_RATIO, MIN_LEN, MIN_DIST])
     if NUM_MUTUAL > 0:
+        print(NUM_MUTUAL)
         pairings = buffered_run(DATA+name+'-pairs'+extension,
             lambda: get_pairings(sequences), [NUM_MUTUAL])
+        print(len(pairings))
         mutuals = buffered_run(DATA+name+'-malign'+extension,
             lambda: get_mutual_alignments(sequences, pairings),
             [SEG_COUNT, MAX_GAPS, MAX_GAP_RATIO, MIN_LEN, MIN_DIST, NUM_MUTUAL])
@@ -244,10 +273,35 @@ def save_msa_eval(song, outfile):
         data.to_csv(outfile, index=False)
 
 def multisong_set():
+    global MAX_GAPS
     sequences = flatten([get_chord_sequences(s)[:3] for s in SONGS[:5]], 1)
-    #NUM_MUTUAL = 15
-    sequences, pairings, alignments, msa = get_alignments('mixed', sequences, False)
+    MAX_GAPS = 2
+    sequences, pairings, alignments, msas = get_alignments('mixed', sequences, False)
     new_shared_structure(RESULTS+'mixed', sequences, pairings, alignments)
+    
+    # gap_range = [0,1]#[0,2,4,6,8]#range(0, 5)
+    # alignments = []
+    # for i in gap_range:
+    #     MAX_GAPS = i
+    #     alignments.append(get_alignments('mixed', sequences, False))
+    # sequences, pairings, alignments, msas = zip(*alignments)
+    # layered_super_alignment_graph(RESULTS+'mixed', sequences[0], pairings, alignments)
+
+def num_mutuals_graph(outfile):
+    global NUM_MUTUAL
+    max_mutuals = 10
+    data = pd.read_csv(outfile) if os.path.isfile(outfile) else pd.DataFrame([],
+        columns=['song','num_mutual','entropy','partition count','total points'])
+    for i in range(max_mutuals+1):
+        print(i)
+        for s in SONGS:
+            if not (data[data.columns[:2]] == [s,i]).all(1).any():
+                print(s)
+                NUM_MUTUAL = i
+                sequences, pairings, alignments, msa = get_song_alignments(s, True)
+                e, c, p = new_shared_structure(RESULTS+s, sequences, pairings, alignments)
+                data.loc[len(data)] = [s, i, e, c, p]
+                data.to_csv(outfile, index=False)
 
 def run():
     #plot_date_histogram()
@@ -266,7 +320,14 @@ def run():
     #     save_msa_eval(s, 'eval2.csv')
     #save_msa_eval(SONGS[SONG_INDEX], 'evallll.csv')
     
-    multisong_set()
+    #------>>>  multisong_set()
+    #num_mutuals_graph('mutuals.csv')
+    
+    print(SONGS)
+    song = 1
+    seqs = get_chord_sequences(SONGS[song])
+    seqs = preprocess_sequences(seqs, 'results/*-'+str(song))
+    
     
     # sequences, pairings, alignments, msa = get_song_alignments(SONGS[SONG_INDEX], True)
     # new_shared_structure(RESULTS+SONGS[SONG_INDEX], sequences, pairings, alignments)
@@ -395,6 +456,7 @@ def run():
     #matrix = get_meet_matrix(hierarchy)
     #plot_matrix(matrix, 'results/meet_abs0_60-.png')
 
-run()
+if __name__ == '__main__':
+    run()
 
-#print(get_pairings([0,1,2,3,4,5,6,7], 5))
+#print(get_pairings([0,1,2,3,4,5,6,7]))
