@@ -6,35 +6,48 @@ from ..util import plot_sequences, plot_matrix, multiprocess, odd
 from .histograms import freq_trans_hists, frequency_histograms, tuple_histograms
 from .util import chiSquared
 
-def check_double_time2(sequences, factors=None):
+def check_double_time2(sequences, beats, factors=None):
     factors = factors if factors is not None else [1 for s in sequences]
     sequences = [adjust_sequence(s, f) for s,f in zip(sequences, factors)]
-    doubles = np.array([odd(s) for s in sequences])
-    halves = np.array([np.repeat(s, 2) for s in sequences], dtype='object')
+    doubles = np.array([np.repeat(s, 2) for s in sequences], dtype='object')
+    halves = np.array([odd(s) for s in sequences])
     
+    #absolute histograms are able to indicate double time
     stacked = np.hstack((sequences, doubles, halves))
     hists = [best_hist_combo(tuple_histograms(stacked, False, i))
-        for i in [1,4,8]]
+        for i in [4,8]] #4,8 best for #2
     
     plot_matrix(np.vstack(hists), 'results/*-.png')
     best = np.mean(np.vstack(hists), axis=0)
+    
+    #certify factors with tempo: beat detection should never be off by more than a factor 2!
     t = 1 #all parts have to agree
+    max_dev = 2 #max deviation from mean tempo
+    tempos = [60/np.mean(b[1:]-b[:-1]) for b in beats]
+    meantempo = np.mean([f*t for f,t in zip(factors, tempos)])#with current factors
+    newfactors = [0.5 if b <= -t else 2 if b >= t else f
+        for f,b in zip(factors, best)]
+    # newfactors = [0.5*f if b <= -t else 2*f if b >= t else f
+    #     for f,b in zip(factors, best)]
+    newtempos = [f*t for f,t in zip(newfactors, tempos)]
+    factors = [n if (1/max_dev)*meantempo <= t <= max_dev*meantempo else f
+        for f,t,n in zip(factors, newtempos, newfactors)]
+    
     # print('adjusted', [b for b in [(i,-1) if best[i] <= -t else (i,1) if best[i] >= t else None
     #     for i,s in enumerate(sequences)] if b is not None])
-    sequences = [halves[i] if best[i] <= -t else doubles[i] if best[i] >= t else s
-        for i,s in enumerate(sequences)]
-    factors = [0.5*f if b <= -t else 2*f if b >= t else f
-        for f,b in zip(factors, best)]
+    sequences = [h if f < 1 else d if f > 1 else s
+        for f,s,h,d in zip(factors, sequences, halves, doubles)]
+    
     # beats = [interpolate(s) if b[i] <= -t else odd(s) if b[i] >= t else s
     #     for i,s in enumerate(beats)]
     return sequences, factors #don't reuse these sequences as quality may decline!
 
 def adjust_sequence(sequence, factor):
     while factor > 1:
-        sequence = odd(sequence)
+        sequence = np.repeat(sequence, 2)
         factor /= 2
     while factor < 1:
-        sequence = np.repeat(sequence, 2)
+        sequence = odd(sequence)
         factor *= 2
     return sequence
 

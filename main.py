@@ -71,7 +71,10 @@ def get_mutual_alignments(sequences, pairings):
     return multiprocess('mutual alignments', get_mutual_alignment,
         [(p, sequences) for p in pairings])
 
-def preprocess_sequences(sequences, plot_path=None):
+def remove_from_lists(remove, *lists):
+    return [[e for i,e in enumerate(l) if i not in remove] for l in lists]
+
+def preprocess_sequences(sequences, beats, plot_path=None):
     if plot_path: plot_sequences(sequences, plot_path+'-00.png')
     original_length = len(sequences)
     previous = [np.hstack(sequences)]
@@ -81,10 +84,10 @@ def preprocess_sequences(sequences, plot_path=None):
     if plot_path: plot_sequences(sequences, plot_path+'-01.png')
     original_ids = split[0]
     sequences, removed = remove_outliers(sequences)
-    original_ids = [o for i,o in enumerate(original_ids) if i not in removed]
+    original_ids, beats = remove_from_lists(removed, original_ids, beats)
     if plot_path: print('REMOVED', removed)
     if plot_path: plot_sequences(sequences, plot_path+'-02.png')
-    tempseqs, factors = check_double_time2(sequences)
+    tempseqs, factors = check_double_time2(sequences, beats)
     if plot_path: print('FACTORS', factors)
     if plot_path: plot_sequences(tempseqs, plot_path+'-03.png')
     k = 1
@@ -92,12 +95,11 @@ def preprocess_sequences(sequences, plot_path=None):
         previous.append(np.hstack(tempseqs))
         tempseqs, r = remove_outliers(tempseqs)
         if plot_path: plot_sequences(tempseqs, plot_path+'-'+str(k)+'2.png')
-        factors = [f for i,f in enumerate(factors) if i not in r]
-        original_ids = [o for i,o in enumerate(original_ids) if i not in r]
         #always keep sequences as real reference
-        sequences = [s for i,s in enumerate(sequences) if i not in r]
+        sequences, original_ids, factors, beats =\
+            remove_from_lists(r, sequences, original_ids, factors, beats)
         if plot_path: print('REMOVED', r)
-        tempseqs, factors = check_double_time2(sequences, factors)
+        tempseqs, factors = check_double_time2(sequences, beats, factors)
         if plot_path: plot_sequences(tempseqs, plot_path+'-'+str(k)+'3.png')
         if plot_path: print('FACTORS', factors)
         k += 1
@@ -305,14 +307,6 @@ def num_mutuals_graph(outfile):
 
 def run():
     #plot_date_histogram()
-    # sequences, pairings, alignments, msa = get_song_alignments(SONGS[2])
-    # plot_sequences(sequences, '0.png')
-    # previous = [np.hstack(sequences)]
-    # sequences = remove_outliers(check_double_time(sequences))
-    # while not any([np.array_equal(s, np.hstack(sequences)) for s in previous]):
-    #     plot_sequences(sequences, str(len(previous))+'.png')
-    #     previous.append(np.hstack(sequences))
-    #     sequences = remove_outliers(check_double_time(sequences, 50), 5)
     
     # for s in SONGS:
     #     # sequences, pairings, alignments, msa = get_song_alignments(s, True)
@@ -324,9 +318,10 @@ def run():
     #num_mutuals_graph('mutuals.csv')
     
     print(SONGS)
-    song = 1
-    seqs = get_chord_sequences(SONGS[song])
-    seqs = preprocess_sequences(seqs, 'results/*-'+str(song))
+    song = 2
+    seqs = get_chord_sequences(SONGS[song])[:100]
+    beats = get_beats(SONGS[song])#[:200]
+    seqs = preprocess_sequences(seqs, beats, 'results/*-'+str(song))
     
     
     # sequences, pairings, alignments, msa = get_song_alignments(SONGS[SONG_INDEX], True)

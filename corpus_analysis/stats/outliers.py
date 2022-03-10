@@ -16,12 +16,13 @@ def split_into_songs(sequences):
 
 #removes all sequences that are more than the given stds away from the mean
 def remove_outliers(sequences):
-    # hists = [get_outlier_hists(tuple_histograms(sequences, False, i, False))
-    #     for i in [1,1]]#[2,4,8,16]]#range(1, 8, 2)]
-    hists = [get_outlier_hists(tuple_histograms(sequences, False, 1)),
-        get_outlier_hists(tuple_histograms(sequences, True, 1)),
-        get_outlier_hists(tuple_histograms(sequences, False, 8)),
-        get_outlier_hists(tuple_histograms(sequences, True, 8))]
+    #aggressive setting:
+    hists = [get_outlier_hists(tuple_histograms(sequences, True, 1))]
+    #more inclusive setting:
+    # hists = [get_outlier_hists(tuple_histograms(sequences, True, 1)),
+    #     get_outlier_hists(tuple_histograms(sequences, True, 4)),
+    #     #get_outlier_hists(tuple_histograms(sequences, False, 8)),
+    #     get_outlier_hists(tuple_histograms(sequences, True, 8))]
     b = np.min(np.vstack(hists), axis=0)
     plot_matrix(np.vstack(hists), 'results/*-o.png')
     removed = [i for i,s in enumerate(b) if s > 3] #> 0.5]
