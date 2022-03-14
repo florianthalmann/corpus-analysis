@@ -63,6 +63,21 @@ def ordered_unique(a):
 def argmax(a):
     return max(enumerate(a), key=lambda x: x[1])[0]
 
+def running_mean(x, N):
+    cumsum = np.cumsum(np.insert(x, 0, 0)) 
+    rmean = (cumsum[N:] - cumsum[:-N]) / float(N)
+    pads = (round(N/2), round(N/2)-1)
+    return np.pad(rmean, pads, 'constant', constant_values=(None,None))
+
+def odd(a):
+    return a[np.arange(round(len(a)/2))*2] if len(a) > 0 else a
+
+#returns a copy of a interpolated with means and with an added interval equal to the last
+def interpolate(a):
+    means = np.mean(np.vstack((a[:-1],a[1:])), axis=0)
+    means = np.insert(means, len(means), a[-1]+(a[-1]-means[-1]))
+    return np.vstack((a,means)).reshape((-1,), order='F')
+
 def plot_matrix(matrix, path=None):
     matplotlib.interactive(False)
     sns.heatmap(matrix, xticklabels=False, yticklabels=False, cmap=sns.cm.rocket_r)
@@ -94,7 +109,7 @@ def plot_sequences(sequences, path=None):
     if np.min(matrix) == 0:
         hls[0] = (1,1,1)
         hls[1] = (0,0,0)
-    plt.figure(figsize=(6.4,4.8))#somehow heatmap gets squished otherwise
+    #plt.figure(figsize=(6.4,4.8))#somehow heatmap gets squished otherwise
     sns.heatmap(matrix, xticklabels=False, yticklabels=False, cmap=hls)
     plt.savefig(path, dpi=1000) if path else plt.show()
     plt.close()
