@@ -61,19 +61,19 @@ def plot_evolution(song):
 
 def plot_essentias(path, dates, essentias, window):
     ess = [e['lowlevel']['dynamic_complexity'] for e in essentias]
-    plot_with_mean(path+'_dycomp.png', dates, ess, 100)
+    plot_with_mean(path+'_dycomp.png', dates, ess, window)
     
     ess = [e['lowlevel']['spectral_complexity']['mean'] for e in essentias]
-    plot_with_mean(path+'_speccomp.png', dates, ess, 100)
+    plot_with_mean(path+'_speccomp.png', dates, ess, window)
     
     ess = [e['lowlevel']['spectral_entropy']['mean'] for e in essentias]
-    plot_with_mean(path+'_specent.png', dates, ess, 100)
+    plot_with_mean(path+'_specent.png', dates, ess, window)
     
     ess = [e['lowlevel']['spectral_flux']['mean'] for e in essentias]
-    plot_with_mean(path+'_speccomp.png', dates, ess, 100)
+    plot_with_mean(path+'_speccomp.png', dates, ess, window)
     
     ess = [e['tonal']['chords_changes_rate'] for e in essentias]
-    plot_with_mean(path+'_chordcha.png', dates, ess, 100)
+    plot_with_mean(path+'_chordcha.png', dates, ess, window)
 
 def combine_songs(dates, *features):
     dates = util.flatten(list(dates))
