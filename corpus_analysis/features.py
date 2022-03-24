@@ -40,15 +40,23 @@ def extract_bars(path, outpath=None, use_librosa=False):
             subprocess.call('DBNDownbeatTracker single -o "'
                 +outFile+'" "'+path+'"', shell=True)
 
+def extract_onsets(audio, outfile):
+    if not os.path.isfile(outfile):
+        subprocess.call('CNNOnsetDetector single -o "'
+            +outfile+'" "'+audio+'"', shell=True)
+
 def load_beats(path):
-    with open(path) as f:
-        beats = list(csv.reader(f, delimiter='\t'))
-    return np.array([float(b[0]) for b in beats])
+    return np.array([float(b[0]) for b in load_madmom_csv(path)])
 
 def load_bars(path):
+    return np.array([float(b[0]) for b in load_madmom_csv(path) if int(b[1]) == 1])
+
+def load_onsets(path):
+    return np.array([float(o) for o in load_madmom_csv(path)])
+
+def load_madmom_csv(path):
     with open(path) as f:
-        beats = list(csv.reader(f, delimiter='\t'))
-    return [float(b[0]) for b in beats if int(b[1]) == 1]
+        return list(csv.reader(f, delimiter='\t'))
 
 def get_pitch_class(label):
     pc = {'C': 0, 'D': 2, 'E': 4, 'F': 5, 'G': 7, 'A': 9, 'B': 11}[label[0]]

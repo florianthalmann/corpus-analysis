@@ -87,9 +87,10 @@ def plot_matrix(matrix, path=None):
     plt.close('all')
     gc.collect()
 
-def plot_hist(data, path=None, bincount=None, binwidth=1):
+def plot_hist(data, path=None, bincount=None, binwidth=1, log=False):
     if bincount:
         plt.hist(data, bins=bincount)
+        if log: plt.yscale('log', nonposy='clip')
     else:
         plt.hist(data, bins=np.arange(min(data), max(data) + binwidth, binwidth))
     plt.savefig(path, dpi=1000) if path else plt.show()

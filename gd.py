@@ -1,10 +1,11 @@
-import os, json, dateutil, datetime
+import os, json, dateutil, datetime, tqdm
 from corpus_analysis.features import get_summarized_chords, to_multinomial, extract_essentia,\
     load_leadsheets, get_summarized_chords2, get_beat_summary, get_summarized_chroma,\
-    get_summarized_mfcc, extract_chords, load_essentia, load_beats
+    get_summarized_mfcc, extract_chords, load_essentia, load_beats, extract_onsets,\
+    load_onsets
 
-corpus = '../fifteen-songs-dataset2/'
-audio = os.path.join(corpus, 'tuned_audio')
+corpus = os.path.abspath('/Users/flo/Projects/Code/Kyoto/fifteen-songs-dataset2/')
+audio = os.path.abspath('/Users/flo/Desktop/migration/tuned_audio/')#os.path.join(corpus, 'tuned_audio')
 features = os.path.join(corpus, 'features')
 leadsheets = os.path.join(corpus, 'leadsheets')
 with open(os.path.join(corpus, 'dataset.json')) as f:
@@ -20,22 +21,28 @@ def get_versions_by_date(song):
     versions, dates = zip(*sorted(zip(versions, dates), key=lambda vd: vd[1]))
     return list(versions), list(dates)
 
-def get_paths(song):
+def get_paths(song, feature_ext=''):
     versions = get_versions_by_date(song)[0]
     audio_paths = [os.path.join(audio, song, v).replace('.mp3','.wav') for v in versions]
-    feature_paths = [get_feature_path(song, v)+'_freesound.json' for v in versions]
+    feature_paths = [get_feature_path(song, v)+feature_ext for v in versions]
     return audio_paths, feature_paths
-
-def get_essentias(song):
-    return [load_essentia(p) for p in get_paths(song)[1]]
-
-def extract_features_for_song(song):
-    audio_paths, feature_paths = get_paths(song)
-    [extract_essentia(a, p) for (a, p) in zip(audio_paths, feature_paths)]
 
 def get_feature_path(song, version):
     id = version.replace('.mp3','.wav').replace('.','_').replace('/','_')
     return os.path.join(features, id, id)
+
+def get_essentias(song):
+    audio_paths, feature_paths = get_paths(song, '_freesound.json')
+    return [load_essentia(p) for p in get_paths(song)[1]]
+
+def extract_essentia_for_song(song):
+    audio_paths, feature_paths = get_paths(song, '_freesound.json')
+    [extract_essentia(a, p) for (a, p) in zip(audio_paths, feature_paths)]
+
+def extract_onsets_for_all():
+    for s in SONGS[:1]:
+        [extract_onsets(a,p) for a,p in
+            tqdm.tqdm(list(zip(*get_paths(s, '_onsets.txt'))), desc=s)]
 
 def get_feature_paths(song):
     versions = get_versions_by_date(song)[0]
@@ -52,3 +59,6 @@ def get_chord_sequences(song):
 
 def get_beats(song):
     return [load_beats(p+'_madbars.json') for p in get_feature_paths(song)]
+
+def get_onsets(song):
+    return [load_onsets(p+'_onsets.txt') for p in get_feature_paths(song)]
