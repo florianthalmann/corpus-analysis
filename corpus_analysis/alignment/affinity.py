@@ -69,11 +69,11 @@ def knn_threshold(matrix, emphasis):
         conns[i][k] = 1
     return conns
 
-def peak_threshold(matrix, median_len=16, sigma=0.25):
+def peak_threshold(matrix, sigma=0.25, distance=1):
     result = np.zeros(matrix.shape)
     for i,r in enumerate(matrix):
         #result[i][peak_picking_MSAF(r, median_len=median_len, sigma=sigma)[0].astype(int)] = 1
-        result[i][find_peaks(r, height=sigma)[0].astype(int)] = 1
+        result[i][find_peaks(r, height=sigma, distance=distance)[0].astype(int)] = 1
         #result[i][libfmp.c6.peak_picking_roeder(r)[0].astype(int)] = 1
         #result[i][librosa.util.peak_pick(r, pre_max=5, post_max=5, pre_avg=5, post_avg=5, delta=0.01, wait=5)] = 1
     return result

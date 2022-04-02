@@ -40,7 +40,8 @@ def extract_bars(path, outpath=None, use_librosa=False):
             subprocess.call('DBNDownbeatTracker single -o "'
                 +outFile+'" "'+path+'"', shell=True)
 
-def extract_onsets(audio, outfile):
+def extract_onsets(audio_and_outfile):
+    audio, outfile = audio_and_outfile
     if not os.path.isfile(outfile):
         subprocess.call('CNNOnsetDetector single -o "'
             +outfile+'" "'+audio+'"', shell=True)
@@ -52,7 +53,7 @@ def load_bars(path):
     return np.array([float(b[0]) for b in load_madmom_csv(path) if int(b[1]) == 1])
 
 def load_onsets(path):
-    return np.array([float(o) for o in load_madmom_csv(path)])
+    return np.array([float(o[0]) for o in load_madmom_csv(path)])
 
 def load_madmom_csv(path):
     with open(path) as f:

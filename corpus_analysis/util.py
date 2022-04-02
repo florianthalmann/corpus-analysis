@@ -14,7 +14,9 @@ def multiprocess(title, func, data, unordered=False):
         return list(tqdm.tqdm(pfunc(func, data), total=len(data), desc=title))
 
 def flatten(array, iterations=math.inf):#iterations inf is deep flatten
-    if iterations >= 0 and isinstance(array, list):
+    if iterations == 1 and isinstance(array[0], np.ndarray):
+        return np.concatenate(array)
+    elif iterations >= 0 and isinstance(array, list):
         return [b for a in array for b in flatten(a, iterations-1)]
     return [array]
 
@@ -25,7 +27,7 @@ def split(lst, n):
 def summarize_matrix(A, window, func=np.mean):
     blocks = np.array_split(A, math.floor(A.shape[0]/window), axis=0)
     blocks = np.array([[np.hstack(bb)
-        for bb in np.array_split(b, b.shape[1]/window, axis=1)] for b in blocks])
+        for bb in np.array_split(b, math.floor(b.shape[1]/window), axis=1)] for b in blocks])
     if blocks.dtype != 'object':
         return func(blocks, axis=2)
     return np.array([[func(b) for b in bb] for bb in blocks])
@@ -64,6 +66,7 @@ def argmax(a):
     return max(enumerate(a), key=lambda x: x[1])[0]
 
 def running_mean(x, N):
+    if N>len(x): raise ValueError('N=%i is too large for array length %i'%(N, len(x)))
     cumsum = np.cumsum(np.insert(x, 0, 0)) 
     rmean = (cumsum[N:] - cumsum[:-N]) / float(N)
     pads = (round(N/2), round(N/2)-1)
