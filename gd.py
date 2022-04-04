@@ -3,6 +3,7 @@ from corpus_analysis.features import get_summarized_chords, to_multinomial, extr
     load_leadsheets, get_summarized_chords2, get_beat_summary, get_summarized_chroma,\
     get_summarized_mfcc, extract_chords, load_essentia, load_beats, extract_onsets,\
     load_onsets
+from corpus_analysis.util import multiprocess
 
 corpus = os.path.abspath('/Users/flo/Projects/Code/Kyoto/fifteen-songs-dataset2/')
 audio = os.path.abspath('/Users/flo/Desktop/migration/tuned_audio/')#os.path.join(corpus, 'tuned_audio')
@@ -32,17 +33,16 @@ def get_feature_path(song, version):
     return os.path.join(features, id, id)
 
 def get_essentias(song):
-    audio_paths, feature_paths = get_paths(song, '_freesound.json')
-    return [load_essentia(p) for p in get_paths(song)[1]]
+    return [load_essentia(p) for p in get_paths(song, '_freesound.json')[1]]
 
 def extract_essentia_for_song(song):
-    audio_paths, feature_paths = get_paths(song, '_freesound.json')
-    [extract_essentia(a, p) for (a, p) in zip(audio_paths, feature_paths)]
+    [extract_essentia(a, p) for a,p in zip(*get_paths(song, '_freesound.json'))]
 
+#onsets: CNNOnsetDetector, onsets2: OnsetDetector
 def extract_onsets_for_all():
-    for s in SONGS[:1]:
-        [extract_onsets(a,p) for a,p in
-            tqdm.tqdm(list(zip(*get_paths(s, '_onsets.txt'))), desc=s)]
+    for s in SONGS:
+        multiprocess('onsets '+s, extract_onsets,
+            list(zip(*get_paths(s, '_onsets.txt'))))
 
 def get_feature_paths(song):
     versions = get_versions_by_date(song)[0]
