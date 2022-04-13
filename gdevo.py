@@ -61,6 +61,16 @@ def plot_overall_evolution():
     chromavars = [[pdf_freq_variation(c) for c in cs] for cs in chroma]
     chromavars, rchromavars = merge_with_relative(pdates, chromavars)[1:]
     
+    #tuning deviation
+    tuning = [[np.mean(np.reshape(np.roll(h, 1), (-1,3)), axis=0)
+        for h in hs] for hs in hpcp]
+    tuningvars = [[pdf_freq_variation(t) for t in ts] for ts in tuning]
+    tuningvars, rtuningvars = merge_with_relative(pdates, tuningvars)[1:]
+    
+    #tuning deviation +/-
+    tuning2 = [[(t[2]-t[0])/np.sum(t) for t in ts] for ts in tuning]
+    tuning2, rtuning2 = merge_with_relative(pdates, tuning2)[1:]
+    
     loudnesses, rloudnesses = get_essentia_relative(pdates, essentias,
         ['lowlevel','loudness_ebu128','short_term','mean'])[1:]
     loudvars, rloudvars = get_essentia_relative_varcoeffs(pdates, essentias,
@@ -87,6 +97,8 @@ def plot_overall_evolution():
     plt.plot(dates, util.running_mean(rchordvars, window), label='chord vars')
     plt.plot(dates, util.running_mean(rchordents, window), label='chord ents')
     plt.plot(dates, util.running_mean(rchromavars, window), label='pitch-class vars')
+    plt.plot(dates, util.running_mean(rtuningvars, window), label='tuning vars')
+    plt.plot(dates, util.running_mean(rtuning2, window), label='rel tuning')
     plt.legend()
     plot(PATH+'*overall.tonal.png')
     
