@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 from matplotlib import pyplot as plt
 from corpus_analysis.util import flatten, plot_sequences, boxplot
-from gd import get_versions_by_date, get_essentias, SONGS, get_beats,\
+from gd import get_versions_by_date, SONGS, get_beats,\
     get_chord_sequences
 from main import get_preprocessed_seqs
 
@@ -24,19 +24,43 @@ def plot_date_histogram():
 
 def plot_date_histogram2():
     dates = [get_versions_by_date(s)[1] for s in SONGS]
+    years_by_song = [[d.year for d in ds] for ds in dates]
     all_years = [d.year for d in flatten(dates)]
-    years = [[d.year for d in ds] for ds in dates]
+    all_years = np.arange(np.min(all_years), np.max(all_years)+1)
     fig, ax = plt.subplots(figsize=(7, 5.25))
-    labels = np.arange(np.min(all_years), np.max(all_years)+1)
-    sum = np.zeros(len(labels))
-    for i,y in enumerate(years):
-        l, counts = np.unique(all_years, return_counts=True)
-        counts = np.pad(counts, (l[0]-labels[0], labels[-1]-l[-1]))
-        ax.bar(labels, counts, label=SONGS[i], width=1, bottom=sum)
+    sum = np.zeros(len(all_years))
+    for i,years in enumerate(years_by_song):
+        ys, cs = np.unique(years, return_counts=True)
+        counts = np.zeros(len(all_years), dtype=int)
+        for y,c in zip(ys, cs):
+            counts[np.where(all_years == y)] = c
+        ax.bar(all_years, counts, label=SONGS[i], width=1, bottom=sum)
         sum += counts
     ax.legend(ncol=2)
     plt.tight_layout()
-    fig.savefig('gd1.pdf')
+    fig.savefig('results/gd1.pdf')
+    #plt.show()
+
+def plot_relative_date_histogram():
+    dates = [get_versions_by_date(s)[1] for s in SONGS]
+    years_by_song = [[d.year for d in ds] for ds in dates]
+    all_years = [d.year for d in flatten(dates)]
+    _, all_counts = np.unique(all_years, return_counts=True)
+    all_years = np.arange(np.min(all_years), np.max(all_years)+1)
+    fig, ax = plt.subplots(figsize=(7, 5.25))
+    sum = np.zeros(len(all_years))
+    for i,years in enumerate(years_by_song):
+        ys, cs = np.unique(years, return_counts=True)
+        counts = np.zeros(len(all_years), dtype=int)
+        for y,c in zip(ys, cs):
+            counts[np.where(all_years == y)] = c
+        print(counts, all_counts)
+        counts = counts / all_counts
+        ax.bar(all_years, counts, label=SONGS[i], width=1, bottom=sum)
+        sum += counts
+    ax.legend(ncol=2)
+    plt.tight_layout()
+    fig.savefig('results/gd1rel.pdf')
     #plt.show()
 
 def save_current_pandas_plot(outfile):
@@ -76,25 +100,7 @@ def plot_features(raw=False):
     data.boxplot(by='song', column=['chord count'], rot=90)
     save_current_pandas_plot('gd6-.pdf')
 
-def plot_evolution(song):
-    import matplotlib.pyplot as plt
-    v, d = get_versions_by_date(song)
-    #b = [e['rhythm']['onset_rate'] for e in get_essentias(SONGS[SONG_INDEX])]
-    b = [e['lowlevel']['dynamic_complexity'] for e in get_essentias(song)]
-    #b = [e['metadata']['audio_properties']['length'] for e in get_essentias(SONGS[SONG_INDEX])]
-    #b = [b/2 if b > 140 else b for b in b]
-    print(len(b))
-    plt.plot(d, b)
-    def running_mean(x, N):
-        cumsum = np.cumsum(np.insert(x, 0, 0)) 
-        return (cumsum[N:] - cumsum[:-N]) / float(N)
-    b = running_mean(b, 10)
-    print(len(b))
-    b = np.pad(b, (5,4), 'constant', constant_values=(0,0))
-    import matplotlib.pyplot as plt
-    plt.plot(d, b)
-    plt.show()
-
 #plot_msa_eval('eval.csv')
-plot_num_mutuals_eval('mutuals.csv')
+#plot_num_mutuals_eval('mutuals.csv')
 #plot_features()
+plot_relative_date_histogram()
