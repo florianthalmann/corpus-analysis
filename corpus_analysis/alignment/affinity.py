@@ -165,8 +165,9 @@ def avgs2(diagonals, min_len, max_len, matrix, len_emph):
 
 #new method for unthresholded unsmoothed matrix!
 def get_best_segments(matrix, min_len=20, max_len=44, min_dist=1, threshold=0,#99.5,
-        len_emph=0, min_val=.6, ignore_overlaps=False, max_gap_len=5):
+        len_emph=0, min_val=.6, ignore_overlaps=False, max_gap_len=-1):
     #min_len=2
+    min_len = min(min_len, max_len-5)
     diagonals = get_diagonal_indices(matrix)
     
     #avgs is organized as: (diagonal index, position, length)
@@ -225,7 +226,7 @@ def get_best_segments(matrix, min_len=20, max_len=44, min_dist=1, threshold=0,#9
     segs = [diagonals[b[0]][b[1]:b[1]+b[2]+min_len] for b in best]
     segs = [remove_outer_gaps(s, matrix) for s in segs]
     segs = [s for s in segs if len(s) >= min_len]
-    if max_gap_len > 0:
+    if max_gap_len >= 0:#-1 for any number of gaps
         segs = [s for s in segs if max_gap_length(s, matrix) <= max_gap_len]
     #print(sum([len(s) for s in segs]), matrix.shape[0]**2)
     return segments_to_matrix(segs, matrix.shape)
@@ -333,7 +334,7 @@ def filter_segments(segments, count, min_len, min_dist, symmetric, shape):
     return selected[1:] if symmetric else selected #remove diagonal if symmetric
 
 def max_gap_length(segment, unsmoothed):
-    gaps = np.nonzero(1 - unsmoothed[tuple(segment.T)])[0]
+    gaps = np.where(unsmoothed[tuple(segment.T)] == 0)[0]
     return max([len(c) for c in consecutive(gaps)])
 
 def consecutive(data, stepsize=1):

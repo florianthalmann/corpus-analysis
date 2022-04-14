@@ -54,7 +54,6 @@ def plot_relative_date_histogram():
         counts = np.zeros(len(all_years), dtype=int)
         for y,c in zip(ys, cs):
             counts[np.where(all_years == y)] = c
-        print(counts, all_counts)
         counts = counts / all_counts
         ax.bar(all_years, counts, label=SONGS[i], width=1, bottom=sum)
         sum += counts
