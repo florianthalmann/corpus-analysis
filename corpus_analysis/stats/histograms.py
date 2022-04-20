@@ -62,6 +62,18 @@ def trans_hist_clusters(sequences, relative=True):
 def freq_trans_hist_clusters(sequences, relative=True):
     return clusters(freq_trans_hists(sequences, relative))
 
+def get_onset_hists(onsets, beats, bins=200):
+    return np.array([get_onset_hist(o,b) for o,b in zip(onsets, beats)])
+
+def get_onset_hist(onsets, beats, bins=200):
+    return np.histogram(get_onsetpos(onsets, beats), bins=bins, density=True)[0]
+
+def get_onsetpos(onsets, beats):
+    o, b = onsets, beats
+    o = o[np.argmax(o>=b[0]):len(o)-np.argmax(o[::-1]<b[-1])]#only onsets later than first beat
+    beat_ids = [np.argmax(b>oo)-1 for oo in o]
+    return np.array([(oo - b[i])/(b[i+1]-b[i]) for oo,i in zip(o, beat_ids)])
+
 # print(freq_trans_hists([np.array([2,2,2,2]),np.array([1,1,1,1]),
 #      np.array([3,3])], True))
 # freq_trans_hists([np.array([1,2,1,2,2,1,1,2,1]),np.array([1,2,3,1,2]),

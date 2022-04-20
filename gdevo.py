@@ -7,6 +7,7 @@ from scipy.signal import find_peaks
 import gd, main
 from corpus_analysis import util, features
 from corpus_analysis.stats.util import entropy2
+from corpus_analysis.stats.histograms import get_onsetpos, get_onset_hists
 
 PATH='results/gdevo/'
 
@@ -200,11 +201,11 @@ def plot_evolution(song):
     # plot_essentias(PATH+song, dates, essentias, 10)
 
 def plot_onsethists(song, onsets, beats):
-    hists = get_onset_hists(onsets, beats)
+    hists = get_onset_hists(onsets,beats)
     util.plot_matrix(np.rot90(hists), PATH+song+'_onsethists3.png')
 
 def plot_onsethistpeaks(song, onsets, beats):
-    hists = get_onset_hists(onsets, beats)
+    hists = get_onset_hists(onsets,beats)
     #print(hists[:3])
     peaks = [find_peaks(h, prominence=0.5, distance=10)[0] for h in hists]
     print(peaks[:3])
@@ -214,7 +215,7 @@ def plot_onsethistpeaks(song, onsets, beats):
     util.plot_matrix(np.rot90(matrix), PATH+song+'_onsethists4.png')
 
 def plot_onsethistrealpeaks(song, onsets, beats, resolution=1000):
-    onsetpos = get_onsetpos(onsets, beats)
+    onsetpos = [get_onsetpos(o,b) for o,b in zip(onsets,beats)]
     densities = [stats.gaussian_kde(o) for o in onsetpos]
     values = [d.evaluate(np.linspace(o.min(), o.max(), resolution))
         for o,d in zip(onsetpos, densities)]
@@ -225,23 +226,6 @@ def plot_onsethistrealpeaks(song, onsets, beats, resolution=1000):
     for i,p in enumerate(peaks):
         matrix[i,p] = 1
     util.plot_matrix(np.rot90(matrix), PATH+song+'_onsetsreal2.png')
-
-
-def get_onset_hists(onsets, beats):
-    onsetpos = get_onsetpos(onsets, beats)
-    # for i in range(len(onsetpos)):
-    #     #density = stats.gaussian_kde(onsetpos[i*10])
-    #     n, x, _ = plt.hist(onsetpos[i], bins=100, histtype=u'step', density=True)#, bins=np.linspace(0.4, 0.6, 300))
-    #     #plt.plot(x, density(x))
-    return [np.histogram(o, bins=200, density=True)[0] for o in onsetpos]
-
-def get_onsetpos(onsets, beats):
-    onsetpos = []
-    for o,b in zip(onsets,beats):
-        o = o[np.argmax(o>=b[0]):len(o)-np.argmax(o[::-1]<b[-1])]#only onsets later than first beat
-        beat_ids = [np.argmax(b>oo)-1 for oo in o]
-        onsetpos.append(np.array([(oo - b[i])/(b[i+1]-b[i]) for oo,i in zip(o, beat_ids)]))
-    return onsetpos
 
 def plot_essentia_hist(essentias, keys, path):
     util.plot_matrix(np.rot90(get_essentia_hists(essentias, keys)), path)
