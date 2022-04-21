@@ -1,7 +1,7 @@
 import numpy as np
 from itertools import product
 from ..util import plot_sequences, plot_matrix
-from .histograms import tuple_histograms, clusters
+from .histograms import tuple_histograms, clusters, get_onset_hists
 from .util import chiSquared
 
 def split_into_songs(sequences):
@@ -15,21 +15,21 @@ def split_into_songs(sequences):
     return [range(len(sequences))], []#one big cluster
 
 #removes all sequences that are more than the given stds away from the mean
-def remove_outliers(sequences):
-    #aggressive setting:
-    hists = [get_outlier_hists(tuple_histograms(sequences, True, 1))]
-    #more inclusive setting:
-    # hists = [get_outlier_hists(tuple_histograms(sequences, True, 1)),
-    #     get_outlier_hists(tuple_histograms(sequences, True, 4)),
-    #     #get_outlier_hists(tuple_histograms(sequences, False, 8)),
-    #     get_outlier_hists(tuple_histograms(sequences, True, 8))]
-    b = np.min(np.vstack(hists), axis=0)
+def remove_outliers(sequences, beats, onsets):
+    #hists = [get_outlier_hists(tuple_histograms(sequences, True, 1))]
+    hists = [get_outliers(tuple_histograms(sequences, True, 2)),
+        get_outliers(tuple_histograms(sequences, True, 4)),
+        get_outliers(get_onset_hists(beats, onsets, 10)),
+        get_outliers([b[-1]-b[0] for b in beats])]#duration outliers
+    #b = np.min(np.vstack(hists), axis=0)
+    b = np.mean(np.vstack(hists), axis=0)
+    print(np.around(b, decimals=1))
     plot_matrix(np.vstack(hists), 'results/*-o.png')
-    removed = [i for i,s in enumerate(b) if s > 3] #> 0.5]
+    removed = [i for i,s in enumerate(b) if s > 2]#deviation more than x stds
     sequences = [s for i,s in enumerate(sequences) if i not in removed]
     return sequences, removed
 
-def get_outlier_hists(hists, std_threshold=3):
+def get_outliers(hists, std_threshold=3):
     l = len(hists)
     dists = np.array([chiSquared(hists[i], hists[j])
         for i,j in product(range(l), range(l))]).reshape((l,l))
