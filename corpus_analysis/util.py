@@ -122,7 +122,7 @@ def plot(data_or_func, path=None):
     if callable(data_or_func):
         data_or_func()
     else:
-        plt.plot(data)
+        plt.plot(data_or_func)
     plt.tight_layout()
     plt.savefig(path, dpi=1000) if path else plt.show()
     plt.close()

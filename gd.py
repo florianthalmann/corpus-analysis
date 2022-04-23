@@ -2,7 +2,7 @@ import os, json, dateutil, datetime, tqdm
 from corpus_analysis.features import get_summarized_chords, to_multinomial, extract_essentia,\
     load_leadsheets, get_summarized_chords2, get_beat_summary, get_summarized_chroma,\
     get_summarized_mfcc, extract_chords, load_essentia, load_beats, extract_onsets,\
-    load_onsets
+    load_onsets, extract_beats
 from corpus_analysis.util import multiprocess
 
 corpus = os.path.abspath('/Users/flo/Projects/Code/Kyoto/fifteen-songs-dataset2/')
@@ -44,21 +44,28 @@ def extract_onsets_for_all():
         multiprocess('onsets '+s, extract_onsets,
             list(zip(*get_paths(s, '_onsets.txt'))))
 
+def extract_beats_for_all():
+    for s in SONGS:
+        multiprocess('beats '+s, extract_beats,
+            list(zip(*get_paths(s, '_beats.txt'))))
+
 def get_feature_paths(song):
     versions = get_versions_by_date(song)[0]
     return [get_feature_path(song, v) for v in versions]
 
+BEATS_EXT = '_beats.txt'#'_madbars.json'
+
 def get_chroma_sequences(song):
     audio = get_paths(song)[0]
-    return [get_summarized_chroma(audio[i], p+'_madbars.json')
+    return [get_summarized_chroma(audio[i], p+BEATS_EXT)
         for i,p in enumerate(get_feature_paths(song))]
 
 def get_chord_sequences(song):
-    return [get_summarized_chords(p+'_madbars.json', p+'_gochords.json')
+    return [get_summarized_chords(p+BEATS_EXT, p+'_gochords.json')
         for p in get_feature_paths(song)]
 
 def get_beats(song):
-    return [load_beats(p+'_madbars.json') for p in get_feature_paths(song)]
+    return [load_beats(p+BEATS_EXT) for p in get_feature_paths(song)]
 
 def get_onsets(song):
     return [load_onsets(p+'_onsets.txt') for p in get_feature_paths(song)]

@@ -2,6 +2,7 @@ import os, csv, math, subprocess, json, librosa
 from itertools import repeat
 from collections import OrderedDict
 import numpy as np
+from madmom.features import RNNBeatProcessor, DBNBeatTrackingProcessor, CRFBeatDetectionProcessor
 from .util import load_json, flatten
 
 def extract_essentia(path, outpath):
@@ -40,6 +41,14 @@ def extract_bars(path, outpath=None, use_librosa=False):
             subprocess.call('DBNDownbeatTracker single -o "'
                 +outFile+'" "'+path+'"', shell=True)
 
+def extract_beats(audio_and_outfile):
+    audio, outfile = audio_and_outfile
+    #proc = DBNBeatTrackingProcessor(fps=100, num_tempi=1)
+    proc = CRFBeatDetectionProcessor(fps=100)
+    beats = proc(RNNBeatProcessor()(audio))
+    with open(outfile, 'w') as f:
+        f.write('\n'.join([str(b) for b in beats]))
+
 def extract_onsets(audio_and_outfile):
     audio, outfile = audio_and_outfile
     if not os.path.isfile(outfile):
@@ -53,7 +62,11 @@ def load_bars(path):
     return np.array([float(b[0]) for b in load_madmom_csv(path) if int(b[1]) == 1])
 
 def load_onsets(path):
-    return np.array([float(o[0]) for o in load_madmom_csv(path)])
+    o = np.array([float(o[0]) for o in load_madmom_csv(path)])
+    #workaround for onset extractor returning empty sequence... (only outliers anyway)
+    if len(o) == 0:
+        return load_beats(path)
+    return o
 
 def load_madmom_csv(path):
     with open(path) as f:
