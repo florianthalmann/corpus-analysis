@@ -2,7 +2,7 @@ import numpy as np
 from itertools import product
 from ..util import plot_sequences, plot_matrix
 from .histograms import tuple_histograms, clusters, get_onset_hists
-from .util import chiSquared
+from .util import chiSquared, tempo
 
 def split_into_songs(sequences):
     relative = tuple_histograms(sequences, True, 1)
@@ -19,8 +19,11 @@ def remove_outliers(sequences, beats, onsets):
     #hists = [get_outlier_hists(tuple_histograms(sequences, True, 1))]
     hists = [get_outliers(tuple_histograms(sequences, True, 2)),
         get_outliers(tuple_histograms(sequences, True, 4)),
-        get_outliers(get_onset_hists(beats, onsets, 10)),
-        get_outliers([b[-1]-b[0] for b in beats])]#duration outliers
+        get_outliers(tempo(beats))
+        #get_outliers(get_onset_hists(beats, onsets, 10)),
+        #get_outliers([b[-1]-b[0] for b in beats])#duration outliers
+        ]
+    print([np.around(h, decimals=1) for h in hists])
     #b = np.min(np.vstack(hists), axis=0)
     b = np.mean(np.vstack(hists), axis=0)
     print(np.around(b, decimals=1))
@@ -35,11 +38,11 @@ def get_outliers(hists, std_threshold=3):
         for i,j in product(range(l), range(l))]).reshape((l,l))
     plot_matrix(dists, 'results/*-dists.png')
     means = np.mean(dists, axis=1)
-    mean = np.mean(means)
-    std = np.std(means)
+    mean = np.mean(dists)
+    std = np.std(dists)
     # return [1 if (means[i]-mean) >= std_threshold*std else 0
     #     for i in range(len(hists))]
-    return [(means[i]-mean)/std for i in range(len(hists))]
+    return [np.absolute((means[i]-mean)/std) for i in range(len(hists))]
 
 def reject_outliers(data, m=2):
     return data[abs(data - np.mean(data)) < m * np.std(data)]

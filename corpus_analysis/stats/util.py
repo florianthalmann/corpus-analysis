@@ -16,3 +16,6 @@ def entropy2(a, base=None):
     norm_counts = counts / counts.sum()
     base = math.e if base is None else base
     return -(norm_counts * np.log(norm_counts)/np.log(base)).sum()
+
+def tempo(beats):
+    return np.array([60/np.mean(b[1:]-b[:-1]) for b in beats])

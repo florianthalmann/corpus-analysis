@@ -71,6 +71,7 @@ def get_onset_hist(onsets, beats, bins):
 
 def get_onsetpos(onsets, beats):
     o, b = onsets, beats
+    if len(o) == 0: return np.array([])
     o = o[np.argmax(o>=b[0]):len(o)-np.argmax(o[::-1]<b[-1])]#only onsets later than first beat
     beat_ids = [np.argmax(b>oo)-1 for oo in o]
     return np.array([(oo - b[i])/(b[i+1]-b[i]) for oo,i in zip(o, beat_ids)])

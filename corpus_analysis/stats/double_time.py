@@ -5,15 +5,17 @@ from ..alignment.smith_waterman import smith_waterman
 from ..util import plot_sequences, plot_matrix, multiprocess, odd, interpolate
 from .histograms import freq_trans_hists, frequency_histograms,\
     tuple_histograms, get_onset_hists
-from .util import chiSquared
+from .util import chiSquared, tempo
 
 def check_double_time2(sequences, beats, onsets, factors=None):
     MAX_TEMPO_DEV = 1.5 #max deviation from mean tempo
-    TEMPO_RANGE = [60, 160] #reasonable tempo values in pop music
+    TEMPO_RANGE = [60, 180] #reasonable tempo values in pop music
     if factors == None:#init factors in reasonable range
-        tempos = np.array([60/np.mean(b[1:]-b[:-1]) for b in beats])
-        factors = [2 if t < TEMPO_RANGE[0] else 0.5 if t > TEMPO_RANGE[1]
-            else 1 for t in tempos]
+        tempos = tempo(beats)
+        print([int(t) for t in tempos])
+        print(len(beats), len(sequences))
+        factors = np.array([2 if t < TEMPO_RANGE[0] else 0.5 if t > TEMPO_RANGE[1]
+            else 1 for t in tempos])
     currentseqs = [adjust_sequence(s, f) for s,f in zip(sequences, factors)]
     doubles = np.array([np.repeat(s, 2) for s in currentseqs], dtype='object')
     halves = np.array([odd(s) for s in currentseqs])
@@ -23,7 +25,7 @@ def check_double_time2(sequences, beats, onsets, factors=None):
     # hists = [best_hist_combo(tuple_histograms(stacked, False, i))
     #     for i in [4,8]] #4,8 best for #2
     hists = [best_hist_combo(tuple_histograms(stacked, True, i))
-        for i in [2,4,8]]#,4]] #4,8 best for #2
+        for i in [2,4]]#,4]] #4,8 best for #2
     
     
     currentbeats = [adjust_beats(b, f) for b,f in zip(beats, factors)]
@@ -31,16 +33,14 @@ def check_double_time2(sequences, beats, onsets, factors=None):
     hbeats = [odd(b) for b in currentbeats]
     hists += [best_hist_combo(np.concatenate([get_onset_hists(onsets, bb, 64)
         for bb in [currentbeats, dbeats, hbeats]]))]
-    hists += [best_hist_combo(np.concatenate([get_onset_hists(onsets, bb, 128)
-        for bb in [currentbeats, dbeats, hbeats]]))]
     
-    tempos = np.array([60/np.mean(b[1:]-b[:-1]) for b in currentbeats])
+    tempos = tempo(currentbeats)
     print([int(t) for t in tempos])
     t = np.reshape(tempos, (-1, 1))
     hists += [best_hist_combo(np.concatenate([t, t*2, t/2]))]
     
-    for i in np.where((tempos > 130) | (tempos < 75))[0]:
-        print(tempos[i], [np.round(h[i], decimals=2) for h in hists])
+    # for i in np.where((tempos > 50) | (tempos < 75))[0]:
+    #     print(tempos[i], [np.round(h[i], decimals=2) for h in hists], np.mean([h[i] for h in hists]))
     
     
     plot_matrix(np.vstack(hists), 'results/*-.png')
@@ -51,11 +51,10 @@ def check_double_time2(sequences, beats, onsets, factors=None):
     t = 0.35 #degree of agreement
     meantempo = np.mean(tempos)#with current factors
     print(meantempo)
-    newfactors = [0.5*f if b <= -t else 2*f if b >= t else f
-        for f,b in zip(factors, best)]
-    newtempos = [f*t for f,t in zip(newfactors, tempos)]
-    # for i in np.where(best >= 0.33)[0]:
-    #     print(tempos[i], len(beats[i]), len(currentseqs[i]), newtempos[i], factors[i], newfactors[i], [h[i] for h in hists])
+    change = np.array([0.5 if b <= -t else 2 if b >= t else 1 for b in best])
+    newfactors, newtempos = factors*change, tempos*change
+    # for i in np.where(best >= t)[0]:
+    #     print(tempos[i], newtempos[i], factors[i], newfactors[i], [h[i] for h in hists])
     #print(newtempos)
     factors = [n if (1/MAX_TEMPO_DEV)*meantempo <= t <= MAX_TEMPO_DEV*meantempo
             and TEMPO_RANGE[0] <= t <= TEMPO_RANGE[1] else f
