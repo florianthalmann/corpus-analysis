@@ -19,3 +19,7 @@ def entropy2(a, base=None):
 
 def tempo(beats):
     return np.array([60/np.mean(b[1:]-b[:-1]) for b in beats])
+
+def normalize(a):
+    min, max = np.min(a), np.max(a)
+    return (a-min)/(max-min)

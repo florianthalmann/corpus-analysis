@@ -5,11 +5,11 @@ from ..alignment.smith_waterman import smith_waterman
 from ..util import plot_sequences, plot_matrix, multiprocess, odd, interpolate
 from .histograms import freq_trans_hists, frequency_histograms,\
     tuple_histograms, get_onset_hists
-from .util import chiSquared, tempo
+from .util import chiSquared, tempo, normalize
 
 def check_double_time2(sequences, beats, onsets, factors=None):
     MAX_TEMPO_DEV = 1.5 #max deviation from mean tempo
-    TEMPO_RANGE = [60, 180] #reasonable tempo values in pop music
+    TEMPO_RANGE = [60, 160] #reasonable tempo values in pop music
     if factors == None:#init factors in reasonable range
         tempos = tempo(beats)
         print([int(t) for t in tempos])
@@ -24,34 +24,48 @@ def check_double_time2(sequences, beats, onsets, factors=None):
     stacked = np.hstack((currentseqs, doubles, halves))
     # hists = [best_hist_combo(tuple_histograms(stacked, False, i))
     #     for i in [4,8]] #4,8 best for #2
-    hists = [best_hist_combo(tuple_histograms(stacked, True, i))
-        for i in [2,4]]#,4]] #4,8 best for #2
+    # hists = [best_hist_combo(tuple_histograms(stacked, True, i))
+    #     for i in [2,4]]#,4]] #4,8 best for #2
+    dists = [hist_dists(tuple_histograms(stacked, True, i)) for i in [2]]
     
     
     currentbeats = [adjust_beats(b, f) for b,f in zip(beats, factors)]
     dbeats = [interpolate(b) for b in currentbeats]
     hbeats = [odd(b) for b in currentbeats]
-    hists += [best_hist_combo(np.concatenate([get_onset_hists(onsets, bb, 64)
+    dists += [hist_dists(np.concatenate([get_onset_hists(onsets, bb, 64)
         for bb in [currentbeats, dbeats, hbeats]]))]
     
     tempos = tempo(currentbeats)
     print([int(t) for t in tempos])
     t = np.reshape(tempos, (-1, 1))
-    hists += [best_hist_combo(np.concatenate([t, t*2, t/2]))]
+    dists += [hist_dists(np.concatenate([t, t*2, t/2]))]
     
-    # for i in np.where((tempos > 50) | (tempos < 75))[0]:
-    #     print(tempos[i], [np.round(h[i], decimals=2) for h in hists], np.mean([h[i] for h in hists]))
+    dists = [normalize(d) for d in dists]
+    
+    for i in np.where((tempos > 150) | (tempos < 75))[0]:
+        print(tempos[i], [np.round(h[i], decimals=2) for h in dists], np.mean([h[i] for h in dists], axis=0))
     
     
-    plot_matrix(np.vstack(hists), 'results/*-.png')
-    best = np.mean(np.vstack(hists), axis=0)
+    #plot_matrix(np.vstack(hists), 'results/*-.png')
+    #best = np.mean(np.vstack(hists), axis=0)
+    
+    #print(np.dstack(dists))
+    
+    #means = [np.mean(np.vstack([d[i] for d in dists]))]
+    
+    means = np.mean(np.dstack(dists), axis=2)
+    #print(means)
+    best = np.argmin(means, axis=1)
+    print(best)
+    
     #print(best)
     
     #certify factors with tempo: beat detection should never be off by more than a factor 2!
-    t = 0.35 #degree of agreement
+    #t = 0.35 #degree of agreement
     meantempo = np.mean(tempos)#with current factors
     print(meantempo)
-    change = np.array([0.5 if b <= -t else 2 if b >= t else 1 for b in best])
+    #change = np.array([0.5 if b <= -t else 2 if b >= t else 1 for b in best])
+    change = np.array([np.array([1,2,0.5])[b] for b in best])
     newfactors, newtempos = factors*change, tempos*change
     # for i in np.where(best >= t)[0]:
     #     print(tempos[i], newtempos[i], factors[i], newfactors[i], [h[i] for h in hists])
@@ -116,6 +130,17 @@ def best_with_feature_freq(sequences, doubles, halves):
     hists = freq_trans_hists(np.hstack((sequences, doubles, halves)), True, False)
     return best_hist_combo(hists)
 
+#returns the average distance of each original/double/half from all other originals
+def hist_dists(hists):
+    l = int(len(hists)/3)
+    dists = np.zeros((l, l, 3))
+    for i,j in product(range(l), range(l)):
+        o = chiSquared(hists[i], hists[j])
+        d = chiSquared(hists[i+l], hists[j])
+        h = chiSquared(hists[i+(2*l)], hists[j])
+        dists[i][j] = np.array([o,d,h])
+    return np.mean(dists, axis=1)
+
 def best_hist_combo(hists):
     l = int(len(hists)/3)
     dists = np.zeros((l, l))
@@ -132,3 +157,4 @@ def best_combo(dist_matrix, threshold=0.33):
     return np.array([-1 if m < -threshold else 1 if m > threshold else 0 for m in means])
 
 #print(interpolate(np.array([1,3,6,7])))
+#print(hist_dists(np.array([[70],[154],[80],[140],[308],[160],[35],[77],[40]])))
