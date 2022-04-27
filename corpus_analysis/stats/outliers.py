@@ -14,21 +14,30 @@ def split_into_songs(sequences):
         return clustered, unclustered
     return [range(len(sequences))], []#one big cluster
 
-#removes all sequences that are more than the given stds away from the mean
-def remove_outliers(sequences, beats, onsets):
+#removes all sequences that are more than mindev stds away from the mean in at least numdevs features
+def remove_outliers(sequences, beats, onsets, mindev=2.5, numdevs=2):
     #hists = [get_outlier_hists(tuple_histograms(sequences, True, 1))]
-    hists = [get_outliers(tuple_histograms(sequences, True, 2)),
+    stds = [get_outliers(tuple_histograms(sequences, True, 2)),
         get_outliers(tuple_histograms(sequences, True, 4)),
-        get_outliers(tempo(beats))
+        get_outliers(get_onset_hists(beats, onsets, 64)),
+        get_outliers(tempo(beats)),
         #get_outliers(get_onset_hists(beats, onsets, 10)),
-        #get_outliers([b[-1]-b[0] for b in beats])#duration outliers
+        get_outliers([len(b) for b in beats])#duration outliers
         ]
-    print([np.around(h, decimals=1) for h in hists])
+    for s in stds:
+        print(np.around(s, decimals=1))
     #b = np.min(np.vstack(hists), axis=0)
-    b = np.mean(np.vstack(hists), axis=0)
-    print(np.around(b, decimals=1))
-    plot_matrix(np.vstack(hists), 'results/*-o.png')
-    removed = [i for i,s in enumerate(b) if s > 2]#deviation more than x stds
+    #b = np.mean(np.vstack(hists), axis=0)
+    #b = np.max(np.vstack(hists), axis=0)
+    stds = np.vstack(stds).T
+    #print(b)
+    ngt2 = np.array([len(np.where(s > mindev)[0]) for s in stds])
+    ngt4 = np.array([len(np.where(s > 4)[0]) for s in stds])
+    print(ngt2)
+    print(ngt4)
+    
+    plot_matrix(np.vstack(stds), 'results/*-o.png')
+    removed = [i for i in range(len(sequences)) if ngt2[i] >= numdevs or ngt4[i] >= 1]#deviation more than x stds
     sequences = [s for i,s in enumerate(sequences) if i not in removed]
     return sequences, removed
 

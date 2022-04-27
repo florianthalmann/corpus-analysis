@@ -66,18 +66,20 @@ def get_onset_hists(onsets, beats, bins=200):
     return np.array([get_onset_hist(o,b,bins) for o,b in zip(onsets, beats)])
 
 def get_onset_hist(onsets, beats, bins):
-    return normalize(np.histogram(get_onsetpos(onsets, beats),
-        bins=bins, density=True)[0])
+    pos = get_onsetpos(onsets, beats)
+    if len(pos) == 0: return np.zeros(bins)
+    return normalize(np.histogram(pos, bins=bins, density=True)[0])
 
 def get_onsetpos(onsets, beats):
     o, b = onsets, beats
-    if len(o) == 0: return np.array([])
+    if len(o) == 0 or len(b) == 0: return np.array([])
     o = o[np.argmax(o>=b[0]):len(o)-np.argmax(o[::-1]<b[-1])]#only onsets later than first beat
     beat_ids = [np.argmax(b>oo)-1 for oo in o]
     return np.array([(oo - b[i])/(b[i+1]-b[i]) for oo,i in zip(o, beat_ids)])
 
 def normalize(hist):
     sum = np.sum(hist)
+    #if np.isnan(sum): print(hist)
     return hist/sum if sum > 0 else hist
 
 # print(freq_trans_hists([np.array([2,2,2,2]),np.array([1,1,1,1]),
