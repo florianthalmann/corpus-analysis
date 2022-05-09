@@ -1,15 +1,101 @@
 import tqdm, operator
 from functools import reduce
 import numpy as np
+import pandas as pd
 from matplotlib import pyplot as plt
 import scipy.stats as stats
 from scipy.signal import find_peaks
+from skmisc.loess import loess
+import statsmodels.api as sm
 import gd, main
 from corpus_analysis import util, features
-from corpus_analysis.stats.util import entropy2
+from corpus_analysis.stats.util import entropy2, tempo
 from corpus_analysis.stats.histograms import get_onsetpos, get_onset_hists
 
 PATH='results/gdevo/'
+
+def plot_yearly_tempos():
+    songs = gd.SONGS[:]
+    pchords, pbeats, pdates, removed = list(zip(*[get_preprocessed(s) for s in songs]))
+    ptempos = [tempo(b) for b in pbeats]
+    
+    # data = []
+    # for i in range(len(songs)):
+    #     for d, b, t in zip(pdates[i], pbeats[i], ptempos[i]):
+    #         data.append([songs[i], d, len(b), t])
+    # 
+    # df = pd.DataFrame(data, columns=['SONG','DATE','NUMBEATS','TEMPO'])
+    # 
+    # print(df.groupby(['SONG', df.DATE.dt.year]).mean())
+    # grouped = df.groupby(['SONG', df.DATE.dt.year]).mean()
+    # #df.groupby(['SONG']).plot(x='DATE',y='TEMPO')
+    # #df.groupby('SONG')['TEMPO'].set_index('DATE').plot(legend=True)
+    # print(grouped.reset_index())
+    # grouped.reset_index().groupby(['SONG'])['TEMPO'].plot(x='DATE', y='TEMPO', legend=True)
+    # plt.show()
+    
+    alldates = np.unique(np.concatenate(pdates))
+    maxes = {}
+    mins = {}
+    for i in range(len(pdates)):
+        dates = [d for j,d in enumerate(pdates) if j != i]
+        tempos = [t for j,t in enumerate(ptempos) if j != i]
+        dates, tempos, rtempos = merge_with_relative(dates, tempos)
+        dates, rtempos = average_same_dates(dates, rtempos)
+        rtempos = lowess(dates, rtempos)
+        for d,t in zip(dates, rtempos):
+            maxes[d] = max(t, maxes[d]) if d in maxes else t
+            mins[d] = min(t, mins[d]) if d in mins else t
+        #plt.plot(dates, rtempos, linewidth=1, label='tempo w/o '+str(i))
+    maxes = [maxes[d] for d in alldates]
+    mins = [mins[d] for d in alldates]
+    
+    fig, ax = plt.subplots()
+    ax.fill_between(alldates, mins, maxes, alpha=0.2)
+    
+    dates, tempos, rtempos = merge_with_relative(pdates, ptempos)
+    dates, rtempos = average_same_dates(dates, rtempos)
+    plt.plot(dates, util.running_mean(rtempos, 100), linewidth=2, label='tempo')
+    
+    plt.plot(dates, lowess(dates, rtempos), linewidth=2, label='tempo lowess')
+    
+    #plt.plot(dates, lowess2(dates, rtempos), linewidth=2, label='tempo lowess2')
+    
+    plt.legend()
+    plot(PATH+'*overall.tempo3.png')
+
+def lowess(dates, values, delta=0.2):
+    timestamps = dates.astype('datetime64[s]').astype('int')
+    l = sm.nonparametric.lowess(values, timestamps, frac=delta, is_sorted=True)
+    return l[:,1]
+
+def lowess2(dates, values):
+    timestamps = dates.astype('datetime64[s]').astype('int')
+    l = loess(timestamps, values)
+    l.fit()
+    pred = l.predict(timestamps, stderror=True)
+    return pred.values
+
+def average_same_dates(dates, values):
+    uniq_dates = np.unique(dates)
+    return uniq_dates, [np.mean(values[np.where(dates == d)]) for d in uniq_dates]
+
+def plot_tempo_combi():
+    songs = gd.SONGS
+    pchords, pbeats, pdates, removed = list(zip(*[get_preprocessed(s) for s in songs]))
+    
+    ptempos = [tempo(b) for b in pbeats]
+    # plot_with_relative(pdates, tempos, '*overall_tempo')
+    dates, tempos, rtempos = merge_with_relative(pdates, ptempos)[:]
+    
+    for i in range(len(songs)):
+        plt.plot(pdates[i], util.running_mean(ptempos[i], 20), linewidth=1, label=songs[i])
+    # plt.plot(dates, util.running_mean(tempos/np.mean(tempos), 300), linewidth=2, label='abs tempo')
+    # plt.plot(dates, util.running_mean(rtempos, 300), linewidth=2, label='rel tempo')
+    plt.plot(dates, util.running_mean(tempos, 300), linewidth=2, label='abs tempo')
+    plt.plot(dates, util.running_mean(rtempos, 300)*np.mean(tempos), linewidth=2, label='rel tempo')
+    plt.legend()
+    plot(PATH+'*overall.tempo.png')
 
 def plot_overall_evolution():
     # #original
@@ -150,7 +236,7 @@ def merge_with_relative(dates, features_per_song):
 def merge_by_dates(dates, *features):
     dates = util.flatten(list(dates))
     features = [util.flatten(list(f), 1) for f in features]
-    return [list(z) for z in
+    return [np.array(z) for z in
         zip(*sorted(list(zip(dates, *features)), key=lambda l: l[0]))]
 
 def plot_individual_evolutions():
@@ -266,9 +352,6 @@ def plot_with_mean(path, dates, feature, window=10):
     plt.plot(dates, util.running_mean(feature, window))
     plot(path)
 
-def tempo(beats):
-    return np.array([60/np.mean(b[1:]-b[:-1]) for b in beats])
-
 def pdf_freq_variation(feature_pdf): #std = mean for exp dist; TODO think about best measure
     feature_pdf /= np.sum(feature_pdf) #normalize just in case
     return pdf_var(sorted(feature_pdf, reverse=True))
@@ -327,5 +410,8 @@ def plot(path=None):
 
 if __name__ == "__main__":
     #gd.extract_onsets_for_all()
-    plot_overall_evolution()
+    #gd.extract_beats_for_all()
+    #plot_overall_evolution()
     #plot_individual_evolutions()
+    #plot_tempo_combi()
+    plot_yearly_tempos()
