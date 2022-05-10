@@ -14,7 +14,7 @@ from corpus_analysis.stats.histograms import get_onsetpos, get_onset_hists
 
 PATH='results/gdevo/'
 
-def plot_yearly_tempos():
+def plot_tempos_with_bootstrap():
     songs = gd.SONGS[:]
     pchords, pbeats, pdates, removed = list(zip(*[get_preprocessed(s) for s in songs]))
     ptempos = [tempo(b) for b in pbeats]
@@ -34,6 +34,8 @@ def plot_yearly_tempos():
     # grouped.reset_index().groupby(['SONG'])['TEMPO'].plot(x='DATE', y='TEMPO', legend=True)
     # plt.show()
     
+    fig, ax = plt.subplots()
+    
     alldates = np.unique(np.concatenate(pdates))
     maxes = {}
     mins = {}
@@ -42,19 +44,20 @@ def plot_yearly_tempos():
         tempos = [t for j,t in enumerate(ptempos) if j != i]
         dates, tempos, rtempos = merge_with_relative(dates, tempos)
         dates, rtempos = average_same_dates(dates, rtempos)
-        rtempos = lowess(dates, rtempos)
-        for d,t in zip(dates, rtempos):
+        rtempos = lowess(dates, rtempos, alldates)
+        for d,t in zip(alldates, rtempos):
             maxes[d] = max(t, maxes[d]) if d in maxes else t
             mins[d] = min(t, mins[d]) if d in mins else t
-        #plt.plot(dates, rtempos, linewidth=1, label='tempo w/o '+str(i))
+        #plt.plot(alldates, rtempos, linewidth=1, label='tempo w/o '+str(i))
     maxes = [maxes[d] for d in alldates]
     mins = [mins[d] for d in alldates]
     
-    fig, ax = plt.subplots()
     ax.fill_between(alldates, mins, maxes, alpha=0.2)
     
     dates, tempos, rtempos = merge_with_relative(pdates, ptempos)
+    plt.scatter(dates, rtempos, s=1, c='black', label='t')
     dates, rtempos = average_same_dates(dates, rtempos)
+    #plt.scatter(dates, rtempos, label='t avg')
     plt.plot(dates, util.running_mean(rtempos, 100), linewidth=2, label='tempo')
     
     plt.plot(dates, lowess(dates, rtempos), linewidth=2, label='tempo lowess')
@@ -64,10 +67,10 @@ def plot_yearly_tempos():
     plt.legend()
     plot(PATH+'*overall.tempo3.png')
 
-def lowess(dates, values, delta=0.2):
+def lowess(dates, values, alldates=None, frac=0.3):
     timestamps = dates.astype('datetime64[s]').astype('int')
-    l = sm.nonparametric.lowess(values, timestamps, frac=delta, is_sorted=True)
-    return l[:,1]
+    allts = alldates.astype('datetime64[s]').astype('int') if alldates is not None else timestamps
+    return sm.nonparametric.lowess(values, timestamps, frac=frac, xvals=allts, is_sorted=True)
 
 def lowess2(dates, values):
     timestamps = dates.astype('datetime64[s]').astype('int')
@@ -414,4 +417,4 @@ if __name__ == "__main__":
     #plot_overall_evolution()
     #plot_individual_evolutions()
     #plot_tempo_combi()
-    plot_yearly_tempos()
+    plot_tempos_with_bootstrap()
