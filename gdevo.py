@@ -14,60 +14,94 @@ from corpus_analysis.stats.histograms import get_onsetpos, get_onset_hists
 
 PATH='results/gdevo/'
 
-def plot_tempos_with_bootstrap():
+def plot_bootstrapped_lowesses():
     songs = gd.SONGS[:]
-    pchords, pbeats, pdates, removed = list(zip(*[get_preprocessed(s) for s in songs]))
-    ptempos = [tempo(b) for b in pbeats]
+    print("getting preprocessed sequences")
+    chords, beats, dates, removed = list(zip(*[get_preprocessed(s) for s in songs]))
+    versions = [np.setdiff1d(np.arange(len(c)+len(r)), r)
+        for c,r in zip(chords, removed)]
+    print("getting chroma and mfcc")
+    chroma = [gd.get_chroma_sequences(*z) for z in zip(songs, versions, beats)]
+    mfcc = [gd.get_mfcc_sequences(*z) for z in zip(songs, versions, beats)]
+    print("calculating patterns")
+    chromapatterns = to_pattern_counts(chroma)
+    mfccpatterns = to_pattern_counts(mfcc)
     
-    # data = []
-    # for i in range(len(songs)):
-    #     for d, b, t in zip(pdates[i], pbeats[i], ptempos[i]):
-    #         data.append([songs[i], d, len(b), t])
-    # 
-    # df = pd.DataFrame(data, columns=['SONG','DATE','NUMBEATS','TEMPO'])
-    # 
-    # print(df.groupby(['SONG', df.DATE.dt.year]).mean())
-    # grouped = df.groupby(['SONG', df.DATE.dt.year]).mean()
-    # #df.groupby(['SONG']).plot(x='DATE',y='TEMPO')
-    # #df.groupby('SONG')['TEMPO'].set_index('DATE').plot(legend=True)
-    # print(grouped.reset_index())
-    # grouped.reset_index().groupby(['SONG'])['TEMPO'].plot(x='DATE', y='TEMPO', legend=True)
-    # plt.show()
+    print("calculating stats")
+    tempos = [tempo(b) for b in beats]
+    #print(chromapatterns[0], len(chromapatterns[0]))
+    #print(tempos[0], len(tempos[0]))
+    durations = [[b[-1]-b[0] for b in bs] for bs in beats]
+    beatcounts = [[len(b) for b in bs] for bs in beats]
+    
+    beatdurs = [[b[1:]-b[:-1] for b in bs] for bs in beats]
+    beatvars = [[np.std(b)/np.mean(b) for b in bs] for bs in beatdurs]
+    
+    chordvars = [[freq_variation(c) for c in cs] for cs in chords]
+    
+    chordents = [[entropy2(c) for c in cs] for cs in chords]
+    
+    
+    
+    essentias = [gd.get_essentias(s) for s in songs]
+    essentias = [[e for i,e in enumerate(es) if i not in r]
+        for es,r in zip(essentias, removed)]
+    
+    loudnesses = [[dict_value(e, ['lowlevel','loudness_ebu128','short_term','mean'])
+        for e in es] for es in essentias]
+    
+    
+    print("plotting lowess")
+    colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
     
     fig, ax = plt.subplots()
-    
+    plot_lowess_bootstrap(ax, dates, tempos, 'tempo', colors[0])
+    plot_lowess_bootstrap(ax, dates, durations, 'duration', colors[1])
+    #plot_lowess_bootstrap(ax, dates, beatcounts, 'num beats', colors[2])
+    #plot_lowess_bootstrap(ax, dates, beatvars, 'beatvar', colors[2])
+    plot_lowess_bootstrap(ax, dates, chordvars, 'chordvars', colors[3])
+    plot_lowess_bootstrap(ax, dates, chromapatterns, 'chroma', colors[4])
+    plot_lowess_bootstrap(ax, dates, mfccpatterns, 'mfcc', colors[5])
+    #plot_lowess_bootstrap(ax, dates, chordents, 'chordents', colors[4])
+    #plot_lowess_bootstrap(ax, dates, loudnesses, 'loudness', colors[5])
+    plt.legend()
+    plot(PATH+'*overall.lowess.all.png')
+
+def to_pattern_counts(features):
+    median = np.median(np.concatenate(np.concatenate(features)), axis=0)#np.quantile(np.concatenate(np.concatenate(features)), 0.25, axis=0)
+    patterns = [[(c >= median).astype(int) for c in cs] for cs in features]
+    return [np.array([len(np.unique(p, axis=0)) for p in ps]) for ps in patterns]
+
+def plot_lowess_bootstrap(ax, pdates, pvalues, name, color):
+    dates, rvalues, lowess, mins, maxes = get_lowess_bootstrap(pdates, pvalues)
+    ax.fill_between(dates, mins, maxes, alpha=0.2, color=color)
+    #plt.plot(dates, util.running_mean(rvalues, 100), color=color, label=name)
+    plt.plot(dates, lowess, color=color, label=name)
+    #plt.plot(dates, lowess2(dates, rvalues), linewidth=2, label=name+' lowess2')
+
+def get_lowess_bootstrap(pdates, pvalues):
     alldates = np.unique(np.concatenate(pdates))
     maxes = {}
     mins = {}
     for i in range(len(pdates)):
         dates = [d for j,d in enumerate(pdates) if j != i]
-        tempos = [t for j,t in enumerate(ptempos) if j != i]
-        dates, tempos, rtempos = merge_with_relative(dates, tempos)
-        dates, rtempos = average_same_dates(dates, rtempos)
-        rtempos = lowess(dates, rtempos, alldates)
-        for d,t in zip(alldates, rtempos):
+        values = [t for j,t in enumerate(pvalues) if j != i]
+        dates, values, rvalues = merge_with_relative(dates, values)
+        #dates, rvalues = average_same_dates(dates, rvalues)
+        rvalues = lowess(dates, rvalues, alldates)
+        for d,t in zip(alldates, rvalues):
             maxes[d] = max(t, maxes[d]) if d in maxes else t
             mins[d] = min(t, mins[d]) if d in mins else t
-        #plt.plot(alldates, rtempos, linewidth=1, label='tempo w/o '+str(i))
+        #plt.plot(alldates, rvalues, linewidth=1, label=name+' w/o '+str(i))
     maxes = [maxes[d] for d in alldates]
     mins = [mins[d] for d in alldates]
     
-    ax.fill_between(alldates, mins, maxes, alpha=0.2)
+    dates, values, rvalues = merge_with_relative(pdates, pvalues)
+    #dates, rvalues = average_same_dates(dates, rvalues)
     
-    dates, tempos, rtempos = merge_with_relative(pdates, ptempos)
-    plt.scatter(dates, rtempos, s=1, c='black', label='t')
-    dates, rtempos = average_same_dates(dates, rtempos)
-    #plt.scatter(dates, rtempos, label='t avg')
-    plt.plot(dates, util.running_mean(rtempos, 100), linewidth=2, label='tempo')
-    
-    plt.plot(dates, lowess(dates, rtempos), linewidth=2, label='tempo lowess')
-    
-    #plt.plot(dates, lowess2(dates, rtempos), linewidth=2, label='tempo lowess2')
-    
-    plt.legend()
-    plot(PATH+'*overall.tempo3.png')
+    return alldates, rvalues, lowess(dates, rvalues, alldates), mins, maxes
 
-def lowess(dates, values, alldates=None, frac=0.3):
+def lowess(dates, values, alldates=None, frac=0.2):
     timestamps = dates.astype('datetime64[s]').astype('int')
     allts = alldates.astype('datetime64[s]').astype('int') if alldates is not None else timestamps
     return sm.nonparametric.lowess(values, timestamps, frac=frac, xvals=allts, is_sorted=True)
@@ -414,7 +448,8 @@ def plot(path=None):
 if __name__ == "__main__":
     #gd.extract_onsets_for_all()
     #gd.extract_beats_for_all()
+    #gd.extract_mfcc_for_all()
     #plot_overall_evolution()
     #plot_individual_evolutions()
     #plot_tempo_combi()
-    plot_tempos_with_bootstrap()
+    plot_bootstrapped_lowesses()
