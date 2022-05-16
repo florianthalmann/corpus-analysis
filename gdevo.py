@@ -15,12 +15,12 @@ from corpus_analysis.stats.histograms import get_onsetpos, get_onset_hists
 PATH='results/gdevo/'
 
 def plot_all():
-    plot_time()
+    # plot_time()
     plot_patterns()
-    plot_dynamics()
-    plot_pitch()
-    plot_spectral()
-    plot_absolute_relative_comparison()
+    # plot_dynamics()
+    #plot_pitch()
+    # plot_spectral()
+    # plot_absolute_relative_comparison()
 
 def plot_time():
     songs = gd.SONGS[:]
@@ -31,7 +31,7 @@ def plot_time():
     beatdurs = [[b[1:]-b[:-1] for b in bs] for bs in beats]
     beatvars = [[np.std(b)/np.mean(b) for b in bs] for bs in beatdurs]
     plot_lowesses(dates, [tempos, durations, beatvars],
-        ['tempo', 'duration', 'beatvar'], PATH+'*overall.lowess6.time.png')
+        ['tempo', 'duration', 'beatvar'], PATH+'*overall.lowess2.time.png')
 
 def plot_patterns():
     songs = gd.SONGS[:]
@@ -56,8 +56,17 @@ def plot_patterns():
     # plot_lowesses(dates, [chromacount, mfcccount, chordcount],
     #     ['chroma', 'mfcc', 'chord'], PATH+'*overall.lowess.patterns.png')
     print("plotting")
-    plot_lowesses(dates, [chromavar, mfccvar, chordvar],
-        ['chroma', 'mfcc', 'chord'], PATH+'*overall.lowess6.patternvars.png')
+    ax = plot_lowesses(dates, [chromavar, mfccvar, chordvar],
+        ['chroma', 'mfcc', 'chord'])#, PATH+'*overall.lowess2.patternvars.png')
+    ax.legend(loc='upper left')
+    
+    years = np.concatenate(dates).astype('datetime64[Y]')
+    counts = np.unique(years.astype(int), axis=0, return_counts=True)[1]
+    ax = ax.twinx()
+    ax.plot(np.unique(years), lowess(np.unique(years), counts/np.max(counts)),
+        label='versions', color='red')
+    ax.legend()
+    plot(PATH+'*overall.lowess2.patternvars2.png')
 
 def plot_dynamics():
     dates, essentias = get_essentias()
@@ -66,7 +75,7 @@ def plot_dynamics():
     dycomp = get_essentia(essentias, ['lowlevel','dynamic_complexity'])
     
     plot_lowesses(dates, [loudness, dycomp],
-        ['loudness', 'dycomp'], PATH+'*overall.lowess6.dynamics.png')
+        ['loudness', 'dycomp'], PATH+'*overall.lowess2.dynamics.png')
 
 def plot_pitch():
     dates, essentias = get_essentias()
@@ -84,8 +93,17 @@ def plot_pitch():
     #tuning deviation +/-
     tuning2 = [[(t[2]-t[0])/np.sum(t) for t in ts] for ts in tuning]
     
-    plot_lowesses(dates, [pitchvar, tuningvar],
-        ['pitch', 'tuning'], PATH+'*overall.lowess6.pitch.png')
+    ax = plot_lowesses(dates, [pitchvar, tuningvar],
+        ['pitch', 'tuning'], relative=[False, False])
+    ax.legend(loc='upper left')
+    
+    years = np.concatenate(dates).astype('datetime64[Y]')
+    counts = np.unique(years.astype(int), axis=0, return_counts=True)[1]
+    ax = ax.twinx()
+    ax.plot(np.unique(years), lowess(np.unique(years), counts/np.max(counts)),
+        label='versions', color='green')
+    ax.legend()
+    plot(PATH+'*overall.lowess2.pitch-abs.png')
 
 def plot_spectral():
     dates, essentias = get_essentias()
@@ -98,7 +116,7 @@ def plot_spectral():
     #     ['lowlevel','spectral_complexity'])[1:]
     plot_lowesses(dates, [complexity, centroid, entropy, dissonance],
         ['complexity', 'centroid', 'entropy', 'dissonance'],
-        PATH+'*overall.lowess6.spectral.png')
+        PATH+'*overall.lowess2.spectral.png')
 
 def plot_absolute_relative_comparison():
     songs = gd.SONGS[:]
@@ -113,7 +131,7 @@ def plot_absolute_relative_comparison():
     chordvar = [[freq_variation(c) for c in cs] for cs in chords]
     plot_lowesses(dates, [tempos, tempos, chordvar, chordvar],
         ['tempos rel', 'tempos abs', 'chordvar rel', 'chordvar abs'],
-        PATH+'*overall.lowess6.absrel.png', [True, False, True, False])
+        PATH+'*overall.lowess2.absrel.png', [True, False, True, False])
 
 def get_essentias():
     songs = gd.SONGS[:]
@@ -127,14 +145,16 @@ def to_patterns(features):
     median = np.median(np.concatenate(np.concatenate(features)), axis=0)#np.quantile(np.concatenate(np.concatenate(features)), 0.25, axis=0)
     return [[(c >= median).astype(int) for c in cs] for cs in features]
 
-def plot_lowesses(dates, features, names, path, relative=None):
-    if relative is None: relative = np.ones(len(features))
+def plot_lowesses(dates, features, names, path=None, relative=None):
+    if relative is None: relative = np.ones(len(features)) #default relative True
     fig, ax = plt.subplots()
     colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
     for i,(f,n,r) in enumerate(zip(features, names, relative)):
         plot_lowess_bootstrap(ax, dates, f, n, colors[i], r)
-    plt.legend()
-    plot(path)
+    if path:
+        plt.legend()
+        plot(path)
+    return ax
 
 def plot_lowess_bootstrap(ax, pdates, pvalues, name, color, relative):
     dates, values, lowess, mins, maxes = get_lowess_bootstrap(pdates, pvalues, relative)
@@ -144,7 +164,7 @@ def plot_lowess_bootstrap(ax, pdates, pvalues, name, color, relative):
     ax.fill_between(dates, mins, maxes, alpha=0.2, color=color)
     #plt.plot(dates, util.running_mean(rvalues, 100), color=color, label=name)
     plt.plot(dates, lowess, color=color, label=name)
-    #plt.plot(dates, lowess6(dates, rvalues), linewidth=2, label=name+' lowess6')
+    #plt.plot(dates, lowess2(dates, rvalues), linewidth=2, label=name+' lowess2')
 
 def get_lowess_bootstrap(pdates, pvalues, relative):
     alldates = np.unique(np.concatenate(pdates))
@@ -170,12 +190,13 @@ def get_lowess_bootstrap(pdates, pvalues, relative):
     
     return alldates, values, lowess(dates, values, alldates), mins, maxes
 
-def lowess(dates, values, alldates=None, frac=0.6):
-    timestamps = dates.astype('datetime64[s]').astype('int')
-    allts = alldates.astype('datetime64[s]').astype('int') if alldates is not None else timestamps
-    return sm.nonparametric.lowess(values, timestamps, frac=frac, xvals=allts, is_sorted=True)
+def lowess(dates, values, alldates=None, frac=0.2):
+    to_timestamps = lambda d: np.array(d, dtype='datetime64[s]').astype('int')
+    dates = to_timestamps(dates)
+    alldates = to_timestamps(alldates) if alldates is not None else dates
+    return sm.nonparametric.lowess(values, dates, frac=frac, xvals=alldates, is_sorted=True)
 
-def lowess6(dates, values):
+def lowess2(dates, values):
     timestamps = dates.astype('datetime64[s]').astype('int')
     l = loess(timestamps, values)
     l.fit()
@@ -195,11 +216,12 @@ def plot_tempo_combi():
     dates, tempos, rtempos = merge_with_relative(pdates, ptempos)[:]
     
     for i in range(len(songs)):
-        plt.plot(pdates[i], util.running_mean(ptempos[i], 20), linewidth=1, label=songs[i])
+        #plt.plot(pdates[i], util.running_mean(ptempos[i], 20), linewidth=1, label=songs[i])
+        plt.plot(pdates[i], lowess(pdates[i], ptempos[i]), linewidth=2, label=songs[i])
     # plt.plot(dates, util.running_mean(tempos/np.mean(tempos), 300), linewidth=2, label='abs tempo')
     # plt.plot(dates, util.running_mean(rtempos, 300), linewidth=2, label='rel tempo')
-    plt.plot(dates, util.running_mean(tempos, 300), linewidth=2, label='abs tempo')
-    plt.plot(dates, util.running_mean(rtempos, 300)*np.mean(tempos), linewidth=2, label='rel tempo')
+    #plt.plot(dates, util.running_mean(tempos, 300), linewidth=2, label='abs tempo')
+    #plt.plot(dates, util.running_mean(rtempos, 300)*np.mean(tempos), linewidth=2, label='rel tempo')
     plt.legend()
     plot(PATH+'*overall.tempo.png')
 
