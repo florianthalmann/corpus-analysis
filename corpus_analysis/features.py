@@ -2,6 +2,7 @@ import os, csv, math, subprocess, json, librosa
 from itertools import repeat
 from collections import OrderedDict
 import numpy as np
+from scipy.stats import vonmises, rv_histogram
 from madmom.features import RNNBeatProcessor, DBNBeatTrackingProcessor, CRFBeatDetectionProcessor
 from .util import load_json, flatten
 
@@ -43,17 +44,30 @@ def extract_bars(path, outpath=None, use_librosa=False):
 
 def extract_beats(audio_and_outfile):
     audio, outfile = audio_and_outfile
-    #proc = DBNBeatTrackingProcessor(fps=100, num_tempi=1)
-    proc = CRFBeatDetectionProcessor(fps=100)
-    beats = proc(RNNBeatProcessor()(audio))
-    with open(outfile, 'w') as f:
-        f.write('\n'.join([str(b) for b in beats]))
+    if not os.path.isfile(outfile):
+        proc = DBNBeatTrackingProcessor(fps=100, transition_lambda=2000, min_bpm=55, max_bpm=180)
+        #proc = CRFBeatDetectionProcessor(fps=100, min_bpm=55, max_bpm=180)
+        beats = proc(RNNBeatProcessor()(audio))
+        with open(outfile, 'w') as f:
+            f.write('\n'.join([str(b) for b in beats]))
 
 def extract_onsets(audio_and_outfile):
     audio, outfile = audio_and_outfile
     if not os.path.isfile(outfile):
         subprocess.call('CNNOnsetDetector single -o "'
             +outfile+'" "'+audio+'"', shell=True)
+
+def extract_chroma(audio_and_outfile):
+    extract_librosa_feature(*audio_and_outfile, librosa.feature.chroma_cqt)
+
+def extract_mfcc(audio_and_outfile):
+    extract_librosa_feature(*audio_and_outfile, librosa.feature.mfcc)
+
+def extract_librosa_feature(audio, outfile, func):
+    if not os.path.isfile(outfile):
+        y, sr = librosa.load(audio)
+        feature = func(y, sr)
+        np.save(outfile, feature)
 
 def load_beats(path):
     return np.array([float(b[0]) for b in load_madmom_csv(path)])
@@ -67,6 +81,9 @@ def load_onsets(path):
     if len(o) == 0:
         return load_beats(path)
     return o
+
+def load_feature(path):
+    return np.load(path)
 
 def load_madmom_csv(path):
     with open(path) as f:
@@ -106,8 +123,11 @@ def to_intervals(timepoints):
     return np.concatenate((np.dstack((timepoints[:-1], timepoints[1:]))[0],
         [[timepoints[-1], np.inf]]))
 
+#returns the durations for which each i in intervals overlaps with interval
+#(negative numbers can be ignored)
 def get_overlaps(interval, intervals):
     interval = np.tile(interval, (len(intervals), 1))
+    #subtract min endpoints from max startpoints for each i in intervals
     return np.min(np.vstack((interval[:,1], intervals[:,1])), axis=0)\
         - np.max(np.vstack((interval[:,0], intervals[:,0])), axis=0)
     #return [min(i[1], interval[1]) - max(i[0], interval[0]) for i in intervals]
@@ -115,7 +135,9 @@ def get_overlaps(interval, intervals):
 def summarize(feature, timepoints):
     t_intervals = to_intervals(np.array(timepoints))
     f_intervals = to_intervals(np.array(feature)[:,0])
+    #for each time interval take the index of feature that overlaps the most
     modes = [np.argmax(get_overlaps(t, f_intervals)) for t in t_intervals]
+    #return sequence of feature values for the modes
     return np.array([feature[m][1] for m in modes], dtype=int)
 
 #beats param should be list of positions in seconds
@@ -136,9 +158,8 @@ def get_summarized_chords2(beat_times, chordsFile):
     return summarize(chords, beat_times)
 
 def get_summarized_chords(beatsFile, chordsFile, bars=False):
-    time = load_bars(beatsFile) if bars else load_beats(beatsFile)
-    chords = load_chords(chordsFile)
-    return summarize(chords, time)
+    times = load_bars(beatsFile) if bars else load_beats(beatsFile)
+    return get_summarized_chords2(times, chordsFile)
 
 def get_summarized_chroma(audioFile, beatsFile=None, beats=None):
     y, sr = librosa.load(audioFile)
@@ -149,6 +170,11 @@ def get_summarized_mfcc(audioFile, beatsFile=None, beats=None):
     y, sr = librosa.load(audioFile)
     mfcc = librosa.feature.mfcc(y, sr)
     return get_beat_summary(mfcc, beatsFile, beats, srate=sr).T
+
+def get_summarized_feature(audioFile, featureFile, beatsFile=None, beats=None):
+    y, sr = librosa.load(audioFile)#should have saved this along with chroma
+    feature = load_feature(featureFile)
+    return get_beat_summary(feature, beatsFile, beats, srate=sr).T
 
 def to_multinomial(sequences):
     unique = np.unique(np.concatenate(sequences), axis=0)
@@ -187,5 +213,22 @@ def load_leadsheets(path, songs):
             leadsheets.append(parse_section('_form', l))
     return [to_hierarchy_labels(l) for l in leadsheets]
 
+def tonal_complexity_cf(chroma):#weiss2014quantifying
+    fifths = chroma[np.array([0,7,2,9,4,11,6,1,8,3,10,5])]
+    fifths = fifths/np.sum(fifths) #normalize
+    #print(fifths)
+    angles = fifths * np.exp((2*math.pi*1j*np.arange(12))/12)
+    #print(angles, np.exp((2*math.pi*1j*np.arange(12))/12))
+    return math.sqrt(1 - np.abs(np.mean(angles)))
+
+def tonal_complexity_cf2(chroma):
+    fifths = chroma[np.array([0,7,2,9,4,11,6,1,8,3,10,5])]
+    fifths = fifths/np.sum(fifths) #normalize
+    bins = np.arange(-6, 6)*math.pi/6
+    data = np.hstack([np.repeat(b, 10000*f) for f,b in zip(fifths, bins)])
+    return 1 - min(1, vonmises.fit(data, fscale=1)[0]/10)
+
 #print(get_labels([[0,0],[1,2],[0,0],[5,5],[1,2],[0,0]]))
 #print(label_to_go_index("A"))
+#print(summarize([[0,3],[0.5,5],[2.5,7],[3.5,8],[7,9]], [0,1,2,3,4]))
+#print(tonal_complexity_cf2(np.array([1,0,1,0,0,0,0,1,0,0,0,0])))
