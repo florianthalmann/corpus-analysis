@@ -16,11 +16,11 @@ PATH='results/gdevo/'
 
 def plot_all():
     # plot_time()
-    plot_patterns()
-    # plot_dynamics()
-    #plot_pitch()
-    # plot_spectral()
-    # plot_absolute_relative_comparison()
+    #plot_patterns()
+    #plot_dynamics()
+    plot_pitch()
+    #plot_spectral()
+    #plot_absolute_relative_comparison()
 
 def plot_time():
     songs = gd.SONGS[:]
@@ -71,15 +71,25 @@ def plot_patterns():
 def plot_dynamics():
     dates, essentias = get_essentias()
     
-    loudness = get_essentia(essentias, ['lowlevel','loudness_ebu128','short_term','mean'])
+    loudness = get_essentia(essentias, ['lowlevel','loudness_ebu128','short_term','median'])
+    loudness = [db_to_amp(l) for l in loudness]
+    lstd = get_essentia(essentias, ['lowlevel','loudness_ebu128','short_term','stdev'])
+    lmean = get_essentia(essentias, ['lowlevel','loudness_ebu128','short_term','mean'])
+    lvarcoeff = [db_to_amp(s)/db_to_amp(m) for s,m in zip(lstd, lmean)]
     dycomp = get_essentia(essentias, ['lowlevel','dynamic_complexity'])
+    dycomp = [db_to_amp(dc) for dc in dycomp]
     
-    plot_lowesses(dates, [loudness, dycomp],
-        ['loudness', 'dycomp'], PATH+'*overall.lowess2.dynamics.png')
+    plot_lowesses(dates, [loudness, dycomp, lvarcoeff],
+        ['loudness', 'dycomp', 'loudness var'], PATH+'*overall.lowess2.dynamics.png')
+
+def db_to_amp(db):
+    return 10**(np.array(db)/20)
 
 def plot_pitch():
+    print('essentias')
     dates, essentias = get_essentias()
     
+    print('pitch/tuning')
     hpcp = [get_essentia_hists(e, ['tonal','hpcp','mean']) for e in essentias]
     chroma = [[np.mean(np.reshape(np.roll(h, 1), (-1,3)), axis=1)
         for h in hs] for hs in hpcp]
@@ -93,44 +103,64 @@ def plot_pitch():
     #tuning deviation +/-
     tuning2 = [[(t[2]-t[0])/np.sum(t) for t in ts] for ts in tuning]
     
-    ax = plot_lowesses(dates, [pitchvar, tuningvar],
-        ['pitch', 'tuning'], relative=[False, False])
-    ax.legend(loc='upper left')
+    print('tonal complexity')
+    tonalcomp = [util.multiprocess('tc', features.tonal_complexity_cf2, cs) for cs in chroma]
+    tonalcomp = [[t**5 for t in ts] for ts in tonalcomp]
     
-    years = np.concatenate(dates).astype('datetime64[Y]')
-    counts = np.unique(years.astype(int), axis=0, return_counts=True)[1]
-    ax = ax.twinx()
-    ax.plot(np.unique(years), lowess(np.unique(years), counts/np.max(counts)),
-        label='versions', color='green')
-    ax.legend()
-    plot(PATH+'*overall.lowess2.pitch-abs.png')
+    print('lowesses')
+    ax = plot_lowesses(dates, [pitchvar, tuningvar, tonalcomp],
+        ['pitch var', 'tuning var', 'tonal comp'], relative=[True, True, True],
+        path=PATH+'*overall.lowess2.pitch.png')
+    
+    # ax.legend(loc='upper left')
+    # years = np.concatenate(dates).astype('datetime64[Y]')
+    # counts = np.unique(years.astype(int), axis=0, return_counts=True)[1]
+    # ax = ax.twinx()
+    # ax.plot(np.unique(years), lowess(np.unique(years), counts/np.max(counts)),
+    #     label='versions', color='green')
+    # ax.legend()
+    # plot(PATH+'*overall.lowess2.pitch-abs.png')
 
 def plot_spectral():
     dates, essentias = get_essentias()
     
-    complexity = get_essentia(essentias, ['lowlevel','spectral_complexity','mean'])
-    centroid = get_essentia(essentias, ['lowlevel','spectral_centroid','mean'])
-    entropy = get_essentia(essentias, ['lowlevel','spectral_entropy','mean'])
-    dissonance = get_essentia(essentias, ['lowlevel','dissonance','mean'])
+    complexity = get_essentia(essentias, ['lowlevel','spectral_complexity','median'])
+    complexity = [freq_to_linear(c) for c in complexity]
+    centroid = get_essentia(essentias, ['lowlevel','spectral_centroid','median'])
+    centroid = [freq_to_linear(c) for c in centroid]
+    entropy = get_essentia(essentias, ['lowlevel','spectral_entropy','median'])
+    dissonance = get_essentia(essentias, ['lowlevel','dissonance','median'])
+    estd = get_essentia(essentias, ['lowlevel','spectral_entropy','stdev'])
+    emean = get_essentia(essentias, ['lowlevel','spectral_entropy','mean'])
+    evarcoeff = [db_to_amp(s)/db_to_amp(m) for s,m in zip(estd, emean)]
+    
+    # mfcc = get_essentia(essentias, ['lowlevel','mfcc','mean'])[2:]
+    # mfccvar = [[pdf_freq_variation(m) for m in mf] for mf in mfcc]
+    
     # speccompvars, rspeccompvars = get_essentia_relative_varcoeffs(pdates, essentias,
     #     ['lowlevel','spectral_complexity'])[1:]
-    plot_lowesses(dates, [complexity, centroid, entropy, dissonance],
-        ['complexity', 'centroid', 'entropy', 'dissonance'],
+    plot_lowesses(dates, [complexity, centroid, entropy, dissonance, evarcoeff],
+        ['complexity', 'centroid', 'entropy', 'dissonance', 'entropy var'],
         PATH+'*overall.lowess2.spectral.png')
+
+def freq_to_linear(freq):
+    return np.log2(freq)
 
 def plot_absolute_relative_comparison():
     songs = gd.SONGS[:]
     chords, beats, dates, removed = list(zip(*[get_preprocessed(s) for s in songs]))
     tempos = [tempo(b) for b in beats]
-    essentias = get_essentias()[1]
-    complexity = get_essentia(essentias, ['lowlevel','spectral_complexity','mean'])
-    hpcp = [get_essentia_hists(e, ['tonal','hpcp','mean']) for e in essentias]
-    chroma = [[np.mean(np.reshape(np.roll(h, 1), (-1,3)), axis=1)
-        for h in hs] for hs in hpcp]
-    pitchvar = [[pdf_freq_variation(c) for c in cs] for cs in chroma]
-    chordvar = [[freq_variation(c) for c in cs] for cs in chords]
-    plot_lowesses(dates, [tempos, tempos, chordvar, chordvar],
-        ['tempos rel', 'tempos abs', 'chordvar rel', 'chordvar abs'],
+    durations = [[b[-1]-b[0] for b in bs] for bs in beats]
+    # essentias = get_essentias()[1]
+    # complexity = get_essentia(essentias, ['lowlevel','spectral_complexity','mean'])
+    # hpcp = [get_essentia_hists(e, ['tonal','hpcp','mean']) for e in essentias]
+    # chroma = [[np.mean(np.reshape(np.roll(h, 1), (-1,3)), axis=1)
+    #     for h in hs] for hs in hpcp]
+    # pitchvar = [[pdf_freq_variation(c) for c in cs] for cs in chroma]
+    # chordvar = [[freq_variation(c) for c in cs] for cs in chords]
+    
+    plot_lowesses(dates, [tempos, tempos, durations, durations],
+        ['tempo rel', 'tempo abs', 'duration rel', 'duration abs'],
         PATH+'*overall.lowess2.absrel.png', [True, False, True, False])
 
 def get_essentias():
