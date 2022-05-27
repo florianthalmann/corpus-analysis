@@ -189,10 +189,11 @@ def make_segments_hierarchical(segments, min_len, min_dist, target,
     # matrix = smooth_matrix(matrix, True, 7, .4)
     # matrix = smooth_matrix(matrix+unsmoothed, True, 7, .4)
     # 
-    #keep only longer segments
+    #keep only longer segments (if there are any longer than min_len)
     if verbose: print(dist_func(matrix, target, segments))
-    matrix = segments_to_matrix([s for s in matrix_to_segments(matrix) if len(s) >= min_len], target.shape)
-    matrix = add_transitivity_to_matrix(matrix)
+    segs = [s for s in matrix_to_segments(matrix) if len(s) >= min_len]
+    if len(segs) > 0:
+        matrix = add_transitivity_to_matrix(segments_to_matrix(segs, target.shape))
     
     # # if verbose: plot_matrix(matrix, 'new'+str(i)+'.png')
     # if verbose: print(dist_func(matrix, target, segments))
@@ -702,26 +703,28 @@ def divide_hierarchy(indices, hierarchy):
         #check if divisible in all layers
         locations = [get_section_locs(l[i], l) for l in labels]
         divisible = all([len(l) == 1 for l in locations])
+        divisible = divisible and len(np.unique([l[i] for l in labels[1:]])) == 1
         #print(i, divisible, locations)
         if divisible:
             divided = True
             print('divide', i)
-            for j,l in enumerate(labels[0:], 0):
+            nextid = np.max(labels)+1
+            for j,l in enumerate(labels[1:], 1):
                 locs = locations[j]
                 #print(i, l[i], j, locs)
                 #position in section at which to divide
                 offset = int(np.where(i-locs >= 0, i-locs, np.inf).min())
                 #print(offset)
-                nextid = np.max(labels)+1
+                #nextid = np.max(labels)+1
                 #print(locations[:,None] + (np.arange(offset)))
                 #indices of initial part to be relabeled
                 relabels = np.unique(locs[:,None] + (np.arange(offset)))
                 relabels = relabels[(0 <= relabels) & (relabels < len(l))]
                 #print(relabels)
                 l[relabels.astype(int)] = nextid
-    if divided:
-        segments.insert(0, segments[0].copy())
-        labels = np.concatenate([[[nextid+1] * len(labels[0])], labels])
+    # if divided:
+    #     segments.insert(0, segments[0].copy())
+    #     labels = np.concatenate([[[nextid+1] * len(labels[0])], labels])
     return segments, labels
 
 def group_ungrouped_elements(sequence, sections, occurrences, ignore):
