@@ -20,16 +20,22 @@ def fill_gaps(a, gap_size, gap_ratio):
         else s
         for i,s in enumerate(segs)])
 
+def smooth_matrix_padded(matrix, max_gaps, symmetric=True, func=median_filter):
+    padded = np.pad(matrix, ((max_gaps,max_gaps),(max_gaps,max_gaps)),
+        constant_values=np.nan)
+    smooth = smooth_matrix(padded, symmetric, max_gaps, func=func)
+    return smooth[max_gaps:-max_gaps,max_gaps:-max_gaps]
+
 #smooth with a median filter
-def smooth_matrix(matrix, symmetric, max_gaps, max_gap_ratio=None):
-    func = lambda d: median_filter(d, max_gaps)
+def smooth_matrix(matrix, symmetric, max_gaps, max_gap_ratio=None, func=median_filter):
+    sfunc = lambda d: func(d, max_gaps)
     #func = lambda d: fill_gaps(d, max_gaps, max_gap_ratio)
     diagonals = to_diagonals(matrix)
     if symmetric: #only smooth upper triangle
-        smoothed = [func(d) if i >= matrix.shape[0] else d
+        smoothed = [sfunc(d) if i >= matrix.shape[0] else d
             for i, d in enumerate(diagonals)]
     else:
-        smoothed = [func(d) for d in diagonals]
+        smoothed = [sfunc(d) for d in diagonals]
     return from_diagonals(smoothed, matrix.shape)
 
 #resmoothing sum keeps beginnings followed by gaps

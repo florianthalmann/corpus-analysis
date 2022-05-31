@@ -12,11 +12,24 @@ def strided2D(a, L, S=1):
     m,n = a.shape
     return np.lib.stride_tricks.as_strided(a, shape=(m,n-L+1,L), strides=(s0,s1,s1))
 
+def strided_diags(a, L):
+    if len(a) <= L: return np.array([a])
+    s0,s1 = a.strides
+    m,n = a.shape
+    return np.lib.stride_tricks.as_strided(a, shape=(m-L+1,n-L+1,L), strides=(s0,s1,s1))
+
 def median_filter(a, radius):
     windows = strided(a, (radius*2)+1)
-    medians = np.median(windows, axis=1)
+    medians = np.nanmedian(windows, axis=1)
     filtered = a.copy()
     filtered[radius:-radius] = medians[:]
+    return filtered
+
+def mean_filter(a, radius):
+    windows = strided(a, (radius*2)+1)
+    means = np.nanmean(windows, axis=1)
+    filtered = a.copy()
+    filtered[radius:-radius] = means[:]
     return filtered
 
 def symmetric(A):
