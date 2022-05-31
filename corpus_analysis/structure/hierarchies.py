@@ -3,15 +3,18 @@ from functools import reduce
 from collections import OrderedDict, defaultdict, Counter
 import numpy as np
 import sortednp as snp
+from sklearn.utils.extmath import cartesian
 from graph_tool.topology import transitive_closure
 from .patterns import Pattern, segments_to_patterns, patterns_to_segments
 from .sections import segments_to_sections, remove_contained, merge_overlapping
 from .graphs import graph_from_matrix, segments_to_matrix, matrix_to_segments,\
     adjacency_matrix
 from .lexis import lexis_sections
-from ..alignment.affinity import segments_to_matrix, smooth_matrix
+from ..alignment.affinity import segments_to_matrix, smooth_matrix, to_diagonals,\
+    smooth_matrix_padded
 from ..util import argmax, ordered_unique, plot_matrix, group_adjacent,\
-    indices_of_subarray, plot
+    indices_of_subarray, plot, profile
+from ..alignment.util import mean_filter
 
 # filter and sort list of patterns based on given params
 def filter_and_sort_patterns(patterns, min_len=0, min_dist=0, refs=[], occs_length=True):
@@ -107,6 +110,106 @@ def get_noise_factor(segments, target, size):
     #print(segmat_total, target_total, segmat_total/target_total, size**2, len(segments))
     return (len(np.nonzero(segmat-target > 0)[0])/len(np.nonzero(segmat > 0)[0])
         * (1-len(np.nonzero(target-segmat > 0)[0])/len(np.nonzero(target > 0)[0])))
+
+def transitive_construction_new(target, min_dist=4):
+    smooth = smooth_matrix_padded(target, min_dist, func=mean_filter)
+    min_dist = 4
+    neighbor_ids = np.vstack(np.nonzero(1-np.eye(min_dist*2-1))).T-min_dist
+    np.fill_diagonal(target, 0)#ignore ratings of diagonal
+    trans = np.eye(target.shape[0])
+    remaining = np.triu(target, min_dist)
+    upper = np.triu(np.ones(target.shape))
+    rem_ids = np.vstack(np.nonzero(remaining)).T
+    pad = math.ceil(min_dist/2)
+    while len(rem_ids) > 0:
+        ratings = []
+        sratings = []
+        for i in rem_ids:
+            #TODO maybe speed up by not calculating newtrans, just using trans and new values...
+            #(by simply taking average of new points!! or the current component..)
+            #calculate closure of current addition
+            closure = quick_closure(trans, i)
+            newpoints = np.vstack(closure).T[np.where((trans[closure] == 0)
+                & (upper[closure] == 1))[0]]
+            #only valid if all new points still in remaining
+            if len(newpoints) > 0 and len(np.nonzero(remaining[tuple(newpoints.T)])[0]) == len(newpoints):
+                # newtrans = trans.copy()
+                # newtrans[closure] = 1
+                # # nz = np.nonzero(np.ravel(np.pad(newtrans, ((0,0), (pad, pad)))))[0]
+                # # mindist = np.min(np.diff(nz)) if len(nz) > 1 else min_dist
+                # r = target[newtrans > 0]
+                # ratings.append(np.mean(r[r > 0]))
+                ratings.append(np.mean(target[tuple(newpoints.T)]))
+                sratings.append(np.mean(smooth[tuple(newpoints.T)]))
+            else:
+                ratings.append(0)
+                sratings.append(0)
+        am, sam = np.argmax(ratings), np.argmax(sratings)
+        if am != sam:
+            aso, saso = np.argsort(ratings)[::-1], np.argsort(sratings)[::-1]
+            am = np.argmin(np.argsort(aso)+np.argsort(saso))#get first in both sorts
+        if ratings[am] == 0: break;
+        best = rem_ids[am]
+        closure = quick_closure(trans, best)
+        newpoints = np.vstack(closure).T[np.where(trans[closure] == 0)[0]]
+        print(len(rem_ids), best, np.argmax(ratings), np.max(ratings), len(closure[0]), len(newpoints))
+        #set neighborhoods around new points to 0
+        n = np.concatenate([neighbor_ids+p for p in newpoints])
+        n = np.unique(np.concatenate((n, newpoints)), axis=0)
+        n = n[np.all((0 <= n) & (n < len(target)), axis=1).nonzero()]
+        remaining[tuple(n.T)] = 0
+        rem_ids = np.vstack(np.nonzero(remaining)).T
+        
+        trans[closure] = 1#target[closure].copy()
+    plot_matrix(trans, 'salami/all28worst/111-tc-new.png')
+    print(nothing)
+        # newvals = np.where(trans-remaining == 0)
+        # for v in newvals:
+        #     remaining[np.]
+        # print(newvals)
+        # 
+        # print(np.argmax(ratings), np.max(ratings))
+        # print(nothing)
+
+def quick_closure(matrix, i):
+    locs = np.unique(np.hstack((i, np.nonzero(matrix[i[0]])[0],
+        np.nonzero(matrix.T[i[1]])[0])))
+    return tuple(cartesian((locs, locs)).T)
+
+def transitive_construction_new2(target, min_dist=4):
+    nonzeromedian = np.percentile(target[np.nonzero(target)], 50)
+    target = np.where(target >= nonzeromedian, target, 0)
+    mask = segments_to_matrix([s for s in
+        matrix_to_segments(target) if len(s) > 1], target.shape)
+    target = np.where(mask == 1, target, 0)
+    min_dist = 4
+    sorted = np.unravel_index(np.argsort(target, axis=None), target.shape)
+    maxes = np.vstack(sorted).T[::-1][:len(np.nonzero(target)[0])]
+    trans = np.zeros(target.shape)
+    score = 0
+    print(len(maxes))
+    for k,i in enumerate(maxes):
+        #print(i)
+        if trans[tuple(i)] == 0:
+            newtrans = trans.copy()
+            #calculate closure of current addition
+            locs = np.hstack((i, np.nonzero(trans[i[0]])[0],
+                np.nonzero(trans.T[i[1]])[0]))
+            closure = tuple(cartesian((locs, locs)).T)
+            newtrans[closure] = 1
+            #check if new matrix valid
+            pad = math.ceil(min_dist/2)
+            mindist = np.min(np.diff(np.nonzero(np.ravel(
+                np.pad(newtrans, ((0,0), (pad, pad)))))[0]))
+            newscore = matrix_f_measure(newtrans, target, beta=1)
+            if mindist >= min_dist and newscore > score:
+                trans, score = newtrans, newscore
+            else:
+                print(k, mindist, newscore, score)
+        if k % 100 == 0:
+            #print(matrix_f_measure(trans, target, beta=1))
+            plot_matrix(trans, 'salami/all28worst/111-tc'+str(k)+'.png')
+        if k == 500: print(nothing)
 
 def make_segments_hierarchical(segments, min_len, min_dist, target,
         beta=.25, path=None, verbose=False, beam_size=200):
@@ -860,3 +963,4 @@ def get_hierarchy_sections(sequences):
 #print(divide_hierarchy_labels([1], np.array([[2,2,2,1,2,2,2,3,2,2,2],[3,3,1,5,5,2,2,3,3,3,4]])))
 #print(to_labels2([np.array([1,2,3,2,2])], {1:np.array([2,4,3]),2:np.array([3,3,5])}))
 #print(to_labels2([np.array([1,2,3,2,2])], {}))
+#profile(lambda: transitive_construction_new(np.random.rand(100,100)))
