@@ -111,70 +111,131 @@ def get_noise_factor(segments, target, size):
     return (len(np.nonzero(segmat-target > 0)[0])/len(np.nonzero(segmat > 0)[0])
         * (1-len(np.nonzero(target-segmat > 0)[0])/len(np.nonzero(target > 0)[0])))
 
-def transitive_construction_new(target, min_dist=4):
-    smooth = smooth_matrix_padded(target, min_dist, func=mean_filter)
-    min_dist = 4
-    neighbor_ids = np.vstack(np.nonzero(1-np.eye(min_dist*2-1))).T-min_dist
+def diamond(r):
+    return np.add.outer(*[np.r_[:r,r:-1:-1]]*2)>=r
+
+def transitive_construction_new(target, min_dist=4, min_len=4, beam_size=300):
+    mean = np.mean(target)#0
+    threshold = 0
+    min_dist, min_len = 4, round(0.02*len(target))
+    print(min_dist, min_len)
+    #beam_size = int(.2*target.shape[0]**2)
+    #print(beam_size)
+    smooth = smooth_matrix_padded(target, min_len*2, func=mean_filter)
+    neighbor_mask = np.logical_and(diamond(min_dist-1), 1-np.eye(min_dist*2-1))
+    neighbors = np.vstack(np.nonzero(neighbor_mask)).T-min_dist+1
     np.fill_diagonal(target, 0)#ignore ratings of diagonal
     trans = np.eye(target.shape[0])
-    remaining = np.triu(target, min_dist)
+    remaining = np.triu(np.where(target > threshold, target, 0), min_dist)
     upper = np.triu(np.ones(target.shape))
-    rem_ids = np.vstack(np.nonzero(remaining)).T
-    pad = math.ceil(min_dist/2)
-    while len(rem_ids) > 0:
+    candidates = n_largest_above(remaining, beam_size, 0)
+    iter = 0
+    lastpruned = None
+    while len(candidates) > 0:
         ratings = []
         sratings = []
-        for i in rem_ids:
-            #TODO maybe speed up by not calculating newtrans, just using trans and new values...
-            #(by simply taking average of new points!! or the current component..)
+        comps = quick_components(trans)
+        compsizes = np.bincount(comps)[comps]
+        for i in candidates:
             #calculate closure of current addition
             closure = quick_closure(trans, i)
             newpoints = np.vstack(closure).T[np.where((trans[closure] == 0)
                 & (upper[closure] == 1))[0]]
             #only valid if all new points still in remaining
-            if len(newpoints) > 0 and len(np.nonzero(remaining[tuple(newpoints.T)])[0]) == len(newpoints):
+            nznew = len(np.nonzero(remaining[tuple(newpoints.T)])[0])
+            rmean = np.mean(target[tuple(newpoints.T)])
+            minsize = np.min(compsizes[i])
+            if len(newpoints) > 0 and nznew >= len(newpoints) and rmean >= mean:
                 # newtrans = trans.copy()
                 # newtrans[closure] = 1
+                # # pad = math.ceil(min_dist/2)
                 # # nz = np.nonzero(np.ravel(np.pad(newtrans, ((0,0), (pad, pad)))))[0]
                 # # mindist = np.min(np.diff(nz)) if len(nz) > 1 else min_dist
                 # r = target[newtrans > 0]
                 # ratings.append(np.mean(r[r > 0]))
-                ratings.append(np.mean(target[tuple(newpoints.T)]))
-                sratings.append(np.mean(smooth[tuple(newpoints.T)]))
+                #ratings.append(rmean)
+                #sratings.append(np.mean(smooth[tuple(newpoints.T)]))
+                #seglens = np.array([len(s) for s in matrix_to_segments(trans)])
+                
+                #closure rating
+                c = np.unique(closure[0])
+                preds = comps[c[np.where(c > 0)] - 1]
+                succs = comps[c[np.where(c < len(trans)-1)] + 1]
+                variety = lambda a: len(np.unique(a))/len(a)
+                clr = (1/variety(preds)/variety(succs))**0.1
+                
+                r = rmean*np.mean(smooth[tuple(newpoints.T)])#/len(newpoints)#*clr#*np.mean(seglens)
+                ratings.append(r)
+                #sratings.append(r)
             else:
                 ratings.append(0)
-                sratings.append(0)
-        am, sam = np.argmax(ratings), np.argmax(sratings)
-        if am != sam:
-            aso, saso = np.argsort(ratings)[::-1], np.argsort(sratings)[::-1]
-            am = np.argmin(np.argsort(aso)+np.argsort(saso))#get first in both sorts
-        if ratings[am] == 0: break;
-        best = rem_ids[am]
-        closure = quick_closure(trans, best)
-        newpoints = np.vstack(closure).T[np.where(trans[closure] == 0)[0]]
-        print(len(rem_ids), best, np.argmax(ratings), np.max(ratings), len(closure[0]), len(newpoints))
-        #set neighborhoods around new points to 0
-        n = np.concatenate([neighbor_ids+p for p in newpoints])
-        n = np.unique(np.concatenate((n, newpoints)), axis=0)
-        n = n[np.all((0 <= n) & (n < len(target)), axis=1).nonzero()]
-        remaining[tuple(n.T)] = 0
-        rem_ids = np.vstack(np.nonzero(remaining)).T
-        
-        trans[closure] = 1#target[closure].copy()
-    plot_matrix(trans, 'salami/all28worst/111-tc-new.png')
-    print(nothing)
-        # newvals = np.where(trans-remaining == 0)
-        # for v in newvals:
-        #     remaining[np.]
-        # print(newvals)
-        # 
-        # print(np.argmax(ratings), np.max(ratings))
-        # print(nothing)
+                #sratings.append(0)
+        #am, sam = np.argmax(ratings), np.argmax(sratings)
+        am = np.argmax(ratings)
+        # if am != sam:
+        #     aso, saso = np.argsort(ratings)[::-1], np.argsort(sratings)[::-1]
+        #     am = np.argmin(np.argsort(aso)+np.argsort(saso))#get first in both sorts
+        if ratings[am] == 0:
+            if beam_size >= len(np.nonzero(remaining)[0]):
+                break
+            #beam_size *= 2
+            print('RATINGS ZERO: PRUNE', beam_size, len(np.nonzero(remaining)[0]))
+            ignore = False
+            prune = True
+            #ignore current candidates
+            if ignore:
+                remaining[tuple(candidates.T)] = 0
+            #prune short segs
+            if prune:
+                pruned = prune_transmatrix(trans, min_len)
+                if lastpruned is not None and np.array_equal(lastpruned, pruned):
+                    break
+                trans = pruned.copy()
+                lastpruned = pruned
+                #reset remaining
+                remaining = np.triu(np.where(target > threshold, target, 0), min_dist)
+                nz = np.vstack(np.nonzero(trans)).T
+                update_remaining(remaining, nz, neighbors)
+        else:
+            best = candidates[am]
+            closure = quick_closure(trans, best)
+            newpoints = np.vstack(closure).T[np.where(trans[closure] == 0)[0]]
+            print(len(np.nonzero(remaining)[0]), best, np.argmax(ratings), np.max(ratings), len(closure[0]), len(newpoints), len(np.unique(comps)))
+            update_remaining(remaining, newpoints, neighbors)
+            trans[closure] = 1#target[closure].copy()
+        # if iter % 10 == 0:
+        #     plot_matrix(trans, 'salami/all28worst/111-tc-new-'+str(iter)+'.png')
+        #     plot_matrix(remaining, 'salami/all28worst/111-tc-new-'+str(iter)+'..png')
+        candidates = n_largest_above(remaining, beam_size, 0)
+        iter += 1
+    trans = prune_transmatrix(trans, min_len)
+    plot_matrix(trans, 'salami/all28worst/386-tc-new.png')
+    return trans
+
+#set neighborhoods around points to 0
+def update_remaining(remaining, points, neighbors):
+    n = np.concatenate([neighbors+p for p in points])
+    n = np.unique(np.concatenate((n, points)), axis=0)
+    n = n[np.all((0 <= n) & (n < len(remaining)), axis=1).nonzero()]
+    remaining[tuple(n.T)] = 0
+
+def prune_transmatrix(matrix, minseglen):
+    lsegs = [s for s in matrix_to_segments(matrix) if len(s) >= minseglen]
+    return add_transitivity_to_matrix(segments_to_matrix(lsegs, matrix.shape))
+
+#n largest values in a above threshold t
+def n_largest_above(a, n, t):
+    if n > a.size: n = a.size
+    nlargest = np.unravel_index(np.argpartition(a, -n, axis=None)[-n:], a.shape)
+    return np.vstack(nlargest).T[np.where(a[nlargest] > t)[0]]
 
 def quick_closure(matrix, i):
     locs = np.unique(np.hstack((i, np.nonzero(matrix[i[0]])[0],
         np.nonzero(matrix.T[i[1]])[0])))
     return tuple(cartesian((locs, locs)).T)
+
+def quick_components(matrix):
+    return np.array([np.min(np.nonzero(r)[0]) for r in matrix])
 
 def transitive_construction_new2(target, min_dist=4):
     nonzeromedian = np.percentile(target[np.nonzero(target)], 50)

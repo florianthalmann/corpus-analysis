@@ -2,12 +2,20 @@
 import numpy as np
 from scipy import signal
 from scipy.ndimage import filters
-from ..util import plot
+from ..util import plot, group_adjacent
 
-def get_novelty_boundaries(S, kernel_size=40, min_dist=15, sigma=4.0):
+def get_novelty_boundaries(S, kernel_size=60, min_dist=25, sigma=4.0):
     novelty = compute_novelty_ssm(S, L=kernel_size, exclude=True)
-    #return signal.find_peaks(novelty, distance=min_dist)[0]
-    return peak_picking_MSAF(novelty, sigma=sigma)[0]
+    return signal.find_peaks(novelty, prominence=0.05)[0]#distance=min_dist)[0]
+    #return peak_picking_MSAF(novelty, sigma=sigma)[0]
+
+def binary_boundaries(matrix):
+    lastnonzeros = [len(matrix)-np.argmax(m[::-1])-1 for m in matrix]
+    maxes = [np.max(lastnonzeros[:i+1]) for i in range(len(lastnonzeros))]
+    zeroafters = np.arange(len(matrix))-maxes == 0
+    zeroafterbeforetoos = np.arange(len(matrix))-lastnonzeros == 0
+    boundaries = np.nonzero(zeroafters &  zeroafterbeforetoos)[0]
+    return np.array([bg[-1] for bg in group_adjacent(boundaries)])
 
 def peak_picking_MSAF(x, median_len=16, offset_rel=0.05, sigma=4.0):
     """Peak picking strategy following MSFA using an adaptive threshold (https://github.com/urinieto/msaf)
@@ -93,3 +101,5 @@ def compute_kernel_checkerboard_gaussian(L, var=1, normalize=True):
     if normalize:
         kernel = kernel / np.sum(np.abs(kernel))
     return kernel
+
+#print(binary_boundaries(np.array([[1,0,0,0],[1,1,0,0],[0,0,1,1],[0,0,1,1]])))
