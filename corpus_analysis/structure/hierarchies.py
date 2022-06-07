@@ -209,7 +209,7 @@ def transitive_construction_new(target, min_dist=4, min_len=4, beam_size=300):
         candidates = n_largest_above(remaining, beam_size, 0)
         iter += 1
     trans = prune_transmatrix(trans, min_len)
-    plot_matrix(trans, 'salami/all28worst/386-tc-new.png')
+    plot_matrix(trans, 'salami/all28worst/122-tc-new.png')
     return trans
 
 #set neighborhoods around points to 0
@@ -866,14 +866,15 @@ def divide_hierarchy(indices, hierarchy):
     for i in indices:
         #check if divisible in all layers
         locations = [get_section_locs(l[i], l) for l in labels]
-        divisible = all([len(l) == 1 for l in locations])
-        divisible = divisible and len(np.unique([l[i] for l in labels[1:]])) == 1
+        #divisible = all([len(l) == 1 for l in locations])
+        #divisible = divisible and len(np.unique([l[i] for l in labels[1:]])) == 1
+        divisible = np.all([np.min(l) >= i for l in locations[1:]])
         #print(i, divisible, locations)
         if divisible:
             divided = True
             print('divide', i)
             nextid = np.max(labels)+1
-            for j,l in enumerate(labels[1:], 1):
+            for j,l in enumerate(labels[:], 0):
                 locs = locations[j]
                 #print(i, l[i], j, locs)
                 #position in section at which to divide
@@ -886,9 +887,9 @@ def divide_hierarchy(indices, hierarchy):
                 relabels = relabels[(0 <= relabels) & (relabels < len(l))]
                 #print(relabels)
                 l[relabels.astype(int)] = nextid
-    # if divided:
-    #     segments.insert(0, segments[0].copy())
-    #     labels = np.concatenate([[[nextid+1] * len(labels[0])], labels])
+    if divided:
+        segments.insert(0, segments[0].copy())
+        labels = reindex2(np.concatenate([[[nextid+1] * len(labels[0])], labels]))
     return segments, labels
 
 def group_ungrouped_elements(sequence, sections, occurrences, ignore):

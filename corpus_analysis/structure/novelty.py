@@ -14,8 +14,10 @@ def binary_boundaries(matrix):
     maxes = [np.max(lastnonzeros[:i+1]) for i in range(len(lastnonzeros))]
     zeroafters = np.arange(len(matrix))-maxes == 0
     zeroafterbeforetoos = np.arange(len(matrix))-lastnonzeros == 0
-    boundaries = np.nonzero(zeroafters &  zeroafterbeforetoos)[0]
-    return np.array([bg[-1] for bg in group_adjacent(boundaries)])
+    boundaries = np.nonzero(zeroafters & zeroafterbeforetoos)[0]
+    bgroups = group_adjacent(boundaries)
+    return np.array([bg[-1] if i < len(bgroups)-1 else bg[0]
+        for i,bg in enumerate(bgroups)])+1
 
 def peak_picking_MSAF(x, median_len=16, offset_rel=0.05, sigma=4.0):
     """Peak picking strategy following MSFA using an adaptive threshold (https://github.com/urinieto/msaf)
