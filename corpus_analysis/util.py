@@ -72,8 +72,14 @@ def running_mean(x, N):
     pads = (round(N/2), round(N/2)-1)
     return np.pad(rmean, pads, 'constant', constant_values=(None,None))
 
-def odd(a):
-    return a[np.arange(round(len(a)/2))*2] if len(a) > 0 else a
+#summarizes an array by taking the most common value in each window
+def summarize1d(a, window=2, offset=0):
+    md = (len(a-offset)%window)
+    a = a[offset:-md] if md > 0 else a[offset:]
+    a = np.reshape(a, (-1,window))
+    ml = np.max(a)+1
+    counts = np.apply_along_axis(lambda x: np.bincount(x, minlength=ml), axis=1, arr=a)
+    return np.argmax(counts, axis=1)
 
 #returns a copy of a interpolated with means and with an added interval equal to the last
 def interpolate(a):
@@ -123,6 +129,8 @@ def plot(data_or_func, path=None):
         data_or_func()
     else:
         plt.plot(data_or_func)
+    # plt.xlabel('version')
+    # plt.ylabel('tempo')
     plt.tight_layout()
     plt.savefig(path, dpi=1000) if path else plt.show()
     plt.close()
@@ -183,3 +191,5 @@ class RepeatPruner(optuna.pruners.BasePruner):
         completed_trials = [t.params for t in trials
             if t.state == optuna.trial.TrialState.COMPLETE]
         return trial.params in completed_trials
+
+#print(summarize1d(np.array([1,1,2,3,4,4,1,2,3]), 3))

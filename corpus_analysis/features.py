@@ -216,19 +216,17 @@ def load_leadsheets(path, songs):
 def tonal_complexity_cf(chroma):#weiss2014quantifying
     fifths = chroma[np.array([0,7,2,9,4,11,6,1,8,3,10,5])]
     fifths = fifths/np.sum(fifths) #normalize
-    #print(fifths)
-    angles = fifths * np.exp((2*math.pi*1j*np.arange(12))/12)
-    #print(angles, np.exp((2*math.pi*1j*np.arange(12))/12))
-    return math.sqrt(1 - np.abs(np.mean(angles)))
+    dft = fifths * np.exp((2*math.pi*1j*np.arange(12))/12)
+    return math.sqrt(1 - np.abs(np.mean(dft)))
 
 def tonal_complexity_cf2(chroma):
     fifths = chroma[np.array([0,7,2,9,4,11,6,1,8,3,10,5])]
     fifths = fifths/np.sum(fifths) #normalize
     bins = np.arange(-6, 6)*math.pi/6
-    data = np.hstack([np.repeat(b, 10000*f) for f,b in zip(fifths, bins)])
+    data = np.hstack([np.repeat(b, 1000*f) for f,b in zip(fifths, bins)])
     return 1 - min(1, vonmises.fit(data, fscale=1)[0]/10)
 
 #print(get_labels([[0,0],[1,2],[0,0],[5,5],[1,2],[0,0]]))
 #print(label_to_go_index("A"))
 #print(summarize([[0,3],[0.5,5],[2.5,7],[3.5,8],[7,9]], [0,1,2,3,4]))
-#print(tonal_complexity_cf2(np.array([1,0,1,0,0,0,0,1,0,0,0,0])))
+#print(tonal_complexity_cf2(np.array([1.1,0,0.9,0,0,0,0,0.666,0,0,0,0])))
