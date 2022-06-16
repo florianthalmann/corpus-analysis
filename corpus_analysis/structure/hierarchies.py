@@ -15,6 +15,7 @@ from ..alignment.affinity import segments_to_matrix, smooth_matrix, to_diagonals
 from ..util import argmax, ordered_unique, plot_matrix, group_adjacent,\
     indices_of_subarray, plot, profile
 from ..alignment.util import mean_filter
+from ..stats.util import entropy
 
 # filter and sort list of patterns based on given params
 def filter_and_sort_patterns(patterns, min_len=0, min_dist=0, refs=[], occs_length=True):
@@ -115,37 +116,57 @@ def diamond(r):
     return np.add.outer(*[np.r_[:r,r:-1:-1]]*2)>=r
 
 def transitive_construction_new(target, min_dist=4, min_len=4, beam_size=300):
-    mean = np.mean(target)#0
     threshold = 0
     min_dist, min_len = 4, round(0.02*len(target))
-    print(min_dist, min_len)
+    maxcompsize = round(len(target)/min_dist/4)
+    print(min_dist, min_len, maxcompsize)
     #beam_size = int(.2*target.shape[0]**2)
     #print(beam_size)
-    smooth = smooth_matrix_padded(target, min_len*2, func=mean_filter)
+    smooth = smooth_matrix_padded(target, min_len, func=mean_filter)
+    target *= smooth
+    mean = np.mean(target)#np.percentile(target, 85)#np.mean(target)
     neighbor_mask = np.logical_and(diamond(min_dist-1), 1-np.eye(min_dist*2-1))
     neighbors = np.vstack(np.nonzero(neighbor_mask)).T-min_dist+1
-    np.fill_diagonal(target, 0)#ignore ratings of diagonal
+    #np.fill_diagonal(target, 0)#ignore ratings of diagonal
     trans = np.eye(target.shape[0])
     remaining = np.triu(np.where(target > threshold, target, 0), min_dist)
+    checked = np.zeros(target.shape)
     upper = np.triu(np.ones(target.shape))
-    candidates = n_largest_above(remaining, beam_size, 0)
+    candidates = n_largest_above(remaining-checked, beam_size, 0)
     iter = 0
     lastpruned = None
     while len(candidates) > 0:
         ratings = []
         sratings = []
         comps = quick_components(trans)
-        compsizes = np.bincount(comps)[comps]
+        compsizes = np.bincount(comps)
+        nbprop = diag_neigh_prop(trans)
+        tpoints = target[np.nonzero(trans)]
+        overallmean = np.mean(tpoints)
+        
         for i in candidates:
             #calculate closure of current addition
             closure = quick_closure(trans, i)
             newpoints = np.vstack(closure).T[np.where((trans[closure] == 0)
                 & (upper[closure] == 1))[0]]
+            allnewpoints = np.vstack(closure).T[np.where(trans[closure] == 0)[0]]
             #only valid if all new points still in remaining
             nznew = len(np.nonzero(remaining[tuple(newpoints.T)])[0])
-            rmean = np.mean(target[tuple(newpoints.T)])
-            minsize = np.min(compsizes[i])
-            if len(newpoints) > 0 and nznew >= len(newpoints) and rmean >= mean:
+            newmean = np.mean(target[tuple(allnewpoints.T)])
+            
+            ltp, lnp = len(tpoints), len(allnewpoints)
+            newoverallmean = ((ltp*overallmean)+(lnp*newmean))/(ltp+lnp)
+            
+            newcompsize = np.sum(compsizes[comps[i]])
+            isolated = num_isolated(trans, newpoints)
+            
+            # cs = comps[i]
+            # cs = np.min(cs), np.max(cs)
+            # prevsize = compsizes[cs[1]]
+            # newcompsizes = np.delete(compsizes, cs[1])
+            # newcompsizes[cs[0]] += prevsize
+            
+            if isolated <= 5 and maxcompsize > len(newpoints) > 0 and nznew == len(newpoints) and newcompsize <= maxcompsize:# and newmean >= mean:
                 # newtrans = trans.copy()
                 # newtrans[closure] = 1
                 # # pad = math.ceil(min_dist/2)
@@ -153,7 +174,7 @@ def transitive_construction_new(target, min_dist=4, min_len=4, beam_size=300):
                 # # mindist = np.min(np.diff(nz)) if len(nz) > 1 else min_dist
                 # r = target[newtrans > 0]
                 # ratings.append(np.mean(r[r > 0]))
-                #ratings.append(rmean)
+                #ratings.append(newmean)
                 #sratings.append(np.mean(smooth[tuple(newpoints.T)]))
                 #seglens = np.array([len(s) for s in matrix_to_segments(trans)])
                 
@@ -164,11 +185,20 @@ def transitive_construction_new(target, min_dist=4, min_len=4, beam_size=300):
                 variety = lambda a: len(np.unique(a))/len(a)
                 clr = (1/variety(preds)/variety(succs))**0.1
                 
-                r = rmean*np.mean(smooth[tuple(newpoints.T)])#/len(newpoints)#*clr#*np.mean(seglens)
+                newnbprop = diag_neigh_prop(trans, newpoints)
+                #newnbprop = 1 + ((ltp*nbprop)+(lnp*newnbprop))/(ltp+lnp)
+                newnbprop = (1+newnbprop)**0.5
+                
+                newpointratio = (1+len(newpoints)/len(tpoints))**0.5
+                
+                r = newoverallmean*newnbprop*newpointratio#*np.mean(smooth[tuple(newpoints.T)])#/len(newpoints)#*clr#*np.mean(seglens)
+                #print(newnbprop, newmean, r)
                 ratings.append(r)
                 #sratings.append(r)
             else:
                 ratings.append(0)
+            # if len(newpoints) == 0 or nznew < len(newpoints):
+            #     checked[tuple(i)] = remaining[tuple(i)]#never a candidate again... (except if pruned)
                 #sratings.append(0)
         #am, sam = np.argmax(ratings), np.argmax(sratings)
         am = np.argmax(ratings)
@@ -176,15 +206,15 @@ def transitive_construction_new(target, min_dist=4, min_len=4, beam_size=300):
         #     aso, saso = np.argsort(ratings)[::-1], np.argsort(sratings)[::-1]
         #     am = np.argmin(np.argsort(aso)+np.argsort(saso))#get first in both sorts
         if ratings[am] == 0:
-            if beam_size >= len(np.nonzero(remaining)[0]):
+            if beam_size >= len(np.nonzero(remaining-checked)[0]):
                 break
             #beam_size *= 2
-            print('RATINGS ZERO: PRUNE', beam_size, len(np.nonzero(remaining)[0]))
+            print('RATINGS ZERO: PRUNE', beam_size, len(np.where(remaining-checked > 0)[0]), len(np.nonzero(checked)[0]))
             ignore = False
-            prune = True
+            prune = False
             #ignore current candidates
             if ignore:
-                remaining[tuple(candidates.T)] = 0
+                checked[tuple(candidates.T)] = remaining[tuple(candidates.T)]
             #prune short segs
             if prune:
                 pruned = prune_transmatrix(trans, min_len)
@@ -194,22 +224,26 @@ def transitive_construction_new(target, min_dist=4, min_len=4, beam_size=300):
                 lastpruned = pruned
                 #reset remaining
                 remaining = np.triu(np.where(target > threshold, target, 0), min_dist)
+                checked = np.zeros(target.shape)
                 nz = np.vstack(np.nonzero(trans)).T
                 update_remaining(remaining, nz, neighbors)
+            if not ignore and not prune:
+                break
         else:
             best = candidates[am]
             closure = quick_closure(trans, best)
             newpoints = np.vstack(closure).T[np.where(trans[closure] == 0)[0]]
-            print(len(np.nonzero(remaining)[0]), best, np.argmax(ratings), np.max(ratings), len(closure[0]), len(newpoints), len(np.unique(comps)))
+            print(len(np.where(remaining-checked > 0)[0]), len(np.nonzero(checked)[0]), best, am, ratings[am], len(closure[0]), len(newpoints), len(np.unique(comps)), np.max(compsizes))#, entropy(compsizes))
             update_remaining(remaining, newpoints, neighbors)
             trans[closure] = 1#target[closure].copy()
-        # if iter % 10 == 0:
-        #     plot_matrix(trans, 'salami/all28worst/111-tc-new-'+str(iter)+'.png')
-        #     plot_matrix(remaining, 'salami/all28worst/111-tc-new-'+str(iter)+'..png')
-        candidates = n_largest_above(remaining, beam_size, 0)
+            
+        if iter % 10 == 0:
+            plot_matrix(trans, 'salami/all28worst/1208-tc-new-'+str(iter)+'..png')
+            #plot_matrix(remaining, 'salami/all28worst/111-tc-new-'+str(iter)+'..png')
+        candidates = n_largest_above(remaining-checked, beam_size, 0)
         iter += 1
     trans = prune_transmatrix(trans, min_len)
-    plot_matrix(trans, 'salami/all28worst/122-tc-new.png')
+    plot_matrix(trans, 'salami/all28worst/1210-tc-new.png')
     return trans
 
 #set neighborhoods around points to 0
@@ -236,6 +270,26 @@ def quick_closure(matrix, i):
 
 def quick_components(matrix):
     return np.array([np.min(np.nonzero(r)[0]) for r in matrix])
+
+#returns the proportion of points with at least one nonzero diagonal neighbor
+def diag_neigh_prop(matrix, points=None):
+    nbs = neighbor_counts(matrix, points)
+    return len(np.nonzero(nbs)[0]) / len(nbs)
+
+def num_isolated(matrix, points=None):
+    nbs = neighbor_counts(matrix, points)
+    return len(np.where(nbs == 0)[0])
+
+#returns the number of neighbors for each point
+def neighbor_counts(matrix, points=None):
+    if points is None: #all nonzero if points not specified
+        points = np.vstack(np.nonzero(matrix)).T
+    numneighs = np.zeros(len(points))
+    pred = np.all(0 < points, axis=1).nonzero()#all points with predecessors
+    numneighs[pred] = matrix[tuple((points[pred]+np.array([-1,-1])).T)]
+    succ = np.all(points < len(matrix)-1, axis=1).nonzero()#points with successors
+    numneighs[succ] += matrix[tuple((points[succ]+np.array([1,1])).T)]
+    return numneighs
 
 def transitive_construction_new2(target, min_dist=4):
     nonzeromedian = np.percentile(target[np.nonzero(target)], 50)
@@ -768,7 +822,7 @@ def to_labels2(sequences, sections):
     # labels = np.array([[uniques[i][-2] if u == uniques[i][-1] else u for u in l]
     #     for i,l in enumerate(labels)])
     #back to layers and reindex
-    reindexed = reindex2(labels.T[:-1])#[:-1]
+    reindexed = reindex2(labels.T[:-1])#[:-1])
     #now cut at sequence boundaries to get original sequence lengths
     seqlens = [sum([section_lengths[c] if c in section_lengths else 1 for c in s])
         for s in sequences]
@@ -1026,3 +1080,5 @@ def get_hierarchy_sections(sequences):
 #print(to_labels2([np.array([1,2,3,2,2])], {1:np.array([2,4,3]),2:np.array([3,3,5])}))
 #print(to_labels2([np.array([1,2,3,2,2])], {}))
 #profile(lambda: transitive_construction_new(np.random.rand(100,100)))
+#print(diag_neigh_prop(np.array([[1,1,0],[0,1,1],[0,0,0]])))#, [[1,1]]))
+#print(isolated_prop(np.array([[1,0,0],[0,1,1],[1,0,1]])))#, [[1,1]]))
