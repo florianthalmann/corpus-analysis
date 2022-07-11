@@ -3,6 +3,7 @@ from math import log
 from itertools import product, chain, combinations
 from multiprocessing import Pool, cpu_count
 import numpy as np
+import pandas as pd
 from sklearn.metrics import pairwise_distances
 from sklearn.preprocessing import MinMaxScaler
 from corpus_analysis.util import plot
@@ -12,7 +13,7 @@ from corpus_analysis.structure.structure import matrix_to_labels
 from corpus_analysis.structure.hierarchies import make_segments_hierarchical,\
     add_transitivity_to_matrix
 from corpus_analysis.util import plot_matrix, load_json, save_json, multiprocess,\
-    buffered_run
+    buffered_run, plot_hist
 import salami
 from experiments.matrix_ratings import matrix_rating_s, matrix_rating_b
 
@@ -90,16 +91,21 @@ def transitive_matrix_rating(args):
     params['BETA'] = beta
     matrix = salami.get_hierarchy_buf(index, params)[2]
     # ms = salami.get_matrices_buf(index, params)
-    # plot_matrix(ms[1], 'salami/betas39/'+str(index)+'-*.png')
-    # plot_matrix(ms[0], 'salami/betas39/'+str(index)+'-*s.png')
-    # plot_matrix(matrix, 'salami/betas39/'+str(index)+'-'+str(beta)+'.png')
+    # plot_matrix(ms[1], 'salami/betasALL/'+str(index)+'-*.png')
+    # plot_matrix(ms[0], 'salami/betasALL/'+str(index)+'-*s.png')
+    # plot_matrix(matrix, 'salami/betasALL/'+str(index)+'-'+str(beta)+'.png')
     rating = matrix_rating_b(matrix)
     return rating, args
 
 def sigma_matrix_ratings(args):
-    index, sigma, params = args
+    index, sigma, weight, params = args
     params['SIGMA'] = sigma
+    params['WEIGHT'] = weight
     smatrix, matrix = salami.get_matrices_buf(index, params)[:2]
+    matrix = matrix + matrix.T
+    smatrix = smatrix + smatrix.T
+    # plot_matrix(matrix, 'salami/betas44/s'+str(index)+'m-'+str(sigma)+'-'+str(weight)+'.png')
+    # plot_matrix(smatrix, 'salami/betas44/s'+str(index)+'s-'+str(sigma)+'-'+str(weight)+'.png')
     rating = matrix_rating_s(matrix)
     return matrix_rating_s(smatrix), matrix_rating_s(matrix), args
 
@@ -179,16 +185,19 @@ def read_and_prepare_results(results):
     #average cases with multiple groundtruths
     return data.groupby(allbut(data.columns, ['REF','P','R','L'])).mean().reset_index()
 
-def prepare_and_log_results(results, params, thresh='SIGMA'):
+def prepare_and_log_results(results, params, thresh='SIGMA', name='trc'):
     data = read_and_prepare_results(results)
-    print("baseline:", data[data['METHOD'] == 'l']['L'].mean())
+    print("baseline:", data[data['METHOD'] == 'lsd_l10']['L'].mean())
     #data = data[data['METHOD'] == 't']
     #data = data[data['BETA'] <= 0.5]
     #data = data[data['MAX_GAP_RATIO'] == 0.2]
-    grouped = data[data['METHOD'] == 't'].groupby([thresh,'MAX_GAP_RATIO','BETA'])[['L']].mean()
+    grouped = data[data['METHOD'] == name].groupby([thresh,'MAX_GAP_RATIO','BETA'])[['L']].mean()
     bestparams = grouped.idxmax().item()
     print("fixed:", grouped.max().item(), tuple(zip((thresh,'MAX_GAP_RATIO','BETA'), bestparams)))
-    print("max:", np.mean(data.groupby(['SONG']).max()['L']))
+    print("max:", np.mean(data[data['METHOD'] == name].groupby(['SONG']).max()['L']))
+    
+    #MAXVARBETA WEIRD!!
+    
     print("max var beta:", np.mean(data[(data[thresh] == bestparams[0])
         & (data['MAX_GAP_RATIO'] == bestparams[1])].groupby(['SONG']).max()['L']))
     # plot(lambda: data.boxplot(column=['L'], by=['SIGMA']))
@@ -305,48 +314,102 @@ def test_beta_measure(results, params, plot_path, threshold='SIGMA'):
 
 def test_sigma_measure(results, params, plot_path):
     data, bestparams = prepare_and_log_results(results, params, 'SIGMA')
-    data = data[(data['MAX_GAP_RATIO'] == bestparams[1])
-        & (data['SONG'].isin(data['SONG'].unique()[:]))
-        ]
+    
+    data = data[(data['WEIGHT'] != 0) & (data['BETA'] < 0.8)] #& (data['MAX_GAP_RATIO'] < 0.1)]
+    bestparams = (bestparams[0], bestparams[1], 0.7)
+    real_best = data.loc[data.groupby('SONG')['L'].idxmax()][['SONG','SIGMA','MAX_GAP_RATIO','BETA','L']]
+    print(real_best)
+    print(real_best['L'].mean())
+    #print(nothing)
+    
+    # data = data[(data['MAX_GAP_RATIO'] == bestparams[1])
+    #     & (data['WEIGHT'] == 4)
+    #     & (data['SONG'].isin(data['SONG'].unique()[:]))
+    #     ]
     
     params['BETA'] = bestparams[2]
     params['MAX_GAP_RATIO'] = bestparams[1]
     
-    multiparams = [(i, s, params.copy()) for s in data['SIGMA'].unique()
-        for i in data['SONG'].unique()]
+    multiparams = [(i, s, d, params.copy()) for s in data['SIGMA'].unique()
+        for i in data['SONG'].unique() for d in data['WEIGHT'].unique()]
+        
+    
+    # params['SIGMA'] = 0.000
+    # for s in [14]:#data['SONG'].unique()[:3]:
+    #     original = salami.load_fused_matrix(s, params, threshold=False)[0]
+    #     peaks = salami.load_fused_matrix(s, params, threshold=True)[0]
+    #     realpeaks = np.where(peaks == 1, original, 0)
+    # 
+    #     plot_matrix(original, 'salami/betas44/s'+str(s)+'*.png')
+    #     plot_matrix(peaks, 'salami/betas44/s'+str(s)+'**.png')
+    #     plot_matrix(realpeaks, 'salami/betas44/s'+str(s)+'***.png')
+    #     segs = matrix_to_segments(realpeaks)
+    #     maxes = [np.max(realpeaks[s.T[0], s.T[1]]) for s in segs]
+    #     plot_hist(np.hstack(realpeaks[realpeaks > 0]), bincount=100, log=True, path='salami/betas44/s'+str(s)+'****.png')
+    #     plot_hist(maxes, bincount=100, log=True, path='salami/betas44/s'+str(s)+'*****.png')
+    #     clean = segments_to_matrix([s for s,m in zip(segs, maxes) if m > np.mean(maxes)], original.shape)
+    #     print(len(maxes), np.mean(maxes))
+    #     plot_matrix(clean, 'salami/betas44/s'+str(s)+'******.png')
+    # print(nothing)
     
     ratings = {}
     sratings = {}
     with Pool(processes=cpu_count()-2) as pool:
         for r in tqdm.tqdm(pool.imap_unordered(sigma_matrix_ratings, multiparams),
                 total=len(multiparams), desc='ratings', smoothing=0.1):
-            srating, rating, (index, sigma, p) = r
+            srating, rating, (index, sigma, weight, p) = r
             #print(index, beta, rating)
-            ratings[(index, sigma)] = rating
-            sratings[(index, sigma)] = srating
+            ratings[(index, sigma, weight)] = rating
+            sratings[(index, sigma, weight)] = srating
     
-    data['RATING'] = data.apply(lambda d: ratings[(d['SONG'], d['SIGMA'])], axis=1)
-    data['SRATING'] = data.apply(lambda d: sratings[(d['SONG'], d['SIGMA'])], axis=1)
+    data['RATING'] = data.apply(lambda d: ratings[(d['SONG'], d['SIGMA'], d['WEIGHT'])], axis=1)
+    data['SRATING'] = data.apply(lambda d: sratings[(d['SONG'], d['SIGMA'], d['WEIGHT'])], axis=1)
     
     
-    real_best = data.loc[data.groupby('SONG')['L'].idxmax()][['SONG','SIGMA','L']]
+    real_best = data.loc[data.groupby('SONG')['L'].idxmax()][['SONG','SIGMA','WEIGHT','L']]
     print(real_best)
     
     fixedbeta = data[(data['BETA'] == bestparams[2])]
     plot(lambda: fixedbeta.plot.scatter(x='RATING', y='L', c='SONG', colormap='tab20'), 'salami/RATINGS_S.png')
     plot(lambda: fixedbeta.plot.scatter(x='SRATING', y='L', c='SONG', colormap='tab20'), 'salami/SRATINGS_S.png')
     
-    bestsigmas_r = data.loc[data.groupby('SONG')['RATING'].idxmax()][['SONG','SIGMA']].reset_index()
+    bestsigmas_r = data.loc[data.groupby('SONG')['RATING'].idxmax()][['SONG','SIGMA','WEIGHT']].reset_index()
     #print(data.loc[data.groupby('SONG')['RATING'].idxmax()][['SONG','SIGMA','L']].reset_index())
-    bestsigmas_r = data.merge(bestsigmas_r[['SONG','SIGMA']], how='inner')
-    print(bestsigmas_r.groupby('SONG')[['SIGMA','L']].max())
-    bestsigmas_rs = data.loc[data.groupby('SONG')['SRATING'].idxmax()][['SONG','SIGMA']].reset_index()
-    bestsigmas_rs = data.merge(bestsigmas_rs[['SONG','SIGMA']], how='inner')
+    bestsigmas_r = data.merge(bestsigmas_r[['SONG','SIGMA','WEIGHT']], how='inner')
+    print(bestsigmas_r.groupby('SONG')[['SIGMA','WEIGHT','L']].max())
+    bestsigmas_rs = data.loc[data.groupby('SONG')['SRATING'].idxmax()][['SONG','SIGMA','WEIGHT']].reset_index()
+    bestsigmas_rs = data.merge(bestsigmas_rs[['SONG','SIGMA','WEIGHT']], how='inner')
     r = fixedbeta.loc[fixedbeta.groupby('SONG')['RATING'].idxmax()]['L']
     rmax = bestsigmas_r.loc[bestsigmas_r.groupby('SONG')['L'].idxmax()]['L']
     rs = fixedbeta.loc[fixedbeta.groupby('SONG')['SRATING'].idxmax()]['L']
     rsmax = bestsigmas_rs.loc[bestsigmas_rs.groupby('SONG')['L'].idxmax()]['L']
     print('feature matrix rating', r.mean(), rmax.mean())
     print('segment matrix rating', rs.mean(), rsmax.mean())
+    print(real_best['L'].mean())
+
+def worst_matrices(results, params, name='trc2'):
+    data, bestparams = prepare_and_log_results(results, params, 'SIGMA', name)
+    data = data[(data['METHOD'] == 'snf_w10_b20_K3')
+        | ((data['SIGMA'] == bestparams[0])
+            & (data['MAX_GAP_RATIO'] == bestparams[1])
+            & (data['BETA'] == bestparams[2]))]
+    songs = data['SONG'].unique()
+    diffs = data[data['METHOD'] == name]['L'].values \
+        - data[data['METHOD'] == 'snf_w10_b20_K3']['L'].values
+    diffs = pd.DataFrame(zip(songs, diffs), columns=['SONGS', 'DIFF'])
+    
+    doubles = results.read()
+    doubles = doubles[doubles['METHOD'] == 'snf_w10_b20_K3']['SONG'].values
+    doubles, counts = np.unique(doubles, return_counts=True)
+    doubles = np.array([d for d,c in zip(doubles, counts) if c > 1])
+    
+    snf = data[data['METHOD'] == 'snf_w10_b20_K3']
+    trc = data[data['METHOD'] == name]
+    print(snf['L'].mean(), trc['L'].mean())
+    print(snf[snf['SONG'].isin(doubles)]['L'].mean(), trc[trc['SONG'].isin(doubles)]['L'].mean())
+    
+    print(diffs.sort_values('DIFF')[:20])
+    return diffs.sort_values('DIFF')['SONGS'].values
+
 
 #print(matrix_to_endpoint_vector(np.array([[0,1,0,1],[1,0,1,0],[0,1,0,1],[0,0,1,1]])))
