@@ -8,18 +8,18 @@ from .histograms import freq_trans_hists, frequency_histograms,\
     tuple_histograms, get_onset_hists
 from .util import chiSquared, tempo, normalize
 
-def check_double_time2(sequences, beats, onsets, factors=None, tempo_range=[50, 170]):#[50, 170]
+def check_double_time2(sequences, beats, onsets, factors=None, tempo_range=[50, 90]):#[50, 170]
     MAX_TEMPO_DEV = 2 #max deviation from mean tempo
     if factors == None:#init factors in reasonable range
-        # tempos = tempo(beats)
-        # print([int(t) for t in tempos])
-        # print(len(beats), len(sequences))
-        # factors = np.array([get_init_factor(t, tempo_range) for t in tempos])
-        factors = np.ones(len(sequences))
+        tempos = tempo(beats)
+        print([int(t) for t in tempos])
+        factors = np.array([get_init_factor(t, tempo_range) for t in tempos])
+        #factors = np.ones(len(sequences))
     currentseqs = np.array([adjust_sequence(s, f) for s,f in zip(sequences, factors)])
     doubles = np.array([np.repeat(s, 2) for s in currentseqs], dtype='object')
     halves = np.array([summarize1d(s, 2) for s in currentseqs])
     twothirds = np.array([summarize1d(s, 3) for s in doubles])
+    #threehalves = np.array([summarize1d(np.repeat(s, 3), 2) for s in doubles])
     
     #absolute chord and onset histograms are able to indicate double time
     stacked = np.hstack((currentseqs, doubles, halves, twothirds))
@@ -34,6 +34,7 @@ def check_double_time2(sequences, beats, onsets, factors=None, tempo_range=[50, 
     beats2 = [interpolate(b) for b in currentbeats]
     beats12 = [b[::2] for b in currentbeats]
     beats23 = [b[::3] for b in beats2]
+    
     dists += [hist_dists([get_onset_hists(onsets, bb, 64)
         for bb in [currentbeats, beats2, beats12, beats23]])]
     
@@ -81,6 +82,17 @@ def check_double_time2(sequences, beats, onsets, factors=None, tempo_range=[50, 
     sequences = [adjust_sequence(s, f) for s,f in zip(sequences, factors)]
     beats = [adjust_beats(b, f) for b,f in zip(beats, factors)]
     return factors, sequences, beats #don't reuse these sequences and beats as quality may decline!
+
+
+def get_init_factor(tempo, tempo_range):
+    factor = 1
+    while tempo < tempo_range[0]:
+        factor *= 2
+        tempo *= 2
+    while tempo > tempo_range[1]:
+        factor /= 2
+        tempo /= 2
+    return factor
 
 def adjust_sequence(sequence, factor):
     if math.isclose(factor, 2/3):

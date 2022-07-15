@@ -37,6 +37,8 @@ def plot_date_histogram2():
         ax.bar(all_years, counts, label=SONGS[i], width=1, bottom=sum)
         sum += counts
     ax.legend(ncol=2)
+    plt.xlabel('time')
+    plt.ylabel('version count')
     plt.tight_layout()
     fig.savefig('results/gd1.pdf')
     #plt.show()
@@ -57,7 +59,9 @@ def plot_relative_date_histogram():
         counts = counts / all_counts
         ax.bar(all_years, counts, label=SONGS[i], width=1, bottom=sum)
         sum += counts
-    ax.legend(ncol=2)
+    #ax.legend(ncol=2)
+    plt.xlabel('time')
+    plt.ylabel('proportion')
     plt.tight_layout()
     fig.savefig('results/gd1rel.pdf')
     #plt.show()
@@ -102,4 +106,5 @@ def plot_features(raw=False):
 #plot_msa_eval('eval.csv')
 #plot_num_mutuals_eval('mutuals.csv')
 #plot_features()
+plot_date_histogram2()
 plot_relative_date_histogram()
