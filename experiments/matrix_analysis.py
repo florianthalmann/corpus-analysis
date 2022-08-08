@@ -387,7 +387,7 @@ def test_sigma_measure(results, params, plot_path):
     print('segment matrix rating', rs.mean(), rsmax.mean())
     print(real_best['L'].mean())
 
-def worst_matrices(results, params, name='trc2'):
+def worst_matrices(results, params, name='trc2sSTUDY17'):
     data, bestparams = prepare_and_log_results(results, params, 'SIGMA', name)
     data = data[(data['METHOD'] == 'snf_w10_b20_K3')
         | ((data['SIGMA'] == bestparams[0])
@@ -408,8 +408,26 @@ def worst_matrices(results, params, name='trc2'):
     print(snf['L'].mean(), trc['L'].mean())
     print(snf[snf['SONG'].isin(doubles)]['L'].mean(), trc[trc['SONG'].isin(doubles)]['L'].mean())
     
-    print(diffs.sort_values('DIFF')[:20])
+    print(diffs.sort_values('DIFF')[:25])
+    print(diffs.sort_values('DIFF')['DIFF'][:25].mean())
+    print(diffs.sort_values('DIFF')['SONGS'].values[:25])
     return diffs.sort_values('DIFF')['SONGS'].values
 
+def levels_analysis(results, name='trc2sSTUDY2'):
+    data = read_and_prepare_results(results)
+    data = data[data['METHOD'] == name]
+    data = data.groupby(['SONG','THRESHOLD']).mean().reset_index()[['SONG','THRESHOLD','L']]
+    print(data)
+    data = data.loc[data.groupby('SONG')['L'].idxmax()]
+    print(data)
+
+def compare(results):
+    data = read_and_prepare_results(results)
+    songs = data[data['METHOD'] == 'def']['SONG'].unique()
+    data = data[data['SONG'].isin(songs)]
+    print(len(songs), 'song')
+    print("lsd:", data[data['METHOD'] == 'lsd_l10']['L'].mean())
+    print("snf:", data[data['METHOD'] == 'snf_w10_b20_K3']['L'].mean())
+    print("def:", data[data['METHOD'] == 'def']['L'].mean())
 
 #print(matrix_to_endpoint_vector(np.array([[0,1,0,1],[1,0,1,0],[0,1,0,1],[0,0,1,1]])))
