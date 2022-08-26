@@ -12,14 +12,14 @@ from corpus_analysis import util, features
 from corpus_analysis.stats.util import entropy2, tempo
 from corpus_analysis.stats.histograms import get_onsetpos, get_onset_hists
 
-PATH='results/gdevo/'
+PATH='results/gdevo2/'
 
 def plot_all():
-    # plot_time()
+    #plot_time()
     #plot_patterns()
-    #plot_dynamics()
-    plot_pitch()
-    #plot_spectral()
+    plot_dynamics()
+    plot_tonal()
+    plot_spectral()
     #plot_absolute_relative_comparison()
 
 def plot_time():
@@ -30,8 +30,9 @@ def plot_time():
     beatcounts = [[len(b) for b in bs] for bs in beats]
     beatdurs = [[b[1:]-b[:-1] for b in bs] for bs in beats]
     beatvars = [[np.std(b)/np.mean(b) for b in bs] for bs in beatdurs]
-    plot_lowesses(dates, [tempos, durations, beatvars],
-        ['tempo', 'duration', 'beatvar'], PATH+'*overall.lowess2.time.png')
+    plot_lowesses(dates, [tempos, durations],# beatvars],
+        ['tempo', 'duration'],# 'beat var'],
+        PATH+'overall.lowess2.time.pdf')
 
 def plot_patterns():
     songs = gd.SONGS[:]
@@ -54,10 +55,10 @@ def plot_patterns():
     # chordvars = [[freq_variation(c) for c in cs] for cs in chords]
     # chordents = [[entropy2(c) for c in cs] for cs in chords]
     # plot_lowesses(dates, [chromacount, mfcccount, chordcount],
-    #     ['chroma', 'mfcc', 'chord'], PATH+'*overall.lowess.patterns.png')
+    #     ['chroma', 'mfcc', 'chord'], PATH+'overall.lowess.patterns.pdf')
     print("plotting")
     ax = plot_lowesses(dates, [chromavar, mfccvar, chordvar],
-        ['chroma', 'mfcc', 'chord'])#, PATH+'*overall.lowess2.patternvars.png')
+        ['chroma', 'mfcc', 'chord'])#, PATH+'overall.lowess2.patternvars.pdf')
     ax.legend(loc='upper left')
     
     years = np.concatenate(dates).astype('datetime64[Y]')
@@ -66,7 +67,7 @@ def plot_patterns():
     ax.plot(np.unique(years), lowess(np.unique(years), counts/np.max(counts)),
         label='versions', color='red')
     ax.legend()
-    plot(PATH+'*overall.lowess2.patternvars2.png')
+    plot(PATH+'overall.lowess2.patternvars2.pdf')
 
 def plot_dynamics():
     dates, essentias = get_essentias()
@@ -79,13 +80,17 @@ def plot_dynamics():
     dycomp = get_essentia(essentias, ['lowlevel','dynamic_complexity'])
     dycomp = [db_to_amp(dc) for dc in dycomp]
     
-    plot_lowesses(dates, [loudness, dycomp, lvarcoeff],
-        ['loudness', 'dycomp', 'loudness var'], PATH+'*overall.lowess2.dynamics.png')
+    plot_lowesses(dates, [loudness, dycomp],# lvarcoeff],
+        ['loudness', 'dynamic complexity'],# 'loudness var'],
+        PATH+'overall.lowess2.dynamics.pdf')
 
 def db_to_amp(db):
     return 10**(np.array(db)/20)
 
-def plot_pitch():
+def plot_tonal():
+    songs = gd.SONGS[:]
+    chords, beats, dates, removed = list(zip(*[get_preprocessed(s) for s in songs]))
+    
     print('essentias')
     dates, essentias = get_essentias()
     
@@ -101,16 +106,24 @@ def plot_pitch():
     tuningvar = [[pdf_freq_variation(t) for t in ts] for ts in tuning]
     
     #tuning deviation +/-
-    tuning2 = [[(t[2]-t[0])/np.sum(t) for t in ts] for ts in tuning]
+    #tuning2 = [[(t[2]-t[0])/np.sum(t) for t in ts] for ts in tuning]
+    tuning2 = [[(np.mean(t*np.array([1,2,3]))-2)*10 for t in ts] for ts in tuning]
     
     print('tonal complexity')
     tonalcomp = [util.multiprocess('tc', features.tonal_complexity_cf2, cs) for cs in chroma]
     tonalcomp = [[t**5 for t in ts] for ts in tonalcomp]
     
+    chordvar = [[freq_variation(c) for c in cs] for cs in chords]
+    
     print('lowesses')
     ax = plot_lowesses(dates, [pitchvar, tuningvar, tonalcomp],
-        ['pitch var', 'tuning var', 'tonal comp'], relative=[True, True, True],
-        path=PATH+'*overall.lowess2.pitch.png')
+        ['pitch complexity', 'tuning complexity', 'tonal complexity'],
+        relative=[True, True, True],
+        path=PATH+'overall.lowess2.tonal.pdf')
+    
+    # ax = plot_lowesses(dates, [tuning2],
+    #     ['tuning'], relative=[True],
+    #     path=PATH+'overall.lowess2.pitch.pdf')
     
     # ax.legend(loc='upper left')
     # years = np.concatenate(dates).astype('datetime64[Y]')
@@ -119,7 +132,7 @@ def plot_pitch():
     # ax.plot(np.unique(years), lowess(np.unique(years), counts/np.max(counts)),
     #     label='versions', color='green')
     # ax.legend()
-    # plot(PATH+'*overall.lowess2.pitch-abs.png')
+    # plot(PATH+'overall.lowess2.pitch-abs.pdf')
 
 def plot_spectral():
     dates, essentias = get_essentias()
@@ -139,9 +152,9 @@ def plot_spectral():
     
     # speccompvars, rspeccompvars = get_essentia_relative_varcoeffs(pdates, essentias,
     #     ['lowlevel','spectral_complexity'])[1:]
-    plot_lowesses(dates, [complexity, centroid, entropy, dissonance, evarcoeff],
-        ['complexity', 'centroid', 'entropy', 'dissonance', 'entropy var'],
-        PATH+'*overall.lowess2.spectral.png')
+    plot_lowesses(dates, [complexity, entropy, dissonance],# evarcoeff],
+        ['spectral complexity', 'spectral entropy', 'dissonance'],# 'entropy var'],
+        PATH+'overall.lowess2.spectral.pdf')
 
 def freq_to_linear(freq):
     return np.log2(freq)
@@ -159,9 +172,9 @@ def plot_absolute_relative_comparison():
     # pitchvar = [[pdf_freq_variation(c) for c in cs] for cs in chroma]
     # chordvar = [[freq_variation(c) for c in cs] for cs in chords]
     
-    plot_lowesses(dates, [tempos, tempos, durations, durations],
-        ['tempo rel', 'tempo abs', 'duration rel', 'duration abs'],
-        PATH+'*overall.lowess2.absrel.png', [True, False, True, False])
+    plot_lowesses(dates, [tempos, tempos],# durations, durations],
+        ['tempo relative', 'tempo absolute'],# 'duration rel', 'duration abs'],
+        PATH+'overall.lowess2.absrel.pdf', [True, False])#, True, False])
 
 def get_essentias():
     songs = gd.SONGS[:]
@@ -242,7 +255,7 @@ def plot_tempo_combi():
     pchords, pbeats, pdates, removed = list(zip(*[get_preprocessed(s) for s in songs]))
     
     ptempos = [tempo(b) for b in pbeats]
-    # plot_with_relative(pdates, tempos, '*overall_tempo')
+    # plot_with_relative(pdates, tempos, 'overall_tempo')
     dates, tempos, rtempos = merge_with_relative(pdates, ptempos)[:]
     
     for i in range(len(songs)):
@@ -252,25 +265,27 @@ def plot_tempo_combi():
     # plt.plot(dates, util.running_mean(rtempos, 300), linewidth=2, label='rel tempo')
     #plt.plot(dates, util.running_mean(tempos, 300), linewidth=2, label='abs tempo')
     #plt.plot(dates, util.running_mean(rtempos, 300)*np.mean(tempos), linewidth=2, label='rel tempo')
-    plt.legend()
-    plot(PATH+'*overall.tempo.png')
+    #plt.legend()
+    plt.legend(loc='upper center', bbox_to_anchor=(0.445, 1.13), ncol=5, prop={'size': 5.7}) #bbox_to_anchor=(0.5, -0.05),
+    #plt.legend(loc='center left', bbox_to_anchor=(1, 0.5), prop={'size': 6})
+    plot(PATH+'overall.tempo2.pdf')
 
 def plot_overall_evolution():
     # #original
     # versions, dates = list(zip(*[gd.get_versions_by_date(s) for s in gd.SONGS]))
     # beats = [gd.get_beats(s) for s in gd.SONGS]
     # dates, versions, beats = combine_songs(dates, versions, beats)
-    # plot_with_mean(PATH+'*overall_tempo.png', dates, tempo(beats))
+    # plot_with_mean(PATH+'overall_tempo.pdf', dates, tempo(beats))
     songs = gd.SONGS
     #preprocessed
     pchords, pbeats, pdates, removed = list(zip(*[get_preprocessed(s) for s in songs]))
     
     tempos = [tempo(b) for b in pbeats]
-    # plot_with_relative(pdates, tempos, '*overall_tempo')
+    # plot_with_relative(pdates, tempos, 'overall_tempo')
     dates, tempos, rtempos = merge_with_relative(pdates, tempos)[:]
     
     durations = [[b[-1]-b[0] for b in bs] for bs in pbeats]
-    # plot_with_relative(pdates, durations, '*overall_duration')
+    # plot_with_relative(pdates, durations, 'overall_duration')
     durations, rdurations = merge_with_relative(pdates, durations)[1:]
     
     beatcounts = [[len(b) for b in bs] for bs in pbeats]
@@ -282,15 +297,15 @@ def plot_overall_evolution():
     rbeatvars2 = beatvars/np.mean(beatvars)
     
     chordcounts = [[len(np.unique(c)) for c in cs] for cs in pchords]
-    # plot_with_relative(pdates, chordcounts, '*overall_chordcount')
+    # plot_with_relative(pdates, chordcounts, 'overall_chordcount')
     chordcounts, rchordcounts = merge_with_relative(pdates, chordcounts)[1:]
     
     chordvars = [[freq_variation(c) for c in cs] for cs in pchords]
-    # plot_with_relative(pdates, chordvars, '*overall_chordvar')
+    # plot_with_relative(pdates, chordvars, 'overall_chordvar')
     chordvars, rchordvars = merge_with_relative(pdates, chordvars)[1:]
     
     chordents = [[entropy2(c) for c in cs] for cs in pchords]
-    # plot_with_relative(pdates, chordents, '*overall_chordent')
+    # plot_with_relative(pdates, chordents, 'overall_chordent')
     chordents, rchordents = merge_with_relative(pdates, chordents)[1:]
     
     #essentia stuff
@@ -345,13 +360,13 @@ def plot_overall_evolution():
     plt.plot(dates, util.running_mean(rtuningvars, window), label='tuning vars')
     plt.plot(dates, util.running_mean(rtuning2, window), label='rel tuning')
     plt.legend()
-    plot(PATH+'*overall.tonal.png')
+    plot(PATH+'overall.tonal.pdf')
     
     plt.plot(dates, util.running_mean(rloudnesses, window), label='loudness')
     plt.plot(dates, util.running_mean(rloudvars, window), label='loudness var')
     plt.plot(dates, util.running_mean(rdycomps, window), label='dynamic complexity')
     plt.legend()
-    plot(PATH+'*overall.dynamics.png')
+    plot(PATH+'overall.dynamics.pdf')
     
     plt.plot(dates, util.running_mean(rspeccomps, window), label='spec complexity')
     plt.plot(dates, util.running_mean(rspeccompvars, window), label='spec complexity var')
@@ -359,7 +374,7 @@ def plot_overall_evolution():
     plt.plot(dates, util.running_mean(rspecent, window), label='spec entropy')
     plt.plot(dates, util.running_mean(rdissonances, window), label='dissonance')
     plt.legend()
-    plot(PATH+'*overall.spectral.png')
+    plot(PATH+'overall.spectral.pdf')
     
     plt.plot(dates, util.running_mean(rtempos, window), label='tempos')
     plt.plot(dates, util.running_mean(rdurations, window), label='durations')
@@ -369,14 +384,14 @@ def plot_overall_evolution():
     plt.plot(dates, util.running_mean(rbeatvars, window), label='beat vars')
     #plt.plot(dates, util.running_mean(rbeatvars2, window), label='beat vars 2')
     plt.legend()
-    plot(PATH+'*overall.time.png')
+    plot(PATH+'overall.time.pdf')
     
-    #plot_essentias(PATH+'*overall', pdates, essentias, 100)
+    #plot_essentias(PATH+'overall', pdates, essentias, 100)
 
 def plot_with_relative(dates, features, filename):
     dates, features, relative = overall_with_relative(dates, features)
-    plot_with_mean(PATH+filename+'.png', dates, features, 100)
-    plot_with_mean(PATH+filename+'_rel.png', dates, relative, 100)
+    plot_with_mean(PATH+filename+'.pdf', dates, features, 100)
+    plot_with_mean(PATH+filename+'_rel.pdf', dates, relative, 100)
 
 def get_essentia(essentias, keys):
     return [[dict_value(e, keys) for e in es] for es in essentias]
@@ -407,27 +422,27 @@ def plot_evolution(song):
     # oversions, odates = gd.get_versions_by_date(song)
     # obeats = gd.get_beats(song)
     chords, beats, dates, removed = get_preprocessed(song)
-    # plot_with_mean(PATH+song+'_tempo.png', dates, tempo(beats))
+    # plot_with_mean(PATH+song+'_tempo.pdf', dates, tempo(beats))
     # durations = [b[-1]-b[0] for b in beats]
-    # plot_with_mean(PATH+song+'_duration.png', dates, durations)
-    # plot_with_mean(PATH+song+'_beats.png', dates, [len(b) for b in beats])
+    # plot_with_mean(PATH+song+'_duration.pdf', dates, durations)
+    # plot_with_mean(PATH+song+'_beats.pdf', dates, [len(b) for b in beats])
     
     # #tempo comparison
     # plt.plot(dates, util.running_mean(tempo(beats), 10))
     # plt.plot(pdates, util.running_mean(tempo(pbeats), 10))
     # plot(PATH+song+'_tempocomp')
     
-    # plot_with_mean(PATH+song+'_chordvacos.png', dates,
+    # plot_with_mean(PATH+song+'_chordvacos.pdf', dates,
     #     [freq_variation(c) for c in chords])
-    # plot_with_mean(PATH+song+'_chordents.png', dates,
+    # plot_with_mean(PATH+song+'_chordents.pdf', dates,
     #     [entropy2(c) for c in chords])
     
     essentias = [e for i,e in enumerate(gd.get_essentias(song)) if i not in removed]
     
-    # plot_essentia_hist(essentias, ['tonal','hpcp','mean'], PATH+song+'_hpcp.png')
-    # plot_essentia_hist(essentias, ['lowlevel','melbands','mean'], PATH+song+'_melbands.png')
-    # plot_essentia_hist(essentias, ['lowlevel','mfcc','mean'], PATH+song+'_mfcc.png')
-    # plot_essentia_hist(essentias, ['tonal','chords_histogram'], PATH+song+'_chordhists.png')
+    # plot_essentia_hist(essentias, ['tonal','hpcp','mean'], PATH+song+'_hpcp.pdf')
+    # plot_essentia_hist(essentias, ['lowlevel','melbands','mean'], PATH+song+'_melbands.pdf')
+    # plot_essentia_hist(essentias, ['lowlevel','mfcc','mean'], PATH+song+'_mfcc.pdf')
+    # plot_essentia_hist(essentias, ['tonal','chords_histogram'], PATH+song+'_chordhists.pdf')
     
     #onsets = [np.array(e['rhythm']['onset_times']) for e in essentias]
     
@@ -437,10 +452,10 @@ def plot_evolution(song):
     plot_onsethistrealpeaks(song, onsets, beats)
     
     # onset_durs = [(o[1:]-o[:-1]) for i,o in enumerate(onsets)]
-    # plot_with_mean(PATH+song+'_onsetvacos.png', dates,
+    # plot_with_mean(PATH+song+'_onsetvacos.pdf', dates,
     #     [np.std(o)/np.mean(o) for o in onset_durs])
     # beat_durs = [(b[1:]-b[:-1]) for i,b in enumerate(beats)]
-    # plot_with_mean(PATH+song+'_beatvacos.png', dates,
+    # plot_with_mean(PATH+song+'_beatvacos.pdf', dates,
     #     [np.std(b)/np.mean(b) for b in beat_durs])
     
     
@@ -448,7 +463,7 @@ def plot_evolution(song):
 
 def plot_onsethists(song, onsets, beats):
     hists = get_onset_hists(onsets,beats)
-    util.plot_matrix(np.rot90(hists), PATH+song+'_onsethists3.png')
+    util.plot_matrix(np.rot90(hists), PATH+song+'_onsethists3.pdf')
 
 def plot_onsethistpeaks(song, onsets, beats):
     hists = get_onset_hists(onsets,beats)
@@ -458,7 +473,7 @@ def plot_onsethistpeaks(song, onsets, beats):
     matrix = np.zeros((len(hists), len(hists[0])))
     for i,p in enumerate(peaks):
         matrix[i,p] = 1
-    util.plot_matrix(np.rot90(matrix), PATH+song+'_onsethists4.png')
+    util.plot_matrix(np.rot90(matrix), PATH+song+'_onsethists4.pdf')
 
 def plot_onsethistrealpeaks(song, onsets, beats, resolution=1000):
     onsetpos = [get_onsetpos(o,b) for o,b in zip(onsets,beats)]
@@ -471,7 +486,7 @@ def plot_onsethistrealpeaks(song, onsets, beats, resolution=1000):
     matrix = np.zeros((len(onsetpos), resolution))
     for i,p in enumerate(peaks):
         matrix[i,p] = 1
-    util.plot_matrix(np.rot90(matrix), PATH+song+'_onsetsreal2.png')
+    util.plot_matrix(np.rot90(matrix), PATH+song+'_onsetsreal2.pdf')
 
 def plot_essentia_hist(essentias, keys, path):
     util.plot_matrix(np.rot90(get_essentia_hists(essentias, keys)), path)
@@ -484,19 +499,19 @@ def dict_value(dict, keys):
 
 def plot_essentias(path, dates, essentias, window):
     ess = [e['lowlevel']['dynamic_complexity'] for e in essentias]
-    plot_with_mean(path+'_dycomp.png', dates, ess, window)
+    plot_with_mean(path+'_dycomp.pdf', dates, ess, window)
     
     ess = [e['lowlevel']['spectral_complexity']['mean'] for e in essentias]
-    plot_with_mean(path+'_speccomp.png', dates, ess, window)
+    plot_with_mean(path+'_speccomp.pdf', dates, ess, window)
     
     ess = [e['lowlevel']['spectral_entropy']['mean'] for e in essentias]
-    plot_with_mean(path+'_specent.png', dates, ess, window)
+    plot_with_mean(path+'_specent.pdf', dates, ess, window)
     
     ess = [e['lowlevel']['spectral_flux']['mean'] for e in essentias]
-    plot_with_mean(path+'_speccomp.png', dates, ess, window)
+    plot_with_mean(path+'_speccomp.pdf', dates, ess, window)
     
     ess = [e['tonal']['chords_changes_rate'] for e in essentias]
-    plot_with_mean(path+'_chordcha.png', dates, ess, window)
+    plot_with_mean(path+'_chordcha.pdf', dates, ess, window)
 
 def get_preprocessed(song):
     chords, beats = main.get_preprocessed_seqs(song)
@@ -530,6 +545,8 @@ def freq_pdf(feature):
     return hist/np.sum(hist)
 
 def plot(path=None):
+    plt.xlabel('time')
+    plt.ylabel('relative deviation')
     plt.tight_layout()
     plt.savefig(path, dpi=1000) if path else plt.show()
     plt.close()
