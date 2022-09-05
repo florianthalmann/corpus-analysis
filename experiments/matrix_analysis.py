@@ -398,10 +398,7 @@ def worst_matrices(results, params, name='trc2sSTUDY17'):
         - data[data['METHOD'] == 'snf_w10_b20_K3']['L'].values
     diffs = pd.DataFrame(zip(songs, diffs), columns=['SONGS', 'DIFF'])
     
-    doubles = results.read()
-    doubles = doubles[doubles['METHOD'] == 'snf_w10_b20_K3']['SONG'].values
-    doubles, counts = np.unique(doubles, return_counts=True)
-    doubles = np.array([d for d,c in zip(doubles, counts) if c > 1])
+    doubles = get_songs_with_two_annos(results)
     
     snf = data[data['METHOD'] == 'snf_w10_b20_K3']
     trc = data[data['METHOD'] == name]
@@ -421,13 +418,27 @@ def levels_analysis(results, name='trc2sSTUDY2'):
     data = data.loc[data.groupby('SONG')['L'].idxmax()]
     print(data)
 
+def get_songs_with_two_annos(results):
+    data = results.read()
+    songs = data[data['METHOD'] == 'snf_w10_b20_K3']['SONG'].values
+    songs, counts = np.unique(songs, return_counts=True)
+    return np.array([d for d,c in zip(songs, counts) if c > 1])
+
 def compare(results):
     data = read_and_prepare_results(results)
     songs = data[data['METHOD'] == 'def']['SONG'].unique()
+    #songs = get_songs_with_two_annos(results)
     data = data[data['SONG'].isin(songs)]
     print(len(songs), 'song')
     print("lsd:", data[data['METHOD'] == 'lsd_l10']['L'].mean())
     print("snf:", data[data['METHOD'] == 'snf_w10_b20_K3']['L'].mean())
     print("def:", data[data['METHOD'] == 'def']['L'].mean())
+    print("own:", data[data['METHOD'] == 'trc2sMADMOMALL1000']['L'].mean())
+
+def log(results):
+    data = read_and_prepare_results(results)
+    methods = data['METHOD'].unique()
+    for m in methods:
+        print(m, len(data[data['METHOD'] == m]), data[data['METHOD'] == m]['L'].mean())
 
 #print(matrix_to_endpoint_vector(np.array([[0,1,0,1],[1,0,1,0],[0,1,0,1],[0,0,1,1]])))

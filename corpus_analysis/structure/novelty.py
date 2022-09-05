@@ -14,10 +14,22 @@ def binary_boundaries(matrix):
     maxes = [np.max(lastnonzeros[:i+1]) for i in range(len(lastnonzeros))]
     zeroafters = np.arange(len(matrix))-maxes == 0
     zeroafterbeforetoos = np.arange(len(matrix))-lastnonzeros == 0
-    boundaries = np.nonzero(zeroafters & zeroafterbeforetoos)[0]
+    boundaries = prune_boundaries(np.nonzero(zeroafters & zeroafterbeforetoos)[0])+1
+    return boundaries[boundaries < len(matrix)]
+
+def discontinuity_boundaries(matrix):
+    matrix = np.triu(matrix, k=1)
+    indices = [np.nonzero(m)[0] for m in matrix]
+    disconts = [len(np.intersect1d(indices[i-1]+1, indices[i])) == 0
+        for i in range(1, len(indices))]
+    boundaries = np.nonzero(disconts)[0]+1
+    return prune_boundaries(boundaries)+1
+
+#takes last of every adjacent group, and first of the last group
+def prune_boundaries(boundaries):
     bgroups = group_adjacent(boundaries)
     return np.array([bg[-1] if i < len(bgroups)-1 else bg[0]
-        for i,bg in enumerate(bgroups)])+1
+        for i,bg in enumerate(bgroups)])
 
 def peak_picking_MSAF(x, median_len=16, offset_rel=0.05, sigma=4.0):
     """Peak picking strategy following MSFA using an adaptive threshold (https://github.com/urinieto/msaf)
@@ -104,4 +116,5 @@ def compute_kernel_checkerboard_gaussian(L, var=1, normalize=True):
         kernel = kernel / np.sum(np.abs(kernel))
     return kernel
 
-#print(binary_boundaries(np.array([[1,0,0,0],[1,1,0,0],[0,0,1,1],[0,0,1,1]])))
+# print(binary_boundaries(np.array([[1,0,0,0],[1,1,0,0],[0,0,1,1],[0,0,1,1]])))
+# print(discontinuity_boundaries(np.array([[1,0,1,1],[1,1,0,0],[0,0,1,1],[0,0,1,0]])))
