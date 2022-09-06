@@ -9,7 +9,7 @@ from .patterns import Pattern, segments_to_patterns, patterns_to_segments
 from .sections import segments_to_sections, remove_contained, merge_overlapping
 from .graphs import graph_from_matrix, segments_to_matrix, matrix_to_segments,\
     adjacency_matrix
-from .lexis import lexis_sections
+from .lexis import lexis_sections, replace
 from ..alignment.affinity import segments_to_matrix, smooth_matrix, to_diagonals,\
     smooth_matrix_padded
 from ..util import argmax, ordered_unique, plot_matrix, group_adjacent,\
@@ -115,18 +115,28 @@ def get_noise_factor(segments, target, size):
 def diamond(r):
     return np.add.outer(*[np.r_[:r,r:-1:-1]]*2)>=r
 
-def transitive_construction_new(target, min_dist=4, min_len=4, beam_size=300):
-    threshold = 0
-    min_dist, min_len = 4, round(0.02*len(target))
-    maxcompsize = round(len(target)/min_dist/4)
-    print(min_dist, min_len, maxcompsize)
+def transitive_construction_new(target, min_dist=4, min_len=4, csf=3, rprop=0.6, sfac=1, nbexp=1, id=0, verbose=False):
+    MIN_COV = .3#0.2#nbexp
+    #nbexp = 1
+    #min_dist, min_len = 4, round(0.02*len(target))
+    if verbose: plot_matrix(np.where(target > np.mean(target), target, 0), 'salami/all31/'+str(id)+'-tc-new-0-.png')
+    maxcompsize = round(len(target)/min_dist/csf)#/csf)
+    print(min_dist, min_len, csf, rprop, sfac, nbexp, maxcompsize)
     #beam_size = int(.2*target.shape[0]**2)
+    beam_size = int(math.ceil(target.shape[0]/rprop))#300#csf
+    max_beam_size = beam_size#int(round(target.shape[0]*sfac))#300#csf
+    rprop = 1
     #print(beam_size)
-    smooth = smooth_matrix_padded(target, min_len, func=mean_filter)
-    target *= smooth
+    sfactor = round(min_len*sfac)
+    if sfactor > 1:
+        smooth = smooth_matrix_padded(target, sfactor, func=mean_filter)
+        target *= smooth#**2
+    threshold = 0#np.percentile(target, 10)
     mean = np.mean(target)#np.percentile(target, 85)#np.mean(target)
     neighbor_mask = np.logical_and(diamond(min_dist-1), 1-np.eye(min_dist*2-1))
     neighbors = np.vstack(np.nonzero(neighbor_mask)).T-min_dist+1
+    num_regions = 20
+    regions = np.around(np.arange(len(target)) / len(target) * num_regions)
     #np.fill_diagonal(target, 0)#ignore ratings of diagonal
     trans = np.eye(target.shape[0])
     remaining = np.triu(np.where(target > threshold, target, 0), min_dist)
@@ -134,31 +144,51 @@ def transitive_construction_new(target, min_dist=4, min_len=4, beam_size=300):
     upper = np.triu(np.ones(target.shape))
     candidates = n_largest_above(remaining-checked, beam_size, 0)
     iter = 0
-    lastpruned = None
+    ignore = False
+    prune = True
+    previouspruned = []
     while len(candidates) > 0:
         ratings = []
         sratings = []
         comps = quick_components(trans)
-        compsizes = np.bincount(comps)
+        complocs = indices_of_unique(comps)
+        compsizes = [len(l) for l in complocs.values()]#np.bincount(comps)
         nbprop = diag_neigh_prop(trans)
         tpoints = target[np.nonzero(trans)]
         overallmean = np.mean(tpoints)
+        seglens = np.array([len(s) for s in matrix_to_segments(trans)])
+        meanseglen = np.mean(seglens)
+        numsegs = len(seglens)
+        #meancands = np.mean(target[tuple(candidates.T)])
         
         for i in candidates:
             #calculate closure of current addition
-            closure = quick_closure(trans, i)
-            newpoints = np.vstack(closure).T[np.where((trans[closure] == 0)
-                & (upper[closure] == 1))[0]]
-            allnewpoints = np.vstack(closure).T[np.where(trans[closure] == 0)[0]]
+            #print(i, len(comps), len(target), len(complocs), [comps[ii] for ii in i])
+            locs = [complocs[comps[ii]] for ii in i]
+            #print(locs)
+            newcomp = np.hstack(locs)
+            #print(newcomp)
+            newpoints = cartesian(locs)
+            newpoints.sort(axis=1)
+            allnewpoints = np.concatenate((newpoints, np.flip(newpoints)))
             #only valid if all new points still in remaining
-            nznew = len(np.nonzero(remaining[tuple(newpoints.T)])[0])
+            allstillremaining = len(np.nonzero(remaining[tuple(newpoints.T)])[0]) == len(newpoints)
+            #print(len(np.nonzero(remaining[tuple(newpoints.T)])[0]), len(newpoints), allstillremaining)
+            #nznew = len(np.nonzero(remaining[tuple(newpoints.T)])[0])
             newmean = np.mean(target[tuple(allnewpoints.T)])
+            #print(newmean)
             
-            ltp, lnp = len(tpoints), len(allnewpoints)
+            ltp, lnp = len(tpoints), len(newpoints)*2
             newoverallmean = ((ltp*overallmean)+(lnp*newmean))/(ltp+lnp)
+            #print(newoverallmean)
             
-            newcompsize = np.sum(compsizes[comps[i]])
-            isolated = num_isolated(trans, newpoints)
+            #isolated = num_isolated(trans, newpoints)
+            #only allow isolated points for entirely new components (considering preexisting diagonal)
+            #valid = isolated == 0 or isolated >= len(allnewpoints)-3
+            #valid = isolated == 0 or compsizes[comps[i[0]]] == 1 or compsizes[comps[i[1]]] == 1
+            
+            valid = len(np.unique(regions[newcomp])) <= num_regions*rprop#covers at most half the piece
+            #print(valid)
             
             # cs = comps[i]
             # cs = np.min(cs), np.max(cs)
@@ -166,7 +196,7 @@ def transitive_construction_new(target, min_dist=4, min_len=4, beam_size=300):
             # newcompsizes = np.delete(compsizes, cs[1])
             # newcompsizes[cs[0]] += prevsize
             
-            if isolated <= 5 and maxcompsize > len(newpoints) > 0 and nznew == len(newpoints) and newcompsize <= maxcompsize:# and newmean >= mean:
+            if valid and allstillremaining and len(newcomp) <= maxcompsize:# and newmean >= mean:
                 # newtrans = trans.copy()
                 # newtrans[closure] = 1
                 # # pad = math.ceil(min_dist/2)
@@ -176,27 +206,36 @@ def transitive_construction_new(target, min_dist=4, min_len=4, beam_size=300):
                 # ratings.append(np.mean(r[r > 0]))
                 #ratings.append(newmean)
                 #sratings.append(np.mean(smooth[tuple(newpoints.T)]))
-                #seglens = np.array([len(s) for s in matrix_to_segments(trans)])
+                # seglens = np.array([len(s) for s in matrix_to_segments(newtrans)])
                 
                 #closure rating
-                c = np.unique(closure[0])
-                preds = comps[c[np.where(c > 0)] - 1]
-                succs = comps[c[np.where(c < len(trans)-1)] + 1]
-                variety = lambda a: len(np.unique(a))/len(a)
-                clr = (1/variety(preds)/variety(succs))**0.1
+                # c = np.unique(closure[0])
+                # preds = comps[c[np.where(c > 0)] - 1]
+                # succs = comps[c[np.where(c < len(trans)-1)] + 1]
+                # variety = lambda a: len(np.unique(a))/len(a)
+                # clr = (1/variety(preds)/variety(succs))**0.1
                 
                 newnbprop = diag_neigh_prop(trans, newpoints)
+                newnumsegs = numsegs+((1-newnbprop)*len(newpoints))
                 #newnbprop = 1 + ((ltp*nbprop)+(lnp*newnbprop))/(ltp+lnp)
-                newnbprop = (1+newnbprop)**0.5
+                #print(newnbprop, (1+newnbprop)**2, newoverallmean, newoverallmean*(1+newnbprop)**2)
+                newnbprop = (1+newnbprop)**(10**-nbexp)#(1+(10**(0-nbexp))*newnbprop)**1#(0.00001+newnbprop)**1
                 
-                newpointratio = (1+len(newpoints)/len(tpoints))**0.5
+                #newpointratio = (1+len(newpoints)/len(tpoints))**1
                 
-                r = newoverallmean*newnbprop*newpointratio#*np.mean(smooth[tuple(newpoints.T)])#/len(newpoints)#*clr#*np.mean(seglens)
+                newmeanseglen = ((meanseglen*numsegs)+len(newpoints))/newnumsegs
+                newmeanseglen = newmeanseglen**(10**-nbexp)#1 + (10**(0-nbexp))*newmeanseglen
+                
+                #r = newoverallmean*newnbprop#*newnbprop#*newpointratio#*math.log(len(newpoints)+1)#*newpointratio#*np.mean(smooth[tuple(newpoints.T)])#/len(newpoints)#*clr#*np.mean(seglens)
+                r = newoverallmean*newnbprop#*newmeanseglen#*newnbprop
+                #r = newmean
+                
                 #print(newnbprop, newmean, r)
                 ratings.append(r)
                 #sratings.append(r)
             else:
                 ratings.append(0)
+                #remaining[tuple(newpoints.T)] = 0
             # if len(newpoints) == 0 or nznew < len(newpoints):
             #     checked[tuple(i)] = remaining[tuple(i)]#never a candidate again... (except if pruned)
                 #sratings.append(0)
@@ -208,42 +247,64 @@ def transitive_construction_new(target, min_dist=4, min_len=4, beam_size=300):
         if ratings[am] == 0:
             if beam_size >= len(np.nonzero(remaining-checked)[0]):
                 break
-            #beam_size *= 2
-            print('RATINGS ZERO: PRUNE', beam_size, len(np.where(remaining-checked > 0)[0]), len(np.nonzero(checked)[0]))
-            ignore = False
-            prune = False
+            if not ignore and not prune:
+                break#beam_size *= 2
+            #beam_size = min(beam_size*2, target.shape[0]*2)
             #ignore current candidates
             if ignore:
+                print('RATINGS ZERO: IGNORE')
                 checked[tuple(candidates.T)] = remaining[tuple(candidates.T)]
             #prune short segs
             if prune:
-                pruned = prune_transmatrix(trans, min_len)
-                if lastpruned is not None and np.array_equal(lastpruned, pruned):
-                    break
+                print('RATINGS ZERO: PRUNE', beam_size, min_len, len(np.where(remaining-checked > 0)[0]), len(np.nonzero(checked)[0]))
+                if verbose: plot_matrix(trans, 'salami/all31/'+str(id)+'-tc-new--'+str(iter)+'p0.png')
+                #pruned = prune_transmatrix2(trans, target)
+                #pruned = prune_transmatrix3(trans)
+                pruned, min_len = prune_transmatrix(trans, min_len)
+                #pruned = prune_rows_with_isolated(pruned)
+                if verbose: plot_matrix(pruned, 'salami/all31/'+str(id)+'-tc-new--'+str(iter)+'p1.png')
+                if len(previouspruned) > 0 and np.any([np.array_equal(p, pruned) for p in previouspruned]):
+                    # if ignore == True:
+                    #     break
+                    # ignore = True#break
+                    coverage = len(np.nonzero(np.sum(pruned, axis=0)-1)[0])/len(pruned)
+                    # if beam_size < max_beam_size:
+                    #     beam_size *= min(beam_size*2, max_beam_size)
+                    if coverage < MIN_COV or beam_size < max_beam_size:
+                        print(coverage, coverage < MIN_COV, 'increasing BEAM SIZE', beam_size*2)
+                    #     if ignore == True:
+                        beam_size *= 2 #min(beam_size*2, max_beam_size)
+                    #         ignore = False
+                    #     else:
+                    #         ignore = True
+                    else:
+                        break
+                else:
+                    ignore = False #made progress
                 trans = pruned.copy()
-                lastpruned = pruned
+                previouspruned.append(pruned)
                 #reset remaining
                 remaining = np.triu(np.where(target > threshold, target, 0), min_dist)
                 checked = np.zeros(target.shape)
                 nz = np.vstack(np.nonzero(trans)).T
                 update_remaining(remaining, nz, neighbors)
-            if not ignore and not prune:
-                break
         else:
             best = candidates[am]
-            closure = quick_closure(trans, best)
-            newpoints = np.vstack(closure).T[np.where(trans[closure] == 0)[0]]
-            print(len(np.where(remaining-checked > 0)[0]), len(np.nonzero(checked)[0]), best, am, ratings[am], len(closure[0]), len(newpoints), len(np.unique(comps)), np.max(compsizes))#, entropy(compsizes))
+            newpoints = cartesian([complocs[comps[ii]] for ii in best])
+            newpoints = np.concatenate((newpoints, np.flip(newpoints)))
+            if verbose: print(iter, np.mean(target[np.nonzero(trans)]), np.median(target[np.nonzero(trans)]), np.mean(target[tuple(newpoints.T)]), len(np.nonzero(checked)[0]), best, am, ratings[am], len(newpoints), len(np.unique(comps)), np.max(compsizes), len(np.nonzero(np.sum(trans, axis=0)-1)[0])/len(trans))#, entropy(compsizes))
             update_remaining(remaining, newpoints, neighbors)
-            trans[closure] = 1#target[closure].copy()
+            trans[tuple(newpoints.T)] = 1#target[closure].copy()
             
-        if iter % 10 == 0:
-            plot_matrix(trans, 'salami/all28worst/1208-tc-new-'+str(iter)+'..png')
-            #plot_matrix(remaining, 'salami/all28worst/111-tc-new-'+str(iter)+'..png')
+        # if verbose and iter % 10 == 0 and ratings[am] != 0:# or 540 <= iter <= 550:
+        #     plot_matrix(trans, 'salami/all31/'+str(id)+'-tc-new-'+str(iter)+'.png')
+        #     plot_matrix(remaining, 'salami/all31/'+str(id)+'-tc-new--'+str(iter)+'.png')
         candidates = n_largest_above(remaining-checked, beam_size, 0)
         iter += 1
-    trans = prune_transmatrix(trans, min_len)
-    plot_matrix(trans, 'salami/all28worst/1210-tc-new.png')
+    #trans = prune_transmatrix2(trans, target)
+    trans, _ = prune_transmatrix(trans, min_len)
+    
+    #plot_matrix(trans, 'salami/all28worst/1210-tc-new.png')
     return trans
 
 #set neighborhoods around points to 0
@@ -254,8 +315,99 @@ def update_remaining(remaining, points, neighbors):
     remaining[tuple(n.T)] = 0
 
 def prune_transmatrix(matrix, minseglen):
-    lsegs = [s for s in matrix_to_segments(matrix) if len(s) >= minseglen]
-    return add_transitivity_to_matrix(segments_to_matrix(lsegs, matrix.shape))
+    segs = matrix_to_segments(matrix)
+    lsegs = [s for s in segs if len(s) >= minseglen]
+    if len(lsegs) <= 3 and minseglen > 1 and len(np.nonzero(matrix)[0]) > len(matrix): #diagonal is a seg too.. (<=3 one seg)
+        return prune_transmatrix(matrix, minseglen/2)
+    return add_transitivity_to_matrix(segments_to_matrix(lsegs, matrix.shape)), minseglen
+
+#iteratively prunes components that contain isolated points
+def prune_transmatrix2(matrix, target):
+    previous = matrix
+    pruned = prune_comps_with_isolated2(matrix, target)
+    while not np.array_equal(pruned, previous):
+        previous = pruned
+        pruned = prune_comps_with_isolated2(pruned, target)
+    return add_transitivity_to_matrix(pruned)
+
+#iteratively prunes rows and columns that contain isolated points
+def prune_transmatrix3(matrix):
+    previous = matrix
+    pruned = prune_row_with_most_isolated(matrix)
+    while not np.array_equal(pruned, previous):
+        previous = pruned
+        pruned = prune_row_with_most_isolated(pruned)
+    return pruned
+
+def prune_comps_with_isolated(matrix):
+    comps = quick_components(matrix)
+    locs = indices_of_unique(comps).values()
+    isolated = [contains_isolated(matrix, l) for l in locs]
+    isolated = [locs[i] for i in np.nonzero(isolated)[0]]
+    if len(isolated) > 0:
+        isolated = np.hstack(isolated)
+        pruned = matrix.copy()
+        pruned[isolated] = 0
+        pruned[:,isolated] = 0
+        return np.logical_or(pruned, np.eye(len(matrix))).astype(int)
+    return matrix
+
+def prune_comps_with_isolated2(matrix, target):
+    pruned = matrix.copy()
+    comps = quick_components(matrix)
+    locs = indices_of_unique(comps)
+    for i,(c,l) in enumerate(locs.items()):
+        closure = cartesian((l, l))
+        preds = nonzero_predecessor(matrix, closure)
+        succs = nonzero_successor(matrix, closure)
+        isolated = np.logical_not(np.logical_or(preds, succs))
+        nopreds = np.where((1-preds)-isolated > 0)[0]
+        nosuccs = np.where((1-succs)-isolated > 0)[0]
+        if len(np.nonzero(isolated)[0]) > min(len(nopreds), len(nosuccs)):
+            mean_nopreds = np.mean(target[tuple(closure[nopreds].T)])
+            mean_nosuccs = np.mean(target[tuple(closure[nosuccs].T)])
+            # predlen, succlen = len(np.nonzero(preds)[0]), len(np.nonzero(succs)[0])
+            # print(len(closure), predlen, succlen, len(np.nonzero(isolated)[0]),
+            #     len(nopreds), len(nosuccs), mean_nopreds, mean_nosuccs)
+            reset = nosuccs if len(nopreds) >= len(nosuccs) else nopreds
+            #reset = nosuccs if mean_nopreds >= mean_nosuccs else nopreds
+            #print(len(reset))
+            reset = np.concatenate((reset, np.nonzero(isolated)[0]))
+            #print(len(reset))
+            #print(reset)
+            pruned[tuple(closure[reset].T)] = 0
+            #print(pruned)
+            #plot_matrix(pruned, 'salami/all28worst/367-tc-new-'+str(len(comps))+'p0.'+str(i)+'.png')
+    return np.logical_or(pruned, np.eye(len(matrix))).astype(int)
+
+def prune_rows_with_isolated(matrix):
+    rows = [np.nonzero(r)[0] for r in matrix]
+    locs = [np.vstack((np.repeat(i, len(r)), r)).T for i,r in enumerate(rows)]
+    isolated = np.nonzero([num_isolated(matrix, l) > 0 for l in locs])[0]
+    pruned = matrix.copy()
+    pruned[isolated] = 0
+    pruned[:,isolated] = 0
+    return np.logical_or(pruned, np.eye(len(matrix))).astype(int)
+
+def prune_row_with_most_isolated(matrix):
+    rows = [np.nonzero(r)[0] for r in matrix]
+    locs = [np.vstack((np.repeat(i, len(r)), r)).T for i,r in enumerate(rows)]
+    isolated = np.argmax([num_isolated(matrix, l) > 0 for l in locs])
+    pruned = matrix.copy()
+    pruned[isolated] = 0
+    pruned[:,isolated] = 0
+    return np.logical_or(pruned, np.eye(len(matrix))).astype(int)
+
+#adapted from https://stackoverflow.com/questions/30003068/how-to-get-a-list-of-all-indices-of-repeated-elements-in-a-numpy-array
+def indices_of_unique(array):
+    idx_sort = np.argsort(array)
+    sorted = array[idx_sort]
+    vals, idx_start, count = np.unique(sorted, return_counts=True, return_index=True)
+    return dict(zip(vals, np.split(idx_sort, idx_start[1:])))
+
+def contains_isolated(matrix, locs):
+    closure = cartesian((locs, locs))
+    return num_isolated(matrix, closure) > 0
 
 #n largest values in a above threshold t
 def n_largest_above(a, n, t):
@@ -284,12 +436,17 @@ def num_isolated(matrix, points=None):
 def neighbor_counts(matrix, points=None):
     if points is None: #all nonzero if points not specified
         points = np.vstack(np.nonzero(matrix)).T
-    numneighs = np.zeros(len(points))
-    pred = np.all(0 < points, axis=1).nonzero()#all points with predecessors
-    numneighs[pred] = matrix[tuple((points[pred]+np.array([-1,-1])).T)]
+    return nonzero_predecessor(matrix, points)+nonzero_successor(matrix, points)
+
+def nonzero_predecessor(matrix, points):
+    return np.where(np.all(0 < points, axis=1),
+        matrix[tuple((points+np.array([-1,-1])).T)], 0)
+
+def nonzero_successor(matrix, points):
+    has_succ = np.zeros(len(points), dtype=int)
     succ = np.all(points < len(matrix)-1, axis=1).nonzero()#points with successors
-    numneighs[succ] += matrix[tuple((points[succ]+np.array([1,1])).T)]
-    return numneighs
+    has_succ[succ] = matrix[tuple((points[succ]+np.array([1,1])).T)]
+    return has_succ
 
 def transitive_construction_new2(target, min_dist=4):
     nonzeromedian = np.percentile(target[np.nonzero(target)], 50)
@@ -946,6 +1103,19 @@ def divide_hierarchy(indices, hierarchy):
         labels = reindex2(np.concatenate([[[nextid+1] * len(labels[0])], labels]))
     return segments, labels
 
+def remove_long_sections(sequences, sections, occurrences, max_len=.2):
+    seqlen = len(flatten((to_hierarchy(sequences[0], sections))))
+    section_lengths = {k:len(flatten((to_hierarchy(np.array([k]), sections))))
+        for k in sections.keys()}
+    to_remove = [s for s,l in section_lengths.items() if l > max_len*seqlen]
+    for t in to_remove:
+        sequences = [replace(s, t, sections[t]) for s in sequences]
+        sections = {k:replace(p, t, sections[t])
+            for k,p in sections.items() if k != t}
+        del occurrences[t]
+    #print(sequences, sections, occurrences)
+    return sequences, sections, occurrences
+
 def group_ungrouped_elements(sequence, sections, occurrences, ignore):
     next_index = max_index(sections)+1
     #positions of elements that are not groups themselves
@@ -969,9 +1139,10 @@ def get_hierarchies(sequences):
     sequences, sections, occs = find_sections_bottom_up(sequences)
     return [to_hierarchy(s, sections) for s in sequences]
 
-def get_hierarchy_labels(sequences, ignore=[], lexis=False):
-    if lexis:
+def get_hierarchy_labels(sequences, ignore=[], lexis=0.2):
+    if lexis > 0:
         seqs, secs, occs, core = lexis_sections(sequences)
+        seqs, secs, occs = remove_long_sections(seqs, secs, occs, lexis)
         seqs, secs, occs = group_ungrouped_surface_elements(seqs, secs, occs, ignore)
     else:
         seqs, secs, occs = find_sections_bottom_up(sequences, ignore)
@@ -1082,3 +1253,7 @@ def get_hierarchy_sections(sequences):
 #profile(lambda: transitive_construction_new(np.random.rand(100,100)))
 #print(diag_neigh_prop(np.array([[1,1,0],[0,1,1],[0,0,0]])))#, [[1,1]]))
 #print(isolated_prop(np.array([[1,0,0],[0,1,1],[1,0,1]])))#, [[1,1]]))
+#print(prune_transmatrix2(np.array([[1,0,1],[0,1,0],[1,0,1]])))
+#print(prune_transmatrix3(np.array([[1,0,0],[0,1,1],[1,0,1]])))
+#print(neighbor_counts(np.array([[1,0,0],[0,1,1],[1,0,1]])))
+#profile(lambda: transitive_construction_new(np.random.rand(200,200)))
