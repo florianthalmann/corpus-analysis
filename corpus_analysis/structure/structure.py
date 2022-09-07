@@ -16,7 +16,7 @@ from .graphs import alignment_graph, structure_graph, component_labels,\
 from .hierarchies import make_segments_hierarchical, to_hierarchy,\
     get_hierarchy_labels, get_hierarchies, find_sections_bottom_up,\
     get_most_salient_labels, contract_sections, get_recurring_subseqs, reindex,\
-    get_flat_sections_by_coverage, to_hierarchy_labels
+    get_flat_sections_by_coverage, to_hierarchy_labels, transitive_construction_new
 from .pattern_graph import super_alignment_graph2, comps_to_seqs, smooth_sequences,\
     cleanup_comps, get_comp_modes, get_mode_sequences, super_alignment_graph3,\
     realign_gaps, realign_gaps_comps, smooth_sequences_with_features, smooth_advanced
@@ -59,30 +59,30 @@ def process_alignment(self_alignment, min_len, min_dist, beta, target, put_block
         #plot_matrix(segments_to_matrix(hierarchy, shape), 'est5.png')
     return hierarchy
 
-def simple_structure(self_alignment, min_len, min_dist, beta, target=None, lexis=False, plot_file=None):
-    if len(self_alignment) > 0:
-        #print(sequence)
-        #plot_matrix(segments_to_matrix(self_alignment, (len(sequence),len(sequence))), 'est1.png')
-        
-        #hierarchy = process_alignment(self_alignment, min_len, min_dist, beta, target)
-        hmatrix = make_segments_hierarchical(self_alignment, min_len, min_dist, target, beta=beta)
-        if plot_file: plot_matrix(hmatrix, plot_file)
-        hsegments = matrix_to_segments(hmatrix)
-        
-        #connected component labels for each position in sequence
-        ag, s, i, a, seg = alignment_graph([target.shape[0]], [[0, 0]], [hsegments])
-        comp_labels = component_labels(ag)
-        # #replace sequence with most frequent value in sequence for each component
-        # comp_values = np.array([mode(sequence[np.where(comp_labels == l)])
-        #     for l in range(np.max(comp_labels)+1)])
-        # improved_sequence = comp_values[comp_labels]
-        labels = get_hierarchy_labels([comp_labels], lexis=lexis)[0]
-        #plot_sequences(labels, 'hierarchy62.png')
-        return labels, hmatrix#np.append(labels, [improved_sequence], axis=0)
-        
-        #plot_matrix(hierarchy)
-        #return sections
-    return np.array([np.repeat(0, len(target))]), target
+def simple_structure(self_alignment, min_len, min_dist, csf, rprop, sfac, nbexp, target=None, lexis=0.2):
+    #if len(self_alignment) > 0:
+    #print(sequence)
+    #plot_matrix(segments_to_matrix(self_alignment, (len(sequence),len(sequence))), 'est1.png')
+    
+    #hierarchy = process_alignment(self_alignment, min_len, min_dist, beta, target)
+    #hmatrix = make_segments_hierarchical(self_alignment, min_len, min_dist, target, beta=beta)
+    hmatrix = transitive_construction_new(target, min_dist, min_len, csf, rprop, sfac, nbexp)
+    hsegments = matrix_to_segments(hmatrix)
+    
+    #connected component labels for each position in sequence
+    ag, s, i, a, seg = alignment_graph([target.shape[0]], [[0, 0]], [hsegments])
+    comp_labels = component_labels(ag)
+    # #replace sequence with most frequent value in sequence for each component
+    # comp_values = np.array([mode(sequence[np.where(comp_labels == l)])
+    #     for l in range(np.max(comp_labels)+1)])
+    # improved_sequence = comp_values[comp_labels]
+    labels = get_hierarchy_labels([comp_labels], lexis=lexis)[0]
+    #plot_sequences(labels, 'hierarchy62.png')
+    return labels, hmatrix#np.append(labels, [improved_sequence], axis=0)
+    
+    #plot_matrix(hierarchy)
+    #return sections
+    #return np.array([np.repeat(0, len(target))]), target
 
 def matrix_to_labels(matrix, lexis=True):
     g = graph_from_matrix(matrix)[0]
