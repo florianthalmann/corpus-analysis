@@ -128,14 +128,15 @@ def to_tree(hierarchy):
     for intervals,labels in list(reversed(list(zip(*hierarchy))))[1:]:
         for i,l in zip(intervals,labels):
             children = [n for n in tree if i[0] <= n[0][0] and n[0][1] <= i[1]]
-            #didn't want to work otherwise
+            #keep nodes that are not yet children
             tree = [n for n in tree if not (i[0] <= n[0][0] and n[0][1] <= i[1])]
             tree.append((i,l,children))
     return to_label_tree(tree[0])
 
-#e.g. [0,[1,2],[]]
+#e.g. [0,[1,1],[2]] (from [([0,3],0,[([0,2],1,[]),([2,3],2,[])])] shape)
 def to_label_tree(tree):
-    return [tree[1]] + [to_label_tree(c) for c in tree[2]]
+    t = [tree[1]] if len(tree[2]) > 0 else [tree[1] for i in range(tree[0][0], tree[0][1])]
+    return t  + [to_label_tree(c) for c in tree[2]]
 
 def make_monotonic(hierarchy):
     parent_times = ()
@@ -185,3 +186,5 @@ def relabel_adjacent(labels):
 #print(num_similar([[0,1],[0,1,2],[0,1,2,3]], 1))
 #print(strict_transitivity([0,[1,[2,[4],[5],[6]],[3]],[1,[2,[4],[5]],[3]], [2,[4]]]))
 #print(order_transitivity([0,[1,[2,[4],[5],[6]],[3]],[1,[2,[4],[5]],[3]], [2,[4]]]))
+#print(to_tree(([[[0,3],[3,6]],[[0,2],[2,4],[4,6]]], [[0,1],[2,3,4]])))
+#print(to_tree(([[[0,1],[1,2],[2,3],[3,4],[4,5],[5,6]],[[0,1],[1,2],[2,3],[3,4],[4,5],[5,6]]], [[0,0,0,1,1,1],[2,2,3,3,4,4]])))
