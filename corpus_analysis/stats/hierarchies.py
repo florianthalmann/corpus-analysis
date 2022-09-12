@@ -1,5 +1,6 @@
 from collections import defaultdict, Counter
 import numpy as np
+import numpy_indexed as npi
 from ..features import to_multinomial
 from ..alignment.smith_waterman import smith_waterman
 
@@ -43,6 +44,9 @@ def monotonicity(hierarchy):
 def label_monotonicity(hierarchy, beats):
     return pairwise_recalls(beatwise_ints(hierarchy, beats))
 
+def label_monotonicity2(hierarchy, beats):
+    return pairwise_recalls3(beatwise_ints(hierarchy, beats))
+
 #monotonicity without dependencies between different same-label areas
 #paper: interval monotonicity
 def interval_monotonicity(hierarchy, beats):
@@ -50,22 +54,25 @@ def interval_monotonicity(hierarchy, beats):
     labels = np.array([relabel_adjacent(l) for l in labels])
     return pairwise_recalls(labels)
 
-def strict_transitivity(hierarchy):
-    return transitivity(hierarchy, num_identical_pairs)
+def strict_transitivity(hierarchy, beats):
+    return transitivity(hierarchy, beats, num_identical_pairs)
 
-def order_transitivity(hierarchy, delta=1):
-    return transitivity(hierarchy, lambda c: num_similar(c, delta))
+def order_transitivity(hierarchy, beats, delta=1):
+    return transitivity(hierarchy, beats, lambda c: num_similar(c, delta))
 
 #of all parent pairs with same labels, how many child sequences are similar
-def transitivity(hierarchy, sim_func):
-    child_dict = to_child_dict(to_tree(hierarchy))
+def transitivity(hierarchy, beats, sim_func, ignore_self=True):
+    child_dict = to_child_dict(to_tree(hierarchy, beats))
+    if ignore_self:
+        child_dict = {k:[c for c in cs if len(c) > 1 or c[0] != k]
+            for k,cs in child_dict.items()}
     num_conns = num_connections([len(cs) for cs in child_dict.values()])
     if num_conns == 0: return 1
     return sum([sim_func(c) for c in child_dict.values()]) / num_conns
 
 #of all possible pairs of parents, how many have either different label or similar child sequences
-def transitivity2(hierarchy, sim_func):
-    child_dict = to_child_dict(to_tree(hierarchy))
+def transitivity2(hierarchy, beats, sim_func):
+    child_dict = to_child_dict(to_tree(hierarchy, beats))
     num_conns = num_connections([len(cs) for cs in child_dict.values()])
     if num_conns == 0: return 1
     num_sim = sum([sim_func(c) for c in child_dict.values()])
@@ -113,9 +120,24 @@ def pairwise_recalls2(labels):
     return np.mean([(len(same[i].intersection(same[i-1]))+smnc[i]) / nc[i]
         for i in range(1, len(same))])
 
-def to_tree(hierarchy):
-    #add top node
+#of all similarly labeled pairs on each level, how many have the same parent or have a parent with the same label (appearing alone)
+def pairwise_recalls3(labels):
+    same = [np.triu(np.equal.outer(l, l), k=1) for l in labels]
+    same = [np.array(list(zip(*np.nonzero(s)))) for s in same]
+    #for each pair: label and both parent labels
+    values = [[np.hstack(([labels[i][p[0]]], labels[i-1][p]))
+        for p in same[i]] for i in range(1, len(same))]
+    return np.mean([np.mean([1 if len(np.unique(v)) < 3 else 0 for v in vs]) for vs in values])
+
+def to_tree(hierarchy, beats):
+    #beat ids instead of times
     hierarchy = list(hierarchy[0]), list(hierarchy[1])
+    # print(hierarchy[0][0], beats)
+    # print(np.reshape(npi.indices(beats, np.hstack(hierarchy[0][0])), (-1,2)))
+    # hierarchy[0] = [np.reshape(npi.indices(beats, np.hstack(l)), (-1,2))
+    #     for l in hierarchy[0]]
+    # print(hierarchy)
+    #add top node
     if len(hierarchy[0][0]) > 1:
         hierarchy[0].insert(0,
             np.array([[hierarchy[0][0][0][0], hierarchy[0][0][-1][-1]]]))
@@ -135,8 +157,8 @@ def to_tree(hierarchy):
 
 #e.g. [0,[1,1],[2]] (from [([0,3],0,[([0,2],1,[]),([2,3],2,[])])] shape)
 def to_label_tree(tree):
-    t = [tree[1]] if len(tree[2]) > 0 else [tree[1] for i in range(tree[0][0], tree[0][1])]
-    return t  + [to_label_tree(c) for c in tree[2]]
+    #t = [tree[1]] if len(tree[2]) > 0 else [tree[1] for i in range(tree[0][0], tree[0][1])]
+    return [tree[1]] + [to_label_tree(c) for c in tree[2]]
 
 def make_monotonic(hierarchy):
     parent_times = ()
@@ -188,3 +210,5 @@ def relabel_adjacent(labels):
 #print(order_transitivity([0,[1,[2,[4],[5],[6]],[3]],[1,[2,[4],[5]],[3]], [2,[4]]]))
 #print(to_tree(([[[0,3],[3,6]],[[0,2],[2,4],[4,6]]], [[0,1],[2,3,4]])))
 #print(to_tree(([[[0,1],[1,2],[2,3],[3,4],[4,5],[5,6]],[[0,1],[1,2],[2,3],[3,4],[4,5],[5,6]]], [[0,0,0,1,1,1],[2,2,3,3,4,4]])))
+#hierarchy = ([np.array([[0,3],[3,6]]),np.array([[0,2],[2,4],[4,6]])], [np.array([0,1]),np.array([2,0,4])])
+#print(label_monotonicity(hierarchy, [0,1,2,3,4,5,6]))
