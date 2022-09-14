@@ -30,9 +30,21 @@ def repetitiveness(hierarchy):
     return np.mean([(len(l)-len(np.unique(l))) / (len(l)-1) if len(l) > 1 else 1
         for l in h])
 
+#avg num sections per level
 def complexity(hierarchy):
-    h = to_int_labels(hierarchy)[1]
-    return np.mean([len(l) for l in h])
+    return np.mean([len(l) for l in hierarchy[0]])
+
+#avg section duration per level as proportion of total duration
+def simplicity(hierarchy):
+    return np.mean(np.hstack([[i[1]-i[0] for i in l] for l in hierarchy[0]])) \
+        / np.max(np.concatenate(hierarchy[0]))
+    # return np.mean([np.mean([i[1]-i[0] for i in l]) for l in hierarchy[0]]) \
+    #     / np.max(np.concatenate(hierarchy[0]))
+
+#num sections in original vs in monotonic tree (1 if original is monotonic)
+def treeness(hierarchy):
+    mono = make_monotonic(hierarchy)
+    return sum([len(l) for l in hierarchy[0]]) / sum([len(l) for l in mono[0]])
 
 #boolean monotonicity: all interval times of lower levels are contained in higher levels
 def monotonicity(hierarchy):
@@ -41,23 +53,28 @@ def monotonicity(hierarchy):
         for i in range(1, len(ivls))])
 
 #mcfee/kinnard monotonicity
-def label_monotonicity(hierarchy, beats):
+def label_monotonicity(params):
+    hierarchy, beats = params
     return pairwise_recalls(beatwise_ints(hierarchy, beats))
 
-def label_monotonicity2(hierarchy, beats):
+def label_monotonicity2(params):
+    hierarchy, beats = params
     return pairwise_recalls3(beatwise_ints(hierarchy, beats))
 
 #monotonicity without dependencies between different same-label areas
 #paper: interval monotonicity
-def interval_monotonicity(hierarchy, beats):
+def interval_monotonicity(params):
+    hierarchy, beats = params
     labels = beatwise_ints(hierarchy, beats)
     labels = np.array([relabel_adjacent(l) for l in labels])
     return pairwise_recalls(labels)
 
-def strict_transitivity(hierarchy, beats):
+def strict_transitivity(params):
+    hierarchy, beats = params
     return transitivity(hierarchy, beats, num_identical_pairs)
 
-def order_transitivity(hierarchy, beats, delta=1):
+def order_transitivity(params, delta=2):
+    hierarchy, beats = params
     return transitivity(hierarchy, beats, lambda c: num_similar(c, delta))
 
 #of all parent pairs with same labels, how many child sequences are similar
