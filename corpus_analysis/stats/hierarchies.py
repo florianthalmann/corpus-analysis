@@ -3,8 +3,9 @@ import numpy as np
 import numpy_indexed as npi
 from ..features import to_multinomial
 from ..alignment.smith_waterman import smith_waterman
+from ..structure.grammars import pcfg_from_child_dict, description_length
 
-#one layer contains repetition
+#true if only one level contains repetition
 def auto_labeled(hierarchy):
     hierarchy = remove_silence(hierarchy)
     if min([len(h) for h in hierarchy[0]]) == 0:#empty layers are also auto-labeled...
@@ -46,6 +47,24 @@ def treeness(hierarchy):
     mono = make_monotonic(hierarchy)
     return sum([len(l) for l in hierarchy[0]]) / sum([len(l) for l in mono[0]])
 
+def dlength(hierarchy, beats):
+    hierarchy = list(hierarchy[0]), list(hierarchy[1])
+    #add bottom level
+    maxtime = np.max(np.hstack(hierarchy[0][0]))
+    beats = beats[np.where(beats <= maxtime)]
+    hierarchy[0].append(np.array(list(zip(beats[:-1], beats[1:]))))
+    hierarchy[1].append(np.array([str(i) for i in range(len(beats)-2)]))
+    print(hierarchy)
+    #int labels and child dict
+    hierarchy = to_int_labels(hierarchy)
+    child_dict = to_child_dict(to_tree(hierarchy))
+    #prodrules from this
+    
+    #print(hierarchy[1], child_dict)
+    pcfg = pcfg_from_child_dict(child_dict)
+    print(pcfg)
+    print(description_length(pcfg, [hierarchy[1][-1]]))
+
 #boolean monotonicity: all interval times of lower levels are contained in higher levels
 def monotonicity(hierarchy):
     ivls = hierarchy[0]
@@ -73,7 +92,7 @@ def strict_transitivity(params):
     hierarchy, beats = params
     return transitivity(hierarchy, beats, num_identical_pairs)
 
-def order_transitivity(params, delta=2):
+def order_transitivity(params, delta=1):
     hierarchy, beats = params
     return transitivity(hierarchy, beats, lambda c: num_similar(c, delta))
 
@@ -96,6 +115,7 @@ def transitivity2(hierarchy, beats, sim_func):
     total = num_connections([sum([len(cs) for cs in child_dict.values()])])
     return (num_sim+(total-num_conns)) / total
 
+#sequence of all occurring children for each parent
 def to_child_dict(tree, child_dict=None):
     if not child_dict: child_dict = defaultdict(list)#default param didn't work
     for c in tree[1:]:
@@ -146,7 +166,7 @@ def pairwise_recalls3(labels):
         for p in same[i]] for i in range(1, len(same))]
     return np.mean([np.mean([1 if len(np.unique(v)) < 3 else 0 for v in vs]) for vs in values])
 
-def to_tree(hierarchy, beats):
+def to_tree(hierarchy, beats=None):
     #beat ids instead of times
     hierarchy = list(hierarchy[0]), list(hierarchy[1])
     # print(hierarchy[0][0], beats)
