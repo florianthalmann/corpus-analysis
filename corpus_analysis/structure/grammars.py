@@ -1,7 +1,8 @@
 from math import log2
 from collections import defaultdict
 import numpy as np
-from nltk import CFG, PCFG, induce_pcfg, Nonterminal, Tree, InsideChartParser, EarleyChartParser
+from nltk import CFG, PCFG, induce_pcfg, Nonterminal, Tree, InsideChartParser,\
+    EarleyChartParser, IncrementalTopDownChartParser, Production
 #from nltk.parse import pchart
 from .hierarchies import to_hierarchy
 from ..util import multiprocess, flatten
@@ -32,7 +33,16 @@ def to_pcfg(sequences, sections):
     # [t.collapse_unary(collapsePOS = False) for t in trees]
     # [t.chomsky_normal_form(horzMarkov = 2) for t in trees]
     prods = [p for t in trees for p in t.productions()]
-    print(induce_pcfg(Nonterminal('S'), prods))
+    return induce_pcfg(Nonterminal('S'), prods)
+
+def pcfg_from_tree(tree):
+    #print(to_string_tree(tree))
+    prods = Tree.fromstring(to_string_tree(tree)).productions()
+    return induce_pcfg(Nonterminal(tree[0]), prods)
+
+def to_string_tree(tree):
+    if len(tree) == 1: return str(tree[0])
+    return '('+' '.join((str(tree[0]), *[to_string_tree(t) for t in tree[1:]]))+')'
 
 def to_cfg(sequences, sections):
     prod_str = ""
@@ -117,18 +127,42 @@ def description_length(pcfg, sequences):
     N = len(np.unique([str(r) for p in pcfg.productions() for r in p.rhs()]))
     logN = log2(N)
     pcfg_dl = sum([(1+len(p.rhs()))*logN for p in pcfg.productions()])
-    print(pcfg_dl)
+    #print('pcfg_dl', pcfg_dl)
     #most probable parse for each sequence
+    sequences = [[str(v) for v in s] for s in sequences]
+    #print(sequences)
     parses = [InsideChartParser(pcfg).parse_all(s) for s in sequences]
+    #print(parses)
     parses = [sorted(p, key=lambda t: t.prob(), reverse=True)[0] for p in parses]
-    seq_dl = sum([(1+len(r.rhs()))*logN for p in parses for r in p.productions()])
-    print(seq_dl)
+    #seq_dl = sum([(len(r.rhs()))*logN for p in parses for r in p.productions()])
+    prod = log2(len(pcfg.productions()))
+    seq_dl = sum([prod for p in parses for r in p.productions()])
+    #print('seq_dl', seq_dl)
     return pcfg_dl + seq_dl
+
+def creations(pcfg):
+    
+    return 
+
+def seq_prob(pcfg, sequences):
+    parses = [InsideChartParser(pcfg).parse_all(s) for s in sequences]
+    print(parses)
+    probs = [sum([t.prob() for t in p]) for p in parses]
+    print(probs, np.mean(probs))
+    # parsed = [InsideChartParser(grammar).parse_all(example[:i]) for i in range(len(example))]
+    parsed = [IncrementalTopDownChartParser(pcfg).parse(sequences[0][0:i+1]) for i in range(len(sequences[0]))]
+    for i,p in enumerate(parsed):
+        print(i)
+        for t in p:
+            print(t)
+    # print(sum([t.prob() for t in parsed]))
 
 def test_pcfg():
     #trees = ['(S (0 1 2) (0 2 3))', '(S (0 1 2) (0 4 5))', '(S (1 1 2) (1 2 3))']
-    #trees = ['(S (0 1 2) (3 4 5 6))', '(S (0 1 2) (7 8) (3 4 5 6))', '(S (0 1 2) (9 4) (10 6))']
-    trees = ['(S (0 1 2) (3 4 5 6))', '(S (0 1 2) (7 8) (3 4 5 6))', '(S (0 1 2) (3 4 6))']
+    #trees = ['(S (0 1 2) (3 4 5 6))', '(S (0 1 2) 8 (3 4 5 6))', '(S (0 1 2) 4 6)']
+    #trees = ['(S (0 1 2) (3 4 5 6))', '(S (0 1 2) (7 8) (3 4 5 6))', '(S (0 1 2) (3 4 6))']
+    trees = ['(S (0 1 2 3) (0 1 2 3))', '(S (0 1 2 3) (0 1 2 3))', '(S (0 1 2 3) 4 (0 1 2 3))', '(S (0 1 2 3) 1 3)']
+    #trees = ['(S (0 1 2 3) (0 1 2 3))', '(S (0 1 2 3) (0 1 2 3))', '(S (0 1 2 3) 4 (0 1 2 3))', '(S (0 1 2 3) (0 1 3))']
     trees = [Tree.fromstring(t) for t in trees]
     print(trees)
     prods = [p for t in trees for p in t.productions()]
@@ -136,6 +170,8 @@ def test_pcfg():
     grammar = induce_pcfg(Nonterminal('S'), prods)
     print(grammar)
     sequences = [t.leaves() for t in trees]
-    description_length(grammar, sequences)
+    print('SEQS', sequences)
+    #description_length(grammar, sequences)
+    seq_prob(grammar, sequences)
 
-test_pcfg()
+#test_pcfg()
