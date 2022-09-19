@@ -131,14 +131,20 @@ def description_length(pcfg, sequences):
     #most probable parse for each sequence
     sequences = [[str(v) for v in s] for s in sequences]
     #print(sequences)
-    parses = [InsideChartParser(pcfg).parse_all(s) for s in sequences]
+    print('.', end='', flush=True)
+    parses = [InsideChartParser(pcfg, beam_size=1000).parse_all(s) for s in sequences]
     #print(parses)
+    if len(parses[0]) == 0:
+        print(pcfg, sequences, parses)
     parses = [sorted(p, key=lambda t: t.prob(), reverse=True)[0] for p in parses]
     #seq_dl = sum([(len(r.rhs()))*logN for p in parses for r in p.productions()])
     prod = log2(len(pcfg.productions()))
     seq_dl = sum([prod for p in parses for r in p.productions()])
     #print('seq_dl', seq_dl)
     return pcfg_dl + seq_dl
+
+def pcfg_dl(pcfg):
+    return sum([(len(p.rhs())) for p in pcfg.productions()])
 
 def creations(pcfg):
     

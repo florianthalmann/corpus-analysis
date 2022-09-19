@@ -3,7 +3,7 @@ import numpy as np
 import numpy_indexed as npi
 from ..features import to_multinomial
 from ..alignment.smith_waterman import smith_waterman
-from ..structure.grammars import pcfg_from_child_dict, description_length
+from ..structure.grammars import pcfg_from_tree, description_length, pcfg_dl
 
 #true if only one level contains repetition
 def auto_labeled(hierarchy):
@@ -47,23 +47,26 @@ def treeness(hierarchy):
     mono = make_monotonic(hierarchy)
     return sum([len(l) for l in hierarchy[0]]) / sum([len(l) for l in mono[0]])
 
-def dlength(hierarchy, beats):
+def dlength(hierarchy):
     hierarchy = list(hierarchy[0]), list(hierarchy[1])
     #add bottom level
     maxtime = np.max(np.hstack(hierarchy[0][0]))
-    beats = beats[np.where(beats <= maxtime)]
-    hierarchy[0].append(np.array(list(zip(beats[:-1], beats[1:]))))
-    hierarchy[1].append(np.array([str(i) for i in range(len(beats)-2)]))
-    print(hierarchy)
+    # beats = beats[np.where(beats <= maxtime)]
+    # hierarchy[0].append(np.array(list(zip(beats[:-1], beats[1:]))))
+    # hierarchy[1].append(np.array([str(i) for i in range(len(beats)-1)]))
     #int labels and child dict
     hierarchy = to_int_labels(hierarchy)
-    child_dict = to_child_dict(to_tree(hierarchy))
+    hierarchy = make_monotonic(hierarchy)
     #prodrules from this
-    
     #print(hierarchy[1], child_dict)
-    pcfg = pcfg_from_child_dict(child_dict)
-    print(pcfg)
-    print(description_length(pcfg, [hierarchy[1][-1]]))
+    tree = to_tree(hierarchy)
+    if tree[0] != 'S': tree[0] = 'S'
+    pcfg = pcfg_from_tree(tree)
+    #description length relative to length of bottom level
+    # bottom_labels = hierarchy[1][-1]
+    # return description_length(pcfg, [bottom_labels]) / len(bottom_labels)
+    #size of grammar relative to size of tree
+    return pcfg_dl(pcfg)# / tree_size(tree)
 
 #boolean monotonicity: all interval times of lower levels are contained in higher levels
 def monotonicity(hierarchy):
@@ -196,6 +199,9 @@ def to_tree(hierarchy, beats=None):
 def to_label_tree(tree):
     #t = [tree[1]] if len(tree[2]) > 0 else [tree[1] for i in range(tree[0][0], tree[0][1])]
     return [tree[1]] + [to_label_tree(c) for c in tree[2]]
+
+def tree_size(tree):
+    return 1 + sum([tree_size(t) for t in tree[1:]])
 
 def make_monotonic(hierarchy):
     parent_times = ()
