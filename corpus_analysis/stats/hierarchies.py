@@ -4,6 +4,7 @@ import numpy_indexed as npi
 from ..features import to_multinomial
 from ..alignment.smith_waterman import smith_waterman
 from ..structure.grammars import pcfg_from_tree, description_length, pcfg_dl
+from .util import entropy, subsequences
 
 #true if only one level contains repetition
 def auto_labeled(hierarchy):
@@ -46,6 +47,16 @@ def simplicity(hierarchy):
 def treeness(hierarchy):
     mono = make_monotonic(hierarchy)
     return sum([len(l) for l in hierarchy[0]]) / sum([len(l) for l in mono[0]])
+
+#mean increase in information content between levels
+def salience_time(hierarchy, n=3):
+    hierarchy = to_int_labels(hierarchy)
+    ng = [to_int(ngrams(l, n)) for l in hierarchy[1]] if n>1 else hierarchy[1]
+    entropies = [entropy(l) for l in ng]
+    return np.mean(np.diff(entropies))
+
+def ngrams(a, n):
+    return [str(g) for g in subsequences(a, n)]
 
 def dlength(hierarchy):
     hierarchy = list(hierarchy[0]), list(hierarchy[1])
@@ -241,6 +252,11 @@ def to_int_labels(hierarchy):
     labels = [np.array([unique_index(f) for f in s]) for s in hierarchy[1]]
     return hierarchy[0], labels
 
+def to_int(a):
+    unique = np.unique(a, axis=0)
+    unique_index = lambda f: np.where(unique == f)[0][0]
+    return np.array([unique_index(f) for f in a])
+
 def relabel_adjacent(labels):
     sp = np.split(labels, np.where(np.diff(labels) != 0)[0]+1)
     return np.hstack([np.repeat(i,len(s)) for i,s in enumerate(sp)])
@@ -253,5 +269,6 @@ def relabel_adjacent(labels):
 #print(order_transitivity([0,[1,[2,[4],[5],[6]],[3]],[1,[2,[4],[5]],[3]], [2,[4]]]))
 #print(to_tree(([[[0,3],[3,6]],[[0,2],[2,4],[4,6]]], [[0,1],[2,3,4]])))
 #print(to_tree(([[[0,1],[1,2],[2,3],[3,4],[4,5],[5,6]],[[0,1],[1,2],[2,3],[3,4],[4,5],[5,6]]], [[0,0,0,1,1,1],[2,2,3,3,4,4]])))
-#hierarchy = ([np.array([[0,3],[3,6]]),np.array([[0,2],[2,4],[4,6]])], [np.array([0,1]),np.array([2,0,4])])
-#print(label_monotonicity(hierarchy, [0,1,2,3,4,5,6]))
+# hierarchy = ([np.array([[0,3],[3,6]]),np.array([[0,2],[2,4],[4,6]])], [np.array([0,1]),np.array([2,0,4])])
+# #print(label_monotonicity(hierarchy, [0,1,2,3,4,5,6]))
+# print(salience_time(hierarchy))

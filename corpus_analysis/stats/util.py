@@ -1,5 +1,6 @@
 import math
 import numpy as np
+from numpy.lib.stride_tricks import as_strided
 
 def chiSquared(p,q):
     return 0.5*np.sum((p-q)**2/(p+q+1e-6))
@@ -23,3 +24,9 @@ def tempo(beats):
 def normalize(a):
     min, max = np.min(a), np.max(a)
     return (a-min)/(max-min)
+
+def subsequences(arr, m):
+    if arr.size <= m: return np.array([arr])
+    n = arr.size - m + 1
+    s = arr.itemsize
+    return as_strided(arr, shape=(m,n), strides=(s,s))
