@@ -98,8 +98,10 @@ def label_monotonicity2(params):
 #paper: interval monotonicity
 def interval_monotonicity(params):
     hierarchy, beats = params
+    #reindex labels ignoring repetition
+    hierarchy = hierarchy[0], [np.arange(len(l)) for l in hierarchy[1]]
     labels = beatwise_ints(hierarchy, beats)
-    labels = np.array([relabel_adjacent(l) for l in labels])
+    #labels = np.array([relabel_adjacent(l) for l in labels])
     return pairwise_recalls(labels)
 
 def strict_transitivity(params):
