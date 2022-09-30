@@ -4,6 +4,7 @@ import numpy_indexed as npi
 from ..features import to_multinomial
 from ..alignment.smith_waterman import smith_waterman
 from ..structure.grammars import pcfg_from_tree, description_length, pcfg_dl
+from ..util import flatten
 from .util import entropy, subsequences
 
 #true if only one level contains repetition
@@ -49,7 +50,7 @@ def treeness(hierarchy):
     return sum([len(l) for l in hierarchy[0]]) / sum([len(l) for l in mono[0]])
 
 #mean increase in information content between levels
-def salience_time(hierarchy, n=3):
+def salience_time(hierarchy, n=1):
     hierarchy = to_int_labels(hierarchy)
     ng = [to_int(ngrams(l, n)) for l in hierarchy[1]] if n>1 else hierarchy[1]
     entropies = [entropy(l) for l in ng]
@@ -59,9 +60,9 @@ def ngrams(a, n):
     return [str(g) for g in subsequences(a, n)]
 
 def dlength(hierarchy):
-    hierarchy = list(hierarchy[0]), list(hierarchy[1])
+    #hierarchy = list(hierarchy[0]), list(hierarchy[1])
     #add bottom level
-    maxtime = np.max(np.hstack(hierarchy[0][0]))
+    # maxtime = np.max(flatten(hierarchy[0]))
     # beats = beats[np.where(beats <= maxtime)]
     # hierarchy[0].append(np.array(list(zip(beats[:-1], beats[1:]))))
     # hierarchy[1].append(np.array([str(i) for i in range(len(beats)-1)]))
@@ -77,7 +78,16 @@ def dlength(hierarchy):
     # bottom_labels = hierarchy[1][-1]
     # return description_length(pcfg, [bottom_labels]) / len(bottom_labels)
     #size of grammar relative to size of tree
-    return pcfg_dl(pcfg)# / tree_size(tree)
+    return pcfg_dl(pcfg) / tree_size(tree)
+
+def add_top_level(hierarchy, label='TOP'):
+    if len(hierarchy[0]) > 1:
+        hierarchy = list(hierarchy[0]), list(hierarchy[1])
+        flatint = flatten(list(hierarchy[0]))
+        hierarchy[0].insert(0, np.array([[np.min(flatint), np.max(flatint)]]))
+        hierarchy[1].insert(0, [label])
+        hierarchy = tuple(hierarchy[0]), tuple(hierarchy[1])
+    return hierarchy
 
 #boolean monotonicity: all interval times of lower levels are contained in higher levels
 def monotonicity(hierarchy):
@@ -108,7 +118,7 @@ def strict_transitivity(params):
     hierarchy, beats = params
     return transitivity(hierarchy, beats, num_identical_pairs)
 
-def order_transitivity(params, delta=1):
+def order_transitivity(params, delta=2):
     hierarchy, beats = params
     return transitivity(hierarchy, beats, lambda c: num_similar(c, delta))
 
@@ -272,5 +282,6 @@ def relabel_adjacent(labels):
 #print(to_tree(([[[0,3],[3,6]],[[0,2],[2,4],[4,6]]], [[0,1],[2,3,4]])))
 #print(to_tree(([[[0,1],[1,2],[2,3],[3,4],[4,5],[5,6]],[[0,1],[1,2],[2,3],[3,4],[4,5],[5,6]]], [[0,0,0,1,1,1],[2,2,3,3,4,4]])))
 # hierarchy = ([np.array([[0,3],[3,6]]),np.array([[0,2],[2,4],[4,6]])], [np.array([0,1]),np.array([2,0,4])])
-# #print(label_monotonicity(hierarchy, [0,1,2,3,4,5,6]))
-# print(salience_time(hierarchy))
+# # #print(label_monotonicity(hierarchy, [0,1,2,3,4,5,6]))
+# # print(salience_time(hierarchy))
+# print(dlength(hierarchy))

@@ -14,11 +14,12 @@ def multiprocess(title, func, data, unordered=False):
         return list(tqdm.tqdm(pfunc(func, data), total=len(data), desc=title))
 
 def flatten(array, iterations=math.inf):#iterations inf is deep flatten
-    if iterations == 1 and isinstance(array[0], np.ndarray):
-        return np.concatenate(array)
-    elif iterations >= 0 and isinstance(array, list):
-        return [b for a in array for b in flatten(a, iterations-1)]
-    return [array]
+    if isinstance(array, np.ndarray) or isinstance(array, list):
+        if iterations >= 1 and isinstance(array[0], np.ndarray):
+            return flatten(np.concatenate(array), iterations-1)
+        elif iterations >= 1 and isinstance(array[0], list):
+            return [b for a in array for b in flatten(a, iterations-1)]
+    return array
 
 def split(lst, n):
     for i in range(0, len(lst), n):
@@ -193,3 +194,8 @@ class RepeatPruner(optuna.pruners.BasePruner):
         return trial.params in completed_trials
 
 #print(summarize1d(np.array([1,1,2,3,4,4,1,2,3]), 3))
+# print(flatten(np.array([[0,1],[0,3]])))
+# print(flatten([np.array([[0,1],[0,3]]), np.array([[0,1],[0,3]])]))
+# print(flatten([1,2,3,4,5]))
+# print(flatten([[1,2],[3,4,5]]))
+# print(flatten([[1,2],np.array([[0,1],[0,3]])]))
