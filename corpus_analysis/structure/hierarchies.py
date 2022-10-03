@@ -953,6 +953,7 @@ def section_depth(section, sections):
         else 0 for e in section]
     return max(depths)+1
 
+#flat labels
 def to_labels2(sequences, sections):
     #merge sequences and treat together
     stacked = np.hstack(sequences)
@@ -986,6 +987,29 @@ def to_labels2(sequences, sections):
     indices = np.cumsum(seqlens)[:-1]
     return np.split(reindexed, indices, axis=1)
 
+#keep sections!
+def to_labels3(sequence, sections):
+    #build layers one by one by unpacking shallow parts last
+    section_lengths = {k:len(flatten((to_hierarchy(np.array([k]), sections))))
+        for k in sections.keys()}
+    section_depths = {k:section_depth(s, sections) for k,s in sections.items()}
+    labels = []
+    durations = []
+    max_depth = max(section_depths.values()) if len(sections) > 0 else 0
+    for d in range(max_depth+1, 0, -1):
+        hierarchy = to_hierarchy_d(sequence, sections, section_depths, d)
+        labels.append(np.array(flatten(hierarchy)))
+        durations.append(np.array([section_lengths[h] if h in sections else 1
+            for h in flatten(hierarchy)]))
+    
+    #add overarching main section
+    next_id = max(list(sections.keys()))+1 if len(sections.keys()) > 0 else int(np.max(np.hstack(sequences))+1)
+    sections[next_id] = labels[0]
+    labels.insert(0, np.array([next_id]))
+    durations.insert(0, np.array([np.sum(durations[0])]))
+    #reindex
+    return reindex3(labels[:], sections)[:-1], durations[:-1]#[:-1])
+
 #fancy reindexing based on section contents (similar contents = similar label)
 def reindex2(labels):
     newlabels = np.repeat(-1, np.max(labels)+1).astype(float)
@@ -1005,6 +1029,38 @@ def reindex2(labels):
     uniq = np.unique(newlabels)
     newlabels = np.array([np.argmax(uniq == l) for l in newlabels])
     return newlabels[labels]
+
+#same as reindex2 but based on sections
+def reindex3(labels, sections):
+    newlabels = np.repeat(-1, np.max(np.hstack(labels))+1).astype(float)
+    #map bottom level to integers
+    uniq = np.unique(labels[-1]) #ordered by original values
+    uniq = labels[-1][ #order of appearance
+        np.sort(np.array([np.argmax(u == labels[-1]) for u in uniq]))]
+    newlabels[uniq] = np.arange(len(uniq))
+    
+    flatsections = {k:flatten((to_hierarchy(np.array([k]), sections)))
+        for k in sections.keys()}
+    flatsections = {k:newlabels[s] for k,s in flatsections.items()}
+    
+    #higher levels become averages of contained bottom-level ints
+    for k,s in flatsections.items():
+        newlabels[k] = np.mean(s)
+    
+    #map new labels to integers and replace
+    intlabels = map_to_integers(newlabels)
+    # print(intlabels)
+    # print(intlabels[74])
+    # print(labels[1])
+    # print(intlabels[labels[1]])
+    return [intlabels[l] for l in labels]
+
+#map numbers to integers while keeping order
+def map_to_integers(a):
+    n = np.where(a >= 0)
+    a[n] = np.argsort(np.argsort(a[n]))
+    uniq = np.unique(a)
+    return np.array([np.argmax(uniq == l) for l in a])
 
 def to_sections(sections):
     sects = []
@@ -1149,7 +1205,7 @@ def get_hierarchy_labels(sequences, ignore=[], lexis=0.2):
     return to_hierarchy_labels(seqs, secs)
 
 def to_hierarchy_labels(sequences, sections):
-    return to_labels2(sequences, sections)
+    return [to_labels3(s, sections) for s in sequences]
 
 def get_recurring_subseqs(sequences):
     sequences, sections, occs = find_sections_bottom_up(sequences)
