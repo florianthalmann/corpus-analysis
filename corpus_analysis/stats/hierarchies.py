@@ -50,7 +50,7 @@ def treeness(hierarchy):
     return sum([len(l) for l in hierarchy[0]]) / sum([len(l) for l in mono[0]])
 
 #mean increase in information content between levels
-def salience_time(hierarchy, n=1):
+def salience_time(hierarchy, n=2):
     hierarchy = to_int_labels(hierarchy)
     ng = [to_int(ngrams(l, n)) for l in hierarchy[1]] if n>1 else hierarchy[1]
     entropies = [entropy(l) for l in ng]
@@ -80,8 +80,8 @@ def dlength(hierarchy):
     #size of grammar relative to size of tree
     return pcfg_dl(pcfg) / tree_size(tree)
 
-def add_top_level(hierarchy, label='TOP'):
-    if len(hierarchy[0]) > 1:
+def add_top_level(hierarchy, label='S'):
+    if len(hierarchy[0][0]) > 1:
         hierarchy = list(hierarchy[0]), list(hierarchy[1])
         flatint = flatten(list(hierarchy[0]))
         hierarchy[0].insert(0, np.array([[np.min(flatint), np.max(flatint)]]))
@@ -118,7 +118,7 @@ def strict_transitivity(params):
     hierarchy, beats = params
     return transitivity(hierarchy, beats, num_identical_pairs)
 
-def order_transitivity(params, delta=2):
+def order_transitivity(params, delta=1):
     hierarchy, beats = params
     return transitivity(hierarchy, beats, lambda c: num_similar(c, delta))
 
@@ -215,7 +215,11 @@ def to_tree(hierarchy, beats=None):
             children = [n for n in tree if i[0] <= n[0][0] and n[0][1] <= i[1]]
             #keep nodes that are not yet children
             tree = [n for n in tree if not (i[0] <= n[0][0] and n[0][1] <= i[1])]
-            tree.append((i,l,children))
+            #ignore nodes that contain themselves
+            if len(children) > 1:# or children[0][1] != l:
+                tree.append((i,l,children))
+            else:
+                tree.append(children[0])
     return to_label_tree(tree[0])
 
 #e.g. [0,[1,1],[2]] (from [([0,3],0,[([0,2],1,[]),([2,3],2,[])])] shape)
@@ -281,6 +285,7 @@ def relabel_adjacent(labels):
 #print(order_transitivity([0,[1,[2,[4],[5],[6]],[3]],[1,[2,[4],[5]],[3]], [2,[4]]]))
 #print(to_tree(([[[0,3],[3,6]],[[0,2],[2,4],[4,6]]], [[0,1],[2,3,4]])))
 #print(to_tree(([[[0,1],[1,2],[2,3],[3,4],[4,5],[5,6]],[[0,1],[1,2],[2,3],[3,4],[4,5],[5,6]]], [[0,0,0,1,1,1],[2,2,3,3,4,4]])))
+#print(to_tree(([[[0,4]],[[0,1],[1,3],[3,4]],[[0,1],[1,2],[2,3],[3,4]]], [[5],[0,4,3],[0,1,2,3]])))
 # hierarchy = ([np.array([[0,3],[3,6]]),np.array([[0,2],[2,4],[4,6]])], [np.array([0,1]),np.array([2,0,4])])
 # # #print(label_monotonicity(hierarchy, [0,1,2,3,4,5,6]))
 # # print(salience_time(hierarchy))
