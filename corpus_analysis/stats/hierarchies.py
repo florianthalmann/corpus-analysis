@@ -50,9 +50,10 @@ def treeness(hierarchy):
     return sum([len(l) for l in hierarchy[0]]) / sum([len(l) for l in mono[0]])
 
 #mean increase in information content between levels
-def salience_time(hierarchy, n=2):
-    hierarchy = to_int_labels(hierarchy)
-    ng = [to_int(ngrams(l, n)) for l in hierarchy[1]] if n>1 else hierarchy[1]
+def salience_time(params):
+    hierarchy, n = params
+    labels = to_int_labels(hierarchy)[1]
+    ng = [to_int(ngrams(l, n)) for l in labels] if n>1 else labels
     entropies = [entropy(l) for l in ng]
     return np.mean(np.diff(entropies))
 
@@ -118,8 +119,8 @@ def strict_transitivity(params):
     hierarchy, beats = params
     return transitivity(hierarchy, beats, num_identical_pairs)
 
-def order_transitivity(params, delta=1):
-    hierarchy, beats = params
+def order_transitivity(params):
+    hierarchy, beats, delta = params
     return transitivity(hierarchy, beats, lambda c: num_similar(c, delta))
 
 #of all parent pairs with same labels, how many child sequences are similar
@@ -128,9 +129,9 @@ def transitivity(hierarchy, beats, sim_func, ignore_self=True):
     if ignore_self:
         child_dict = {k:[c for c in cs if len(c) > 1 or c[0] != k]
             for k,cs in child_dict.items()}
-    num_conns = num_connections([len(cs) for cs in child_dict.values()])
-    if num_conns == 0: return 1
-    return sum([sim_func(c) for c in child_dict.values()]) / num_conns
+    #return (sum([sim_func(c) for c in child_dict.values()])+num_unique) / (num_conns+num_unique)
+    return np.mean([sim_func(c)/num_connections([len(c)]) if len(c) > 1 else 1
+        for c in child_dict.values()])
 
 #of all possible pairs of parents, how many have either different label or similar child sequences
 def transitivity2(hierarchy, beats, sim_func):
@@ -143,7 +144,9 @@ def transitivity2(hierarchy, beats, sim_func):
 
 #sequence of all occurring children for each parent
 def to_child_dict(tree, child_dict=None):
-    if not child_dict: child_dict = defaultdict(list)#default param didn't work
+    if not child_dict:
+        child_dict = defaultdict(list)#default param didn't work
+        child_dict[tree[0]].append([c[0] for c in tree[1:]])
     for c in tree[1:]:
         if len(c) > 1:
             child_dict[c[0]].append([cc[0] for cc in c[1:]])

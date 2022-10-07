@@ -29,4 +29,4 @@ def subsequences(arr, m):
     if arr.size <= m: return np.array([arr])
     n = arr.size - m + 1
     s = arr.itemsize
-    return as_strided(arr, shape=(m,n), strides=(s,s))
+    return as_strided(arr, shape=(n,m), strides=(s,s))
